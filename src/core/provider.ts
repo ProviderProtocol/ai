@@ -4,6 +4,9 @@ import type {
   LLMHandler,
   EmbeddingHandler,
   ImageHandler,
+  LLMProvider,
+  EmbeddingProvider,
+  ImageProvider,
 } from '../types/provider.ts';
 
 /**
@@ -72,5 +75,18 @@ export function createProvider<TOptions = unknown>(
   });
 
   const provider = fn as Provider<TOptions>;
+
+  // Inject provider reference into handlers so bind() can return
+  // models with the correct provider reference (spec compliance)
+  if (options.modalities.llm?._setProvider) {
+    options.modalities.llm._setProvider(provider as unknown as LLMProvider);
+  }
+  if (options.modalities.embedding?._setProvider) {
+    options.modalities.embedding._setProvider(provider as unknown as EmbeddingProvider);
+  }
+  if (options.modalities.image?._setProvider) {
+    options.modalities.image._setProvider(provider as unknown as ImageProvider);
+  }
+
   return provider;
 }

@@ -49,7 +49,8 @@ export type InferenceInput = string | Message | ContentBlock;
  */
 export interface LLMOptions<TParams = unknown> {
   /** A model reference from a provider factory */
-  model: ModelReference;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  model: ModelReference<any>;
 
   /** Provider infrastructure configuration (optional - uses env vars if omitted) */
   config?: ProviderConfig;
@@ -191,4 +192,12 @@ export interface BoundLLMModel<TParams = unknown> {
 export interface LLMHandler<TParams = unknown> {
   /** Bind model ID to create executable model */
   bind(modelId: string): BoundLLMModel<TParams>;
+
+  /**
+   * Internal: Set the parent provider reference.
+   * Called by createProvider() after the provider is constructed.
+   * This allows bind() to return models with the correct provider reference.
+   * @internal
+   */
+  _setProvider?(provider: LLMProvider<TParams>): void;
 }

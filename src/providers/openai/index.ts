@@ -2,6 +2,7 @@ import type {
   Provider,
   ModelReference,
   LLMHandler,
+  LLMProvider,
 } from '../../types/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
@@ -34,13 +35,13 @@ export interface OpenAIProviderOptions {
  * // Explicit Responses API
  * const model = openai('gpt-4o', { api: 'responses' });
  */
-export interface OpenAIProvider extends Provider {
+export interface OpenAIProvider extends Provider<OpenAIProviderOptions> {
   /**
    * Create a model reference
    * @param modelId - The model identifier (e.g., 'gpt-4o', 'gpt-4-turbo', 'o1-preview')
    * @param options - Provider options including API selection
    */
-  (modelId: string, options?: OpenAIProviderOptions): ModelReference;
+  (modelId: string, options?: OpenAIProviderOptions): ModelReference<OpenAIProviderOptions>;
 
   /** Provider name */
   readonly name: 'openai';
@@ -54,24 +55,6 @@ export interface OpenAIProvider extends Provider {
   };
 }
 
-// Cache handlers to avoid recreating them
-let responsesHandler: LLMHandler<OpenAILLMParams> | null = null;
-let completionsHandler: LLMHandler<OpenAILLMParams> | null = null;
-
-function getResponsesHandler(): LLMHandler<OpenAILLMParams> {
-  if (!responsesHandler) {
-    responsesHandler = createResponsesLLMHandler();
-  }
-  return responsesHandler;
-}
-
-function getCompletionsHandler(): LLMHandler<OpenAILLMParams> {
-  if (!completionsHandler) {
-    completionsHandler = createCompletionsLLMHandler();
-  }
-  return completionsHandler;
-}
-
 /**
  * Create the OpenAI provider
  */
@@ -79,10 +62,14 @@ function createOpenAIProvider(): OpenAIProvider {
   // Track which API mode is currently active for the modalities
   let currentApiMode: 'responses' | 'completions' = 'responses';
 
+  // Create handlers eagerly so we can inject provider reference
+  const responsesHandler = createResponsesLLMHandler();
+  const completionsHandler = createCompletionsLLMHandler();
+
   const fn = function (
     modelId: string,
     options?: OpenAIProviderOptions
-  ): ModelReference {
+  ): ModelReference<OpenAIProviderOptions> {
     const apiMode = options?.api ?? 'responses';
     currentApiMode = apiMode;
     return { modelId, provider };
@@ -92,8 +79,8 @@ function createOpenAIProvider(): OpenAIProvider {
   const modalities = {
     get llm(): LLMHandler<OpenAILLMParams> {
       return currentApiMode === 'completions'
-        ? getCompletionsHandler()
-        : getResponsesHandler();
+        ? completionsHandler
+        : responsesHandler;
     },
   };
 
@@ -117,6 +104,11 @@ function createOpenAIProvider(): OpenAIProvider {
   });
 
   const provider = fn as OpenAIProvider;
+
+  // Inject provider reference into both handlers (spec compliance)
+  responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenAILLMParams>);
+  completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenAILLMParams>);
+
   return provider;
 }
 

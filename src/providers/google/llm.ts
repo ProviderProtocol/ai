@@ -41,16 +41,31 @@ function buildUrl(modelId: string, action: 'generateContent' | 'streamGenerateCo
  * Create Google LLM handler
  */
 export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
+  // Provider reference injected by createProvider() after construction
+  let providerRef: LLMProvider<GoogleLLMParams> | null = null;
+
   return {
+    _setProvider(provider: LLMProvider<GoogleLLMParams>) {
+      providerRef = provider;
+    },
+
     bind(modelId: string): BoundLLMModel<GoogleLLMParams> {
-      let providerRef: LLMProvider<GoogleLLMParams>;
+      // Use the injected provider reference (set by createProvider)
+      if (!providerRef) {
+        throw new UPPError(
+          'Provider reference not set. Handler must be used with createProvider().',
+          'INVALID_REQUEST',
+          'google',
+          'llm'
+        );
+      }
 
       const model: BoundLLMModel<GoogleLLMParams> = {
         modelId,
         capabilities: GOOGLE_CAPABILITIES,
 
         get provider(): LLMProvider<GoogleLLMParams> {
-          return providerRef;
+          return providerRef!;
         },
 
         async complete(request: LLMRequest<GoogleLLMParams>): Promise<LLMResponse> {
@@ -181,14 +196,6 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
           };
         },
       };
-
-      providerRef = {
-        name: 'google',
-        version: '1.0.0',
-        modalities: {
-          llm: { bind: () => model },
-        },
-      } as unknown as LLMProvider<GoogleLLMParams>;
 
       return model;
     },

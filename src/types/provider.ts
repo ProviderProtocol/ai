@@ -79,6 +79,14 @@ export interface ModelReference<TOptions = unknown> {
 export interface LLMHandler<TParams = any> {
   /** Bind model ID to create executable model */
   bind(modelId: string): BoundLLMModel<TParams>;
+
+  /**
+   * Internal: Set the parent provider reference.
+   * Called by createProvider() after the provider is constructed.
+   * This allows bind() to return models with the correct provider reference.
+   * @internal
+   */
+  _setProvider?(provider: LLMProvider<TParams>): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -87,12 +95,24 @@ export interface EmbeddingHandler<TParams = any> {
   readonly supportedInputs: ('text' | 'image')[];
   /** Bind model ID to create executable model */
   bind(modelId: string): BoundEmbeddingModel<TParams>;
+
+  /**
+   * Internal: Set the parent provider reference.
+   * @internal
+   */
+  _setProvider?(provider: EmbeddingProvider<TParams>): void;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface ImageHandler<TParams = any> {
   /** Bind model ID to create executable model */
   bind(modelId: string): BoundImageModel<TParams>;
+
+  /**
+   * Internal: Set the parent provider reference.
+   * @internal
+   */
+  _setProvider?(provider: ImageProvider<TParams>): void;
 }
 
 // Forward declarations for bound models

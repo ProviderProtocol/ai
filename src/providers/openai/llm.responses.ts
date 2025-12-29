@@ -33,16 +33,31 @@ const OPENAI_CAPABILITIES: LLMCapabilities = {
  * Create OpenAI Responses API LLM handler
  */
 export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
+  // Provider reference injected by createProvider() or OpenAI's custom factory
+  let providerRef: LLMProvider<OpenAILLMParams> | null = null;
+
   return {
+    _setProvider(provider: LLMProvider<OpenAILLMParams>) {
+      providerRef = provider;
+    },
+
     bind(modelId: string): BoundLLMModel<OpenAILLMParams> {
-      let providerRef: LLMProvider<OpenAILLMParams>;
+      // Use the injected provider reference
+      if (!providerRef) {
+        throw new UPPError(
+          'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',
+          'INVALID_REQUEST',
+          'openai',
+          'llm'
+        );
+      }
 
       const model: BoundLLMModel<OpenAILLMParams> = {
         modelId,
         capabilities: OPENAI_CAPABILITIES,
 
         get provider(): LLMProvider<OpenAILLMParams> {
-          return providerRef;
+          return providerRef!;
         },
 
         async complete(request: LLMRequest<OpenAILLMParams>): Promise<LLMResponse> {
@@ -189,15 +204,6 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
           };
         },
       };
-
-      // Set provider reference (will be updated by createProvider)
-      providerRef = {
-        name: 'openai',
-        version: '1.0.0',
-        modalities: {
-          llm: { bind: () => model },
-        },
-      } as unknown as LLMProvider<OpenAILLMParams>;
 
       return model;
     },

@@ -34,17 +34,31 @@ const ANTHROPIC_CAPABILITIES: LLMCapabilities = {
  * Create Anthropic LLM handler
  */
 export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
+  // Provider reference injected by createProvider() after construction
+  let providerRef: LLMProvider<AnthropicLLMParams> | null = null;
+
   return {
+    _setProvider(provider: LLMProvider<AnthropicLLMParams>) {
+      providerRef = provider;
+    },
+
     bind(modelId: string): BoundLLMModel<AnthropicLLMParams> {
-      // We'll set the provider reference when the provider is created
-      let providerRef: LLMProvider<AnthropicLLMParams>;
+      // Use the injected provider reference (set by createProvider)
+      if (!providerRef) {
+        throw new UPPError(
+          'Provider reference not set. Handler must be used with createProvider().',
+          'INVALID_REQUEST',
+          'anthropic',
+          'llm'
+        );
+      }
 
       const model: BoundLLMModel<AnthropicLLMParams> = {
         modelId,
         capabilities: ANTHROPIC_CAPABILITIES,
 
         get provider(): LLMProvider<AnthropicLLMParams> {
-          return providerRef;
+          return providerRef!;
         },
 
         async complete(request: LLMRequest<AnthropicLLMParams>): Promise<LLMResponse> {
@@ -175,15 +189,6 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
           };
         },
       };
-
-      // Set provider reference (will be updated by createProvider)
-      providerRef = {
-        name: 'anthropic',
-        version: '1.0.0',
-        modalities: {
-          llm: { bind: () => model },
-        },
-      } as unknown as LLMProvider<AnthropicLLMParams>;
 
       return model;
     },
