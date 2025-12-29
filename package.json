@@ -1,7 +1,15 @@
 {
-  "name": "@providerprotocol/core",
+  "name": "@providerprotocol/use",
+  "version": "0.0.0",
   "module": "index.ts",
+  "license": "MIT",
+  "author": {
+    "name": "Provider Protocol"
+  },
   "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
   "devDependencies": {
     "@types/bun": "latest"
   },
