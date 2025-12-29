@@ -7,13 +7,8 @@ import type {
   BoundLLMModel,
   LLMCapabilities,
 } from '../types/llm.ts';
-import type {
-  Message,
-  UserMessage,
-  AssistantMessage,
-} from '../types/messages.ts';
+import type { UserMessage, AssistantMessage } from '../types/messages.ts';
 import type { ContentBlock, TextBlock } from '../types/content.ts';
-import { isUserMessage } from '../types/messages.ts';
 import type { Tool, ToolExecution, ToolResult } from '../types/tool.ts';
 import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
@@ -21,8 +16,10 @@ import type { Thread } from '../types/thread.ts';
 import type { ProviderConfig } from '../types/provider.ts';
 import { UPPError } from '../types/errors.ts';
 import {
+  Message,
   UserMessage as UserMessageClass,
   ToolResultMessage,
+  isUserMessage,
   isAssistantMessage,
 } from '../types/messages.ts';
 import { createTurn, aggregateUsage, emptyUsage } from '../types/turn.ts';
@@ -136,36 +133,62 @@ export function llm<TParams = unknown>(
 }
 
 /**
+ * Type guard to check if a value is a Message instance.
+ * Uses instanceof for class instances, with fallback to timestamp check
+ * for deserialized/reconstructed Message objects.
+ */
+function isMessageInstance(value: unknown): value is Message {
+  if (value instanceof Message) {
+    return true;
+  }
+  // Fallback for deserialized Messages that aren't class instances:
+  // Messages have 'timestamp' (Date), ContentBlocks don't
+  if (
+    typeof value === 'object' &&
+    value !== null &&
+    'timestamp' in value &&
+    'type' in value &&
+    'id' in value
+  ) {
+    const obj = value as Record<string, unknown>;
+    // Message types are 'user', 'assistant', 'tool_result'
+    // ContentBlock types are 'text', 'image', 'audio', 'video', 'binary'
+    const messageTypes = ['user', 'assistant', 'tool_result'];
+    return messageTypes.includes(obj.type as string);
+  }
+  return false;
+}
+
+/**
  * Parse inputs to determine history and new messages
  */
 function parseInputs(
   historyOrInput: Message[] | Thread | InferenceInput,
   inputs: InferenceInput[]
 ): { history: Message[]; messages: Message[] } {
-  // Check if first arg is history
-  if (Array.isArray(historyOrInput) && historyOrInput.length > 0) {
-    const first = historyOrInput[0];
-    // If it's an array of Messages
-    if (first && typeof first === 'object' && 'type' in first && 'id' in first) {
-      // It's history (Message[])
-      const newMessages = inputs.map(inputToMessage);
-      return { history: historyOrInput as Message[], messages: newMessages };
-    }
-  }
-
-  // Check if it's a Thread
+  // Check if it's a Thread first (has 'messages' array property)
   if (
     typeof historyOrInput === 'object' &&
     historyOrInput !== null &&
     'messages' in historyOrInput &&
-    'id' in historyOrInput
+    Array.isArray((historyOrInput as Thread).messages)
   ) {
     const thread = historyOrInput as Thread;
     const newMessages = inputs.map(inputToMessage);
     return { history: [...thread.messages], messages: newMessages };
   }
 
-  // It's input (no history)
+  // Check if first arg is Message[] (history)
+  if (Array.isArray(historyOrInput) && historyOrInput.length > 0) {
+    const first = historyOrInput[0];
+    if (isMessageInstance(first)) {
+      // It's history (Message[])
+      const newMessages = inputs.map(inputToMessage);
+      return { history: historyOrInput as Message[], messages: newMessages };
+    }
+  }
+
+  // It's input (no history) - could be string, single Message, or ContentBlock
   const allInputs = [historyOrInput as InferenceInput, ...inputs];
   const newMessages = allInputs.map(inputToMessage);
   return { history: [], messages: newMessages };
