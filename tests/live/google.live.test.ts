@@ -229,6 +229,38 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     expect(typeof (turn.data as any).population).toBe('number');
   });
 
+  test('parallel tool execution', async () => {
+    const getWeather = {
+      name: 'getWeather',
+      description: 'Get weather for a city',
+      parameters: {
+        type: 'object' as const,
+        properties: { city: { type: 'string' as const } },
+        required: ['city'],
+      },
+      run: async (params: { city: string }) => `${params.city}: 75°F`,
+    };
+
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-2.0-flash'),
+      params: { maxOutputTokens: 300 },
+      tools: [getWeather],
+    });
+
+    const turn = await gemini.generate('What is the weather in Tokyo and San Francisco? Use the tool for both cities.');
+
+    // Verify multiple executions occurred in the same turn
+    const cities = turn.toolExecutions.map(t => (t.arguments as any).city);
+    expect(cities).toContain('Tokyo');
+    expect(cities).toContain('San Francisco');
+    expect(turn.toolExecutions.length).toBeGreaterThanOrEqual(2);
+
+    // Verify final response mentions both
+    const text = turn.response.text.toLowerCase();
+    expect(text).toContain('tokyo');
+    expect(text).toContain('san francisco');
+  });
+
   test('streaming with structured output', async () => {
     const gemini = llm<GoogleLLMParams>({
       model: google('gemini-2.0-flash'),

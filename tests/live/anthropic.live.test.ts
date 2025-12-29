@@ -228,6 +228,38 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
     expect(typeof (turn.data as any).population).toBe('number');
   });
 
+  test('parallel tool execution', async () => {
+    const getWeather = {
+      name: 'getWeather',
+      description: 'Get weather for a city',
+      parameters: {
+        type: 'object' as const,
+        properties: { city: { type: 'string' as const } },
+        required: ['city'],
+      },
+      run: async (params: { city: string }) => `${params.city}: 75°F`,
+    };
+
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 300 },
+      tools: [getWeather],
+    });
+
+    const turn = await claude.generate('What is the weather in Tokyo and San Francisco? Use the tool for both cities.');
+
+    // Verify multiple executions occurred in the same turn
+    const cities = turn.toolExecutions.map(t => (t.arguments as any).city);
+    expect(cities).toContain('Tokyo');
+    expect(cities).toContain('San Francisco');
+    expect(turn.toolExecutions.length).toBeGreaterThanOrEqual(2);
+
+    // Verify final response mentions both
+    const text = turn.response.text.toLowerCase();
+    expect(text).toContain('tokyo');
+    expect(text).toContain('san francisco');
+  });
+
   test('streaming with structured output', async () => {
     const claude = llm<AnthropicLLMParams>({
       model: anthropic('claude-3-5-haiku-latest'),
