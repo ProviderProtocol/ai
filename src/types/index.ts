@@ -95,6 +95,7 @@ export type {
 export type {
   LLMOptions,
   LLMInstance,
+  LLMCapabilities,
   LLMRequest,
   LLMResponse,
   LLMStreamResult,

@@ -5,6 +5,7 @@ import type {
   LLMResponse,
   InferenceInput,
   BoundLLMModel,
+  LLMCapabilities,
 } from '../types/llm.ts';
 import type {
   Message,
@@ -12,6 +13,7 @@ import type {
   AssistantMessage,
 } from '../types/messages.ts';
 import type { ContentBlock, TextBlock } from '../types/content.ts';
+import { isUserMessage } from '../types/messages.ts';
 import type { Tool, ToolExecution, ToolResult } from '../types/tool.ts';
 import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
@@ -54,11 +56,35 @@ export function llm<TParams = unknown>(
   // Bind the model
   const boundModel = provider.modalities.llm.bind(modelRef.modelId) as BoundLLMModel<TParams>;
 
+  // Validate capabilities at bind time
+  const capabilities = boundModel.capabilities;
+
+  // Check for structured output capability
+  if (structure && !capabilities.structuredOutput) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support structured output`,
+      'INVALID_REQUEST',
+      provider.name,
+      'llm'
+    );
+  }
+
+  // Check for tools capability
+  if (tools && tools.length > 0 && !capabilities.tools) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support tools`,
+      'INVALID_REQUEST',
+      provider.name,
+      'llm'
+    );
+  }
+
   // Build the instance
   const instance: LLMInstance<TParams> = {
     model: boundModel,
     system,
     params,
+    capabilities,
 
     async generate(
       historyOrInput: Message[] | Thread | InferenceInput,
@@ -82,6 +108,15 @@ export function llm<TParams = unknown>(
       historyOrInput: Message[] | Thread | InferenceInput,
       ...inputs: InferenceInput[]
     ): StreamResult {
+      // Check streaming capability
+      if (!capabilities.streaming) {
+        throw new UPPError(
+          `Provider '${provider.name}' does not support streaming`,
+          'INVALID_REQUEST',
+          provider.name,
+          'llm'
+        );
+      }
       const { history, messages } = parseInputs(historyOrInput, inputs);
       return executeStream(
         boundModel,
@@ -172,6 +207,12 @@ async function executeGenerate<TParams>(
   history: Message[],
   newMessages: Message[]
 ): Promise<Turn> {
+  // Validate media capabilities for all input messages
+  validateMediaCapabilities(
+    [...history, ...newMessages],
+    model.capabilities,
+    model.provider.name
+  );
   const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const allMessages: Message[] = [...history, ...newMessages];
   const toolExecutions: ToolExecution[] = [];
@@ -289,6 +330,13 @@ function executeStream<TParams>(
   history: Message[],
   newMessages: Message[]
 ): StreamResult {
+  // Validate media capabilities for all input messages
+  validateMediaCapabilities(
+    [...history, ...newMessages],
+    model.capabilities,
+    model.provider.name
+  );
+
   const abortController = new AbortController();
 
   // Shared state between generator and turn promise
@@ -549,4 +597,44 @@ async function executeTools(
 
   results.push(...(await Promise.all(promises)));
   return results;
+}
+
+/**
+ * Check if messages contain media that requires specific capabilities
+ */
+function validateMediaCapabilities(
+  messages: Message[],
+  capabilities: LLMCapabilities,
+  providerName: string
+): void {
+  for (const msg of messages) {
+    if (!isUserMessage(msg)) continue;
+
+    for (const block of msg.content) {
+      if (block.type === 'image' && !capabilities.imageInput) {
+        throw new UPPError(
+          `Provider '${providerName}' does not support image input`,
+          'INVALID_REQUEST',
+          providerName,
+          'llm'
+        );
+      }
+      if (block.type === 'video' && !capabilities.videoInput) {
+        throw new UPPError(
+          `Provider '${providerName}' does not support video input`,
+          'INVALID_REQUEST',
+          providerName,
+          'llm'
+        );
+      }
+      if (block.type === 'audio' && !capabilities.audioInput) {
+        throw new UPPError(
+          `Provider '${providerName}' does not support audio input`,
+          'INVALID_REQUEST',
+          providerName,
+          'llm'
+        );
+      }
+    }
+  }
 }

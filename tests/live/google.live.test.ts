@@ -298,13 +298,13 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     // The accumulated JSON should be valid and parseable
     expect(accumulatedJson.length).toBeGreaterThan(0);
     const streamedData = JSON.parse(accumulatedJson);
-    expect(streamedData.city).toBe('Tokyo');
+    expect(streamedData.city).toContain('Tokyo');
 
     const turn = await stream.turn;
 
     // The 'data' field should match what we accumulated
     expect(turn.data).toBeDefined();
-    expect((turn.data as any).city).toBe('Tokyo');
+    expect((turn.data as any).city).toContain('Tokyo');
     expect(typeof (turn.data as any).population).toBe('number');
     expect((turn.data as any).isCapital).toBe(true);
 

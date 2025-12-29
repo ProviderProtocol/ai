@@ -1,4 +1,4 @@
-import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult } from '../../types/llm.ts';
+import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
 import { UPPError } from '../../types/errors.ts';
@@ -18,6 +18,18 @@ import {
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 /**
+ * Google API capabilities
+ */
+const GOOGLE_CAPABILITIES: LLMCapabilities = {
+  streaming: true,
+  tools: true,
+  structuredOutput: true,
+  imageInput: true,
+  videoInput: true,
+  audioInput: true,
+};
+
+/**
  * Build Google API URL for a model
  */
 function buildUrl(modelId: string, action: 'generateContent' | 'streamGenerateContent', apiKey: string): string {
@@ -35,6 +47,7 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
 
       const model: BoundLLMModel<GoogleLLMParams> = {
         modelId,
+        capabilities: GOOGLE_CAPABILITIES,
 
         get provider(): LLMProvider<GoogleLLMParams> {
           return providerRef;

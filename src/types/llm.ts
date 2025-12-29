@@ -12,6 +12,34 @@ import type {
 import type { Thread } from './thread.ts';
 
 /**
+ * LLMCapabilities declares what the provider's API supports, not individual model capabilities.
+ * If a user attempts to use a feature with a model that doesn't support it,
+ * the provider's API will return an error—this is expected behavior.
+ *
+ * Capabilities are static - they are constant for the lifetime of the provider instance
+ * and do not vary per-request or per-model.
+ */
+export interface LLMCapabilities {
+  /** Provider API supports streaming responses */
+  streaming: boolean;
+
+  /** Provider API supports tool/function calling */
+  tools: boolean;
+
+  /** Provider API supports native structured output (JSON schema) */
+  structuredOutput: boolean;
+
+  /** Provider API supports image input */
+  imageInput: boolean;
+
+  /** Provider API supports video input */
+  videoInput: boolean;
+
+  /** Provider API supports audio input */
+  audioInput: boolean;
+}
+
+/**
  * Input types for inference
  */
 export type InferenceInput = string | Message | ContentBlock;
@@ -88,6 +116,9 @@ export interface LLMInstance<TParams = unknown> {
 
   /** Current parameters */
   readonly params: TParams | undefined;
+
+  /** Provider API capabilities */
+  readonly capabilities: LLMCapabilities;
 }
 
 /**
@@ -143,6 +174,9 @@ export interface BoundLLMModel<TParams = unknown> {
 
   /** Reference to the parent provider */
   readonly provider: LLMProvider<TParams>;
+
+  /** Provider API capabilities */
+  readonly capabilities: LLMCapabilities;
 
   /** Execute a single non-streaming inference request */
   complete(request: LLMRequest<TParams>): Promise<LLMResponse>;

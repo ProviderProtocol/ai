@@ -1,4 +1,4 @@
-import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult } from '../../types/llm.ts';
+import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
 import { UPPError } from '../../types/errors.ts';
@@ -19,6 +19,18 @@ const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
 const ANTHROPIC_VERSION = '2023-06-01';
 
 /**
+ * Anthropic API capabilities
+ */
+const ANTHROPIC_CAPABILITIES: LLMCapabilities = {
+  streaming: true,
+  tools: true,
+  structuredOutput: true,
+  imageInput: true,
+  videoInput: false,
+  audioInput: false,
+};
+
+/**
  * Create Anthropic LLM handler
  */
 export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
@@ -29,6 +41,7 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
 
       const model: BoundLLMModel<AnthropicLLMParams> = {
         modelId,
+        capabilities: ANTHROPIC_CAPABILITIES,
 
         get provider(): LLMProvider<AnthropicLLMParams> {
           return providerRef;

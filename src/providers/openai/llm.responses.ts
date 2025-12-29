@@ -1,4 +1,4 @@
-import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult } from '../../types/llm.ts';
+import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
 import { UPPError } from '../../types/errors.ts';
@@ -18,6 +18,18 @@ import {
 const OPENAI_RESPONSES_API_URL = 'https://api.openai.com/v1/responses';
 
 /**
+ * OpenAI API capabilities
+ */
+const OPENAI_CAPABILITIES: LLMCapabilities = {
+  streaming: true,
+  tools: true,
+  structuredOutput: true,
+  imageInput: true,
+  videoInput: false,
+  audioInput: false,
+};
+
+/**
  * Create OpenAI Responses API LLM handler
  */
 export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
@@ -27,6 +39,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
 
       const model: BoundLLMModel<OpenAILLMParams> = {
         modelId,
+        capabilities: OPENAI_CAPABILITIES,
 
         get provider(): LLMProvider<OpenAILLMParams> {
           return providerRef;

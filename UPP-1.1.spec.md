@@ -707,6 +707,9 @@ interface LLMInstance<TParams = unknown> {
 
   /** Current parameters */
   readonly params: TParams | undefined;
+
+  /** Provider API capabilities */
+  readonly capabilities: LLMCapabilities;
 }
 
 type InferenceInput = string | Message | ContentBlock;
@@ -730,12 +733,43 @@ await claude.generate(history, 'Follow-up question');
 await claude.generate(thread, 'Continue the conversation');
 ```
 
-### 5.4 BoundLLMModel
+### 5.4 LLMCapabilities
+
+LLMCapabilities declares what the **provider's API** supports, not individual model capabilities. If a user attempts to use a feature (e.g., image input) with a model that doesn't support it, the provider's API will return an error—this is expected behavior. UPP cannot realistically track every model variant's actual capabilities.
+
+```ts
+interface LLMCapabilities {
+  /** Provider API supports streaming responses */
+  streaming: boolean;
+
+  /** Provider API supports tool/function calling */
+  tools: boolean;
+
+  /** Provider API supports native structured output (JSON schema) */
+  structuredOutput: boolean;
+
+  /** Provider API supports image input */
+  imageInput: boolean;
+
+  /** Provider API supports video input */
+  videoInput: boolean;
+
+  /** Provider API supports audio input */
+  audioInput: boolean;
+}
+```
+
+**Capabilities are static.** A provider's capabilities are constant for the lifetime of the provider instance and do not vary per-request or per-model. They reflect what the provider's API supports, determined at provider implementation time. Applications can safely cache or check capabilities once without concern for dynamic changes.
+
+### 5.5 BoundLLMModel
 
 ```ts
 interface BoundLLMModel<TParams = unknown> {
   /** The model identifier */
   readonly modelId: string;
+
+  /** Provider API capabilities */
+  readonly capabilities: LLMCapabilities;
 
   /** Execute a single non-streaming inference request */
   complete(request: LLMRequest<TParams>): Promise<LLMResponse>;
@@ -1000,11 +1034,21 @@ llm() accepts system prompts at the options level and providers transform accord
 
 #### 5.9.5 Structured Output Handling
 
-If `structure` is provided, the provider MUST:
+If `structure` is provided:
 
-1. Transform the JSON Schema to vendor-specific format (if different)
-2. Enable structured output mode on the API request
-3. If the vendor doesn't support native structured outputs, the provider is responsible for parsing and validating the response against the schema
+1. `llm()` core checks `capabilities.structuredOutput`
+2. If `false`, throws `UPPError` with code `INVALID_REQUEST`
+3. If `true`, the provider MUST:
+   - Transform the JSON Schema to vendor-specific format (if different)
+   - Enable structured output mode on the API request
+   - Parse the response as JSON and return the parsed object
+
+UPP does NOT validate the response against the schema. Modern LLMs with structured output support reliably produce conformant output. If validation is required, it is the application's responsibility. UPP does NOT automatically retry on schema mismatch.
+
+Similarly, `llm()` core checks capabilities before using other features:
+- `tools` provided but `capabilities.tools` is `false` → throws `INVALID_REQUEST`
+- Image content provided but `capabilities.imageInput` is `false` → throws `INVALID_REQUEST`
+- `stream()` called but `capabilities.streaming` is `false` → throws `INVALID_REQUEST`
 
 #### 5.9.6 Error Handling
 
@@ -1854,7 +1898,7 @@ By default, llm() handles tool execution automatically:
 
 **Important:** llm() does NOT validate tool arguments against the JSON Schema. The schema is provided to the model to guide its output, but validation and sanitization of LLM-provided arguments is the responsibility of the tool implementation. Always treat tool arguments as untrusted input.
 
-**Note on validation asymmetry:** This differs from structured outputs (Section 11), where providers MUST validate responses against the schema. The distinction is intentional: structured outputs are a contract with the developer about response format, while tool arguments are inputs to developer-controlled functions that should perform their own validation appropriate to their security context.
+**Note:** Similarly, UPP does not validate structured output responses against their schema (see Section 11). Schemas guide LLM behavior but validation is the application's responsibility in both cases.
 
 ### 10.5 ToolUseStrategy
 
@@ -2038,7 +2082,9 @@ interface JSONSchemaProperty {
 
 ### 11.3 Provider Handling
 
-Providers handle structured outputs according to their capabilities:
+Structured output is a capability declared via `LLMCapabilities.structuredOutput`. If a provider's API doesn't support native structured outputs, the provider MUST set this to `false` and `llm()` core will throw `INVALID_REQUEST` when `structure` is provided.
+
+Providers with native support handle structured outputs according to vendor APIs:
 
 | Provider | Implementation |
 |----------|----------------|
@@ -2046,10 +2092,7 @@ Providers handle structured outputs according to their capabilities:
 | OpenAI | Uses response_format with json_schema |
 | Google | Uses responseSchema |
 
-If a provider doesn't natively support structured outputs:
-1. The provider MUST still attempt to get JSON output
-2. The provider MUST validate the response against the schema
-3. Invalid responses should throw a `UPPError` with code `INVALID_RESPONSE`
+Note: UPP does not validate responses against the schema—only that valid JSON was returned. Schema validation is the application's responsibility if needed.
 
 ### 11.4 Complex Schema Example
 
@@ -2461,7 +2504,7 @@ interface ImageResult {
   };
 
   /** Usage/billing information */
-  usage?: ImageUsage;
+  usage: ImageUsage;
 }
 
 interface GeneratedImage {
@@ -2637,7 +2680,7 @@ interface ImageResponse {
   };
 
   /** Usage information */
-  usage?: ImageUsage;
+  usage: ImageUsage;
 }
 
 interface ImageEditRequest<TParams = unknown> {
@@ -2868,6 +2911,7 @@ export { ai };  // ai = { llm, embedding, image }
 export {
   LLMOptions,
   LLMInstance,
+  LLMCapabilities,
   LLMProvider,
   BoundLLMModel,
   LLMRequest,
@@ -3136,34 +3180,34 @@ Providers may implement one or more modalities. For each modality, conformance i
 #### 16.1.1 LLM Conformance
 
 **Level 1: Core (Required)**
-- Text input/output via `generate()` method
+- Declare `LLMCapabilities` accurately for the provider's API
+- Text input/output via `complete()` method
 - Return `LLMResponse` with `AssistantMessage` and `TokenUsage`
 - Basic configuration pass-through (`params`)
 - Error normalization to `UPPError` with correct `modality: 'llm'`
 - System prompt handling per vendor requirements
 
-**Level 2: Streaming**
+**Level 2: Streaming** (`capabilities.streaming: true`)
 - `stream()` method implementation
 - Proper `StreamEvent` emission with correct `StreamEventType`
 - `LLMStreamResult` with `response` promise
 - Support for `message_start`, `text_delta`, `message_stop` at minimum
 
-**Level 3: Tools**
+**Level 3: Tools** (`capabilities.tools: true`)
 - Tool definition transformation (JSON Schema to vendor format)
 - Tool call detection in responses (`AssistantMessage.toolCalls`)
 - Tool result handling (`ToolResultMessage` transformation)
 - Note: Tool execution loop is handled by llm() core, not providers
 
-**Level 4: Structured Output**
+**Level 4: Structured Output** (`capabilities.structuredOutput: true`)
 - Transform `structure` schema to vendor format
 - Enable vendor's structured output mode
-- Parse and return structured data
-- Validate response if vendor lacks native support
+- Parse and return structured data as JSON
 
-**Level 5: Multimodal Input**
-- Image input handling (base64, URL conversion)
-- Audio input handling (if supported by vendor)
-- Video input handling (if supported by vendor)
+**Level 5: Multimodal Input** (`capabilities.imageInput`, `videoInput`, `audioInput`)
+- Image input handling (base64, URL conversion) if `imageInput: true`
+- Video input handling if `videoInput: true`
+- Audio input handling if `audioInput: true`
 
 #### 16.1.2 Embedding Conformance
 
