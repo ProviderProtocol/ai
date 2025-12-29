@@ -12,13 +12,16 @@ const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
 const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 
 /**
- * Live API tests for OpenAI
+ * Live API tests for OpenAI Chat Completions API
  * Requires OPENAI_API_KEY environment variable
+ *
+ * This test suite verifies the legacy Chat Completions API which is
+ * useful for compatibility with OpenAI-compatible services like LM Studio.
  */
-describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
+describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () => {
   test('simple text generation', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
 
@@ -31,7 +34,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
 
   test('streaming text generation', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 50 },
     });
 
@@ -55,7 +58,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
 
   test('multi-turn conversation', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
 
@@ -73,7 +76,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
 
   test('with system prompt', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 50 },
       system: 'You are a robot. Always respond like a robot.',
     });
@@ -119,7 +122,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
     };
 
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       tools: [calculate],
     });
@@ -132,7 +135,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
 
   test('vision/multimodal with base64 image', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
 
@@ -171,7 +174,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
     };
 
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       tools: [calculator],
     });
@@ -198,7 +201,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
 
   test('structured output with JSON mode', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: {
         max_completion_tokens: 200,
         response_format: { type: 'json_object' },
@@ -219,12 +222,12 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
 });
 
 /**
- * Error handling tests
+ * Error handling tests for Completions API
  */
-describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Error Handling', () => {
+describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini'),
+      model: openai('gpt-4o-mini', { api: 'completions' }),
       params: { max_completion_tokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
     });
@@ -243,7 +246,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Error Handling', () => {
 
   test('invalid model returns UPPError', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('nonexistent-model-xyz'),
+      model: openai('nonexistent-model-xyz', { api: 'completions' }),
       params: { max_completion_tokens: 10 },
     });
 

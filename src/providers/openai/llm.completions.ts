@@ -15,12 +15,12 @@ import {
   buildResponseFromState,
 } from './transform.ts';
 
-const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_COMPLETIONS_API_URL = 'https://api.openai.com/v1/chat/completions';
 
 /**
- * Create OpenAI LLM handler
+ * Create OpenAI Chat Completions API LLM handler
  */
-export function createLLMHandler(): LLMHandler<OpenAILLMParams> {
+export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
   return {
     bind(modelId: string): BoundLLMModel<OpenAILLMParams> {
       let providerRef: LLMProvider<OpenAILLMParams>;
@@ -40,7 +40,7 @@ export function createLLMHandler(): LLMHandler<OpenAILLMParams> {
             'llm'
           );
 
-          const baseUrl = request.config.baseUrl ?? OPENAI_API_URL;
+          const baseUrl = request.config.baseUrl ?? OPENAI_COMPLETIONS_API_URL;
           const body = transformRequest(request, modelId);
 
           const response = await doFetch(
@@ -82,7 +82,7 @@ export function createLLMHandler(): LLMHandler<OpenAILLMParams> {
                 'llm'
               );
 
-              const baseUrl = request.config.baseUrl ?? OPENAI_API_URL;
+              const baseUrl = request.config.baseUrl ?? OPENAI_COMPLETIONS_API_URL;
               const body = transformRequest(request, modelId);
               body.stream = true;
               body.stream_options = { include_usage: true };
