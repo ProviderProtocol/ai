@@ -6,14 +6,13 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
-import type { OpenAILLMParams } from './types.ts';
-import type { OpenAIResponsesResponse, OpenAIResponsesStreamEvent } from './types.responses.ts';
+import type { OpenAILLMParams, OpenAIResponsesResponse, OpenAIResponsesStreamEvent, OpenAIResponseErrorEvent } from './types.ts';
 import {
-  transformResponsesRequest,
-  transformResponsesResponse,
-  transformResponsesStreamEvent,
-  createResponsesStreamState,
-  buildResponsesFromState,
+  transformRequest,
+  transformResponse,
+  transformStreamEvent,
+  createStreamState,
+  buildResponseFromState,
 } from './transform.responses.ts';
 
 const OPENAI_RESPONSES_API_URL = 'https://api.openai.com/v1/responses';
@@ -41,9 +40,8 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
             'llm'
           );
 
-          // Use responses API endpoint, but allow baseUrl override for completions endpoint
           const baseUrl = request.config.baseUrl ?? OPENAI_RESPONSES_API_URL;
-          const body = transformResponsesRequest(request, modelId);
+          const body = transformRequest(request, modelId);
 
           const response = await doFetch(
             baseUrl,
@@ -64,7 +62,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
           const data = (await response.json()) as OpenAIResponsesResponse;
 
           // Check for error in response
-          if (data.error) {
+          if (data.status === 'failed' && data.error) {
             throw new UPPError(
               data.error.message,
               'PROVIDER_ERROR',
@@ -73,11 +71,11 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
             );
           }
 
-          return transformResponsesResponse(data);
+          return transformResponse(data);
         },
 
         stream(request: LLMRequest<OpenAILLMParams>): LLMStreamResult {
-          const state = createResponsesStreamState();
+          const state = createStreamState();
           let responseResolve: (value: LLMResponse) => void;
           let responseReject: (error: Error) => void;
 
@@ -96,7 +94,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
               );
 
               const baseUrl = request.config.baseUrl ?? OPENAI_RESPONSES_API_URL;
-              const body = transformResponsesRequest(request, modelId);
+              const body = transformRequest(request, modelId);
               body.stream = true;
 
               const response = await doStreamFetch(
@@ -133,13 +131,20 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
               }
 
               for await (const data of parseSSEStream(response.body)) {
+                // Skip [DONE] marker
+                if (data === '[DONE]') {
+                  continue;
+                }
+
+                // Check for OpenAI error event
                 if (typeof data === 'object' && data !== null) {
-                  const streamEvent = data as OpenAIResponsesStreamEvent;
+                  const event = data as OpenAIResponsesStreamEvent;
 
                   // Check for error event
-                  if (streamEvent.type === 'error') {
+                  if (event.type === 'error') {
+                    const errorEvent = event as OpenAIResponseErrorEvent;
                     const error = new UPPError(
-                      streamEvent.error.message,
+                      errorEvent.error.message,
                       'PROVIDER_ERROR',
                       'openai',
                       'llm'
@@ -148,14 +153,15 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
                     throw error;
                   }
 
-                  const events = transformResponsesStreamEvent(streamEvent, state);
-                  for (const event of events) {
-                    yield event;
+                  const uppEvents = transformStreamEvent(event, state);
+                  for (const uppEvent of uppEvents) {
+                    yield uppEvent;
                   }
                 }
               }
 
-              responseResolve(buildResponsesFromState(state));
+              // Build final response
+              responseResolve(buildResponseFromState(state));
             } catch (error) {
               responseReject(error as Error);
               throw error;
@@ -171,6 +177,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAILLMParams> {
         },
       };
 
+      // Set provider reference (will be updated by createProvider)
       providerRef = {
         name: 'openai',
         version: '1.0.0',

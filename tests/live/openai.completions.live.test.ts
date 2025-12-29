@@ -21,7 +21,7 @@ const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () => {
   test('simple text generation', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
 
@@ -34,7 +34,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
   test('streaming text generation', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 50 },
     });
 
@@ -58,7 +58,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
   test('multi-turn conversation', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
 
@@ -76,7 +76,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
   test('with system prompt', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 50 },
       system: 'You are a robot. Always respond like a robot.',
     });
@@ -122,7 +122,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
     };
 
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       tools: [calculate],
     });
@@ -135,7 +135,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
   test('vision/multimodal with base64 image', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
 
@@ -174,7 +174,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
     };
 
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       tools: [calculator],
     });
@@ -201,7 +201,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
   test('structured output with JSON mode', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: {
         max_completion_tokens: 200,
         response_format: { type: 'json_object' },
@@ -222,7 +222,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
   test('protocol-level structured output (schema enforcement)', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       structure: {
         type: 'object',
@@ -257,7 +257,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
     };
 
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 300 },
       tools: [getWeather],
     });
@@ -278,7 +278,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
   test('streaming with structured output', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       structure: {
         type: 'object',
@@ -325,7 +325,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
     const gpt = llm<OpenAILLMParams>({
-      model: openai('gpt-4o-mini', { api: 'completions' }),
+      model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
     });

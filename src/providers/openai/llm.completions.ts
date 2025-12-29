@@ -6,19 +6,19 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
-import type { OpenAILLMParams, OpenAIResponse, OpenAIStreamChunk } from './types.ts';
+import type { OpenAILLMParams, OpenAICompletionsResponse, OpenAICompletionsStreamChunk } from './types.ts';
 import {
   transformRequest,
   transformResponse,
-  transformStreamChunk,
+  transformStreamEvent,
   createStreamState,
   buildResponseFromState,
-} from './transform.ts';
+} from './transform.completions.ts';
 
-const OPENAI_COMPLETIONS_API_URL = 'https://api.openai.com/v1/chat/completions';
+const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
 /**
- * Create OpenAI Chat Completions API LLM handler
+ * Create OpenAI Chat Completions LLM handler
  */
 export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
   return {
@@ -40,7 +40,7 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
             'llm'
           );
 
-          const baseUrl = request.config.baseUrl ?? OPENAI_COMPLETIONS_API_URL;
+          const baseUrl = request.config.baseUrl ?? OPENAI_API_URL;
           const body = transformRequest(request, modelId);
 
           const response = await doFetch(
@@ -59,7 +59,7 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
             'llm'
           );
 
-          const data = (await response.json()) as OpenAIResponse;
+          const data = (await response.json()) as OpenAICompletionsResponse;
           return transformResponse(data);
         },
 
@@ -82,7 +82,7 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
                 'llm'
               );
 
-              const baseUrl = request.config.baseUrl ?? OPENAI_COMPLETIONS_API_URL;
+              const baseUrl = request.config.baseUrl ?? OPENAI_API_URL;
               const body = transformRequest(request, modelId);
               body.stream = true;
               body.stream_options = { include_usage: true };
@@ -121,13 +121,20 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
               }
 
               for await (const data of parseSSEStream(response.body)) {
-                if (typeof data === 'object' && data !== null) {
-                  const chunk = data as OpenAIStreamChunk;
+                // Skip [DONE] marker
+                if (data === '[DONE]') {
+                  continue;
+                }
 
-                  // Check for error
-                  if ('error' in chunk) {
+                // Check for OpenAI error event
+                if (typeof data === 'object' && data !== null) {
+                  const chunk = data as OpenAICompletionsStreamChunk;
+
+                  // Check for error in chunk
+                  if ('error' in chunk && chunk.error) {
+                    const errorData = chunk.error as { message?: string; type?: string };
                     const error = new UPPError(
-                      (chunk as any).error.message,
+                      errorData.message ?? 'Unknown error',
                       'PROVIDER_ERROR',
                       'openai',
                       'llm'
@@ -136,13 +143,14 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
                     throw error;
                   }
 
-                  const events = transformStreamChunk(chunk, state);
-                  for (const event of events) {
+                  const uppEvents = transformStreamEvent(chunk, state);
+                  for (const event of uppEvents) {
                     yield event;
                   }
                 }
               }
 
+              // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
               responseReject(error as Error);
@@ -159,6 +167,7 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
         },
       };
 
+      // Set provider reference (will be updated by createProvider)
       providerRef = {
         name: 'openai',
         version: '1.0.0',

@@ -10,218 +10,284 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import type { OpenAILLMParams } from './types.ts';
 import type {
+  OpenAILLMParams,
   OpenAIResponsesRequest,
   OpenAIResponsesInputItem,
-  OpenAIResponsesInputContent,
+  OpenAIResponsesContentPart,
   OpenAIResponsesTool,
   OpenAIResponsesResponse,
   OpenAIResponsesStreamEvent,
   OpenAIResponsesOutputItem,
-  OpenAIResponsesFunctionCall,
-} from './types.responses.ts';
+  OpenAIResponsesMessageOutput,
+  OpenAIResponsesFunctionCallOutput,
+} from './types.ts';
 
 /**
  * Transform UPP request to OpenAI Responses API format
  */
-export function transformResponsesRequest<TParams extends OpenAILLMParams>(
+export function transformRequest<TParams extends OpenAILLMParams>(
   request: LLMRequest<TParams>,
   modelId: string
 ): OpenAIResponsesRequest {
-  const params = (request.params ?? {}) as OpenAILLMParams;
+  const params: OpenAILLMParams = request.params ?? {};
 
-  const responsesRequest: OpenAIResponsesRequest = {
+  const openaiRequest: OpenAIResponsesRequest = {
     model: modelId,
-    input: transformMessagesToInput(request.messages) as any,
+    input: transformInputItems(request.messages, request.system),
   };
 
-  // System prompt becomes instructions
-  if (request.system) {
-    responsesRequest.instructions = request.system;
-  }
-
-  // Model parameters (note: max_output_tokens not max_completion_tokens)
-  if (params.max_completion_tokens !== undefined) {
-    responsesRequest.max_output_tokens = params.max_completion_tokens;
-  } else if (params.max_tokens !== undefined) {
-    responsesRequest.max_output_tokens = params.max_tokens;
-  }
+  // Model parameters
   if (params.temperature !== undefined) {
-    responsesRequest.temperature = params.temperature;
+    openaiRequest.temperature = params.temperature;
   }
   if (params.top_p !== undefined) {
-    responsesRequest.top_p = params.top_p;
+    openaiRequest.top_p = params.top_p;
   }
-  if (params.stop !== undefined) {
-    responsesRequest.stop = params.stop;
+  if (params.max_output_tokens !== undefined) {
+    openaiRequest.max_output_tokens = params.max_output_tokens;
+  } else if (params.max_completion_tokens !== undefined) {
+    openaiRequest.max_output_tokens = params.max_completion_tokens;
+  } else if (params.max_tokens !== undefined) {
+    openaiRequest.max_output_tokens = params.max_tokens;
   }
-  if (params.seed !== undefined) {
-    responsesRequest.seed = params.seed;
+  if (params.service_tier !== undefined) {
+    openaiRequest.service_tier = params.service_tier;
   }
-  if (params.user !== undefined) {
-    responsesRequest.user = params.user;
+  if (params.store !== undefined) {
+    openaiRequest.store = params.store;
   }
-
-  // Tools (flattened structure in Responses API)
-  if (request.tools && request.tools.length > 0) {
-    responsesRequest.tools = request.tools.map(transformTool);
-    responsesRequest.tool_choice = 'auto';
+  if (params.metadata !== undefined) {
+    openaiRequest.metadata = params.metadata;
   }
-
-  // Structured output via text format
-  if (request.structure) {
-    // OpenAI requires additionalProperties: false for strict mode
-    const schemaWithAdditional = {
-      ...request.structure,
-      additionalProperties: false,
+  if (params.truncation !== undefined) {
+    openaiRequest.truncation = params.truncation;
+  }
+  if (params.include !== undefined) {
+    openaiRequest.include = params.include;
+  }
+  if (params.background !== undefined) {
+    openaiRequest.background = params.background;
+  }
+  if (params.previous_response_id !== undefined) {
+    openaiRequest.previous_response_id = params.previous_response_id;
+  }
+  if (params.reasoning !== undefined) {
+    openaiRequest.reasoning = { ...params.reasoning };
+  }
+  if (params.reasoning_effort !== undefined) {
+    openaiRequest.reasoning = {
+      ...(openaiRequest.reasoning ?? {}),
+      effort: params.reasoning_effort,
     };
-    responsesRequest.text = {
+  }
+
+  // Tools
+  if (request.tools && request.tools.length > 0) {
+    openaiRequest.tools = request.tools.map(transformTool);
+    if (params.parallel_tool_calls !== undefined) {
+      openaiRequest.parallel_tool_calls = params.parallel_tool_calls;
+    }
+  }
+
+  // Structured output via text.format
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    openaiRequest.text = {
       format: {
         type: 'json_schema',
-        name: 'response',
-        schema: schemaWithAdditional as unknown as Record<string, unknown>,
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
         strict: true,
       },
     };
   }
 
-  return responsesRequest;
+  return openaiRequest;
 }
 
 /**
- * Function call input item (for including tool calls from assistant)
+ * Transform messages to Responses API input items
  */
-interface OpenAIResponsesFunctionCallInput {
-  type: 'function_call';
-  id: string;
-  call_id: string;
-  name: string;
-  arguments: string;
-}
+function transformInputItems(
+  messages: Message[],
+  system?: string
+): OpenAIResponsesInputItem[] | string {
+  const result: OpenAIResponsesInputItem[] = [];
 
+  if (system) {
+    result.push({
+      type: 'message',
+      role: 'system',
+      content: system,
+    });
+  }
 
-/**
- * Transform UPP Messages to Responses API input items
- */
-function transformMessagesToInput(messages: Message[]): (OpenAIResponsesInputItem | OpenAIResponsesFunctionCallInput)[] {
-  const input: (OpenAIResponsesInputItem | OpenAIResponsesFunctionCallInput)[] = [];
+  for (const message of messages) {
+    const items = transformMessage(message);
+    result.push(...items);
+  }
 
-  for (const msg of messages) {
-    if (isUserMessage(msg)) {
-      const content = msg.content;
-      const validContent = content.filter((c) => c && typeof c.type === 'string');
-      const hasMultimodal = validContent.some(
-        (c) => c.type === 'image' || c.type === 'audio' || c.type === 'video'
-      );
-
-      if (hasMultimodal) {
-        input.push({
-          role: 'user',
-          content: validContent.map(transformContentBlock),
-        });
-      } else {
-        // Simple text format
-        const text = validContent
-          .filter((c): c is TextBlock => c.type === 'text')
-          .map((c) => c.text)
-          .join('\n\n');
-
-        input.push({
-          role: 'user',
-          content: text,
-        });
-      }
-    } else if (isAssistantMessage(msg)) {
-      const textContent = msg.content
-        .filter((c): c is TextBlock => c.type === 'text')
-        .map((c) => c.text)
-        .join('\n\n');
-
-      if (textContent) {
-        input.push({
-          role: 'assistant',
-          content: textContent,
-        });
-      }
-
-      // Include function calls from assistant messages
-      // The Responses API requires these when sending function_call_output items
-      // Use the stored original function call items if available (they have correct IDs)
-      const storedFunctionCalls = (msg.metadata?.openai as any)?.functionCallItems as
-        Array<{ id: string; call_id: string; name: string; arguments: string }> | undefined;
-
-      if (storedFunctionCalls && storedFunctionCalls.length > 0) {
-        // Use the original function call items from the API response
-        for (const fc of storedFunctionCalls) {
-          input.push({
-            type: 'function_call',
-            id: fc.id,
-            call_id: fc.call_id,
-            name: fc.name,
-            arguments: fc.arguments,
-          });
-        }
-      } else if (msg.toolCalls && msg.toolCalls.length > 0) {
-        // Fallback: reconstruct from tool calls (may not have correct IDs)
-        for (const call of msg.toolCalls) {
-          input.push({
-            type: 'function_call',
-            id: `fc_${call.toolCallId}`,
-            call_id: call.toolCallId,
-            name: call.toolName,
-            arguments: typeof call.arguments === 'string'
-              ? call.arguments
-              : JSON.stringify(call.arguments),
-          });
-        }
-      }
-    } else if (isToolResultMessage(msg)) {
-      // Tool results as function_call_output items
-      for (const result of msg.results) {
-        input.push({
-          type: 'function_call_output',
-          call_id: result.toolCallId,
-          output:
-            typeof result.result === 'string'
-              ? result.result
-              : JSON.stringify(result.result),
-        });
-      }
+  // If there's only one user message with simple text, return as string
+  if (result.length === 1 && result[0]?.type === 'message') {
+    const item = result[0] as { role?: string; content?: string | unknown[] };
+    if (item.role === 'user' && typeof item.content === 'string') {
+      return item.content;
     }
   }
 
-  return input;
+  return result;
 }
 
 /**
- * Transform a content block to Responses API input content
+ * Filter to only valid content blocks with a type property
  */
-function transformContentBlock(block: ContentBlock): OpenAIResponsesInputContent {
+function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
+  return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transform a UPP Message to OpenAI Responses API input items
+ */
+function transformMessage(message: Message): OpenAIResponsesInputItem[] {
+  if (isUserMessage(message)) {
+    const validContent = filterValidContent(message.content);
+    // Check if we can use simple string content
+    if (validContent.length === 1 && validContent[0]?.type === 'text') {
+      return [
+        {
+          type: 'message',
+          role: 'user',
+          content: (validContent[0] as TextBlock).text,
+        },
+      ];
+    }
+    return [
+      {
+        type: 'message',
+        role: 'user',
+        content: validContent.map(transformContentPart),
+      },
+    ];
+  }
+
+  if (isAssistantMessage(message)) {
+    const validContent = filterValidContent(message.content);
+    const items: OpenAIResponsesInputItem[] = [];
+
+    // Add message content - only text parts for assistant messages
+    const contentParts: OpenAIResponsesContentPart[] = validContent
+      .filter((c): c is TextBlock => c.type === 'text')
+      .map((c): OpenAIResponsesContentPart => ({
+        type: 'output_text',
+        text: c.text,
+      }));
+
+    // Add assistant message if we have text content
+    if (contentParts.length > 0) {
+      items.push({
+        type: 'message',
+        role: 'assistant',
+        content: contentParts,
+      });
+    }
+
+    // Add function_call items for each tool call (must precede function_call_output)
+    const openaiMeta = message.metadata?.openai as
+      | { functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }> }
+      | undefined;
+    const functionCallItems = openaiMeta?.functionCallItems;
+
+    if (functionCallItems && functionCallItems.length > 0) {
+      for (const fc of functionCallItems) {
+        items.push({
+          type: 'function_call',
+          id: fc.id,
+          call_id: fc.call_id,
+          name: fc.name,
+          arguments: fc.arguments,
+        });
+      }
+    } else if (message.toolCalls && message.toolCalls.length > 0) {
+      for (const call of message.toolCalls) {
+        items.push({
+          type: 'function_call',
+          id: `fc_${call.toolCallId}`,
+          call_id: call.toolCallId,
+          name: call.toolName,
+          arguments: JSON.stringify(call.arguments),
+        });
+      }
+    }
+
+    return items;
+  }
+
+  if (isToolResultMessage(message)) {
+    // Tool results are function_call_output items
+    return message.results.map((result) => ({
+      type: 'function_call_output' as const,
+      call_id: result.toolCallId,
+      output:
+        typeof result.result === 'string'
+          ? result.result
+          : JSON.stringify(result.result),
+    }));
+  }
+
+  return [];
+}
+
+/**
+ * Transform a content block to Responses API format
+ */
+function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
   switch (block.type) {
     case 'text':
       return { type: 'input_text', text: block.text };
 
     case 'image': {
       const imageBlock = block as ImageBlock;
-      let url: string;
+      if (imageBlock.source.type === 'base64') {
+        return {
+          type: 'input_image',
+          image_url: `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`,
+        };
+      }
 
       if (imageBlock.source.type === 'url') {
-        url = imageBlock.source.url;
-      } else if (imageBlock.source.type === 'base64') {
-        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
-      } else if (imageBlock.source.type === 'bytes') {
+        return {
+          type: 'input_image',
+          image_url: imageBlock.source.url,
+        };
+      }
+
+      if (imageBlock.source.type === 'bytes') {
+        // Convert bytes to base64
         const base64 = btoa(
           Array.from(imageBlock.source.data)
             .map((b) => String.fromCharCode(b))
             .join('')
         );
-        url = `data:${imageBlock.mimeType};base64,${base64}`;
-      } else {
-        throw new Error('Unknown image source type');
+        return {
+          type: 'input_image',
+          image_url: `data:${imageBlock.mimeType};base64,${base64}`,
+        };
       }
 
-      return { type: 'input_image', image_url: url };
+      throw new Error('Unknown image source type');
     }
 
     default:
@@ -230,7 +296,7 @@ function transformContentBlock(block: ContentBlock): OpenAIResponsesInputContent
 }
 
 /**
- * Transform a UPP Tool to Responses API format (flattened structure)
+ * Transform a UPP Tool to Responses API format
  */
 function transformTool(tool: Tool): OpenAIResponsesTool {
   return {
@@ -241,54 +307,59 @@ function transformTool(tool: Tool): OpenAIResponsesTool {
       type: 'object',
       properties: tool.parameters.properties,
       required: tool.parameters.required,
-      additionalProperties: tool.parameters.additionalProperties,
+      ...(tool.parameters.additionalProperties !== undefined
+        ? { additionalProperties: tool.parameters.additionalProperties }
+        : {}),
     },
   };
 }
 
 /**
- * Transform Responses API response to UPP LLMResponse
+ * Transform OpenAI Responses API response to UPP LLMResponse
  */
-export function transformResponsesResponse(data: OpenAIResponsesResponse): LLMResponse {
+export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
+  // Extract text content and tool calls from output items
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
-  // Store original function_call items to echo back in subsequent requests
-  const functionCallItems: Array<{ id: string; call_id: string; name: string; arguments: string }> = [];
+  const functionCallItems: Array<{
+    id: string;
+    call_id: string;
+    name: string;
+    arguments: string;
+  }> = [];
+  let hadRefusal = false;
 
-  // Extract text and tool calls from output items
   for (const item of data.output) {
     if (item.type === 'message') {
-      for (const content of item.content) {
+      const messageItem = item as OpenAIResponsesMessageOutput;
+      for (const content of messageItem.content) {
         if (content.type === 'output_text') {
           textContent.push({ type: 'text', text: content.text });
+        } else if (content.type === 'refusal') {
+          textContent.push({ type: 'text', text: content.refusal });
+          hadRefusal = true;
         }
       }
     } else if (item.type === 'function_call') {
-      const fc = item as OpenAIResponsesFunctionCall;
+      const functionCall = item as OpenAIResponsesFunctionCallOutput;
       let args: Record<string, unknown> = {};
       try {
-        args = JSON.parse(fc.arguments);
+        args = JSON.parse(functionCall.arguments);
       } catch {
-        // Invalid JSON
+        // Invalid JSON - use empty object
       }
       toolCalls.push({
-        toolCallId: fc.call_id,
-        toolName: fc.name,
+        toolCallId: functionCall.call_id,
+        toolName: functionCall.name,
         arguments: args,
       });
-      // Store the original function call for echoing back
       functionCallItems.push({
-        id: fc.id,
-        call_id: fc.call_id,
-        name: fc.name,
-        arguments: fc.arguments,
+        id: functionCall.id,
+        call_id: functionCall.call_id,
+        name: functionCall.name,
+        arguments: functionCall.arguments,
       });
     }
-  }
-
-  // If no structured content, use output_text convenience accessor
-  if (textContent.length === 0 && data.output_text) {
-    textContent.push({ type: 'text', text: data.output_text });
   }
 
   const message = new AssistantMessage(
@@ -300,9 +371,10 @@ export function transformResponsesResponse(data: OpenAIResponsesResponse): LLMRe
         openai: {
           model: data.model,
           status: data.status,
-          api: 'responses',
-          // Store function call items to echo back in subsequent requests
-          functionCallItems: functionCallItems.length > 0 ? functionCallItems : undefined,
+          // Store response_id for multi-turn tool calling
+          response_id: data.id,
+          functionCallItems:
+            functionCallItems.length > 0 ? functionCallItems : undefined,
         },
       },
     }
@@ -315,11 +387,18 @@ export function transformResponsesResponse(data: OpenAIResponsesResponse): LLMRe
   };
 
   // Map status to stop reason
-  let stopReason: string = 'stop';
-  if (data.status === 'incomplete' && data.incomplete_details?.reason) {
-    stopReason = data.incomplete_details.reason;
+  let stopReason = 'end_turn';
+  if (data.status === 'completed') {
+    stopReason = toolCalls.length > 0 ? 'tool_use' : 'end_turn';
+  } else if (data.status === 'incomplete') {
+    stopReason = data.incomplete_details?.reason === 'max_output_tokens'
+      ? 'max_tokens'
+      : 'end_turn';
   } else if (data.status === 'failed') {
     stopReason = 'error';
+  }
+  if (hadRefusal && stopReason !== 'error') {
+    stopReason = 'content_filter';
   }
 
   return {
@@ -335,130 +414,244 @@ export function transformResponsesResponse(data: OpenAIResponsesResponse): LLMRe
 export interface ResponsesStreamState {
   id: string;
   model: string;
-  content: string;
-  toolCalls: Map<number, { callId: string; name: string; arguments: string }>;
+  textByIndex: Map<number, string>;
+  toolCalls: Map<
+    number,
+    { itemId?: string; callId?: string; name?: string; arguments: string }
+  >;
   status: string;
   inputTokens: number;
   outputTokens: number;
-  isFirstChunk: boolean;
+  hadRefusal: boolean;
 }
 
 /**
- * Create initial stream state for Responses API
+ * Create initial stream state
  */
-export function createResponsesStreamState(): ResponsesStreamState {
+export function createStreamState(): ResponsesStreamState {
   return {
     id: '',
     model: '',
-    content: '',
+    textByIndex: new Map(),
     toolCalls: new Map(),
-    status: '',
+    status: 'in_progress',
     inputTokens: 0,
     outputTokens: 0,
-    isFirstChunk: true,
+    hadRefusal: false,
   };
 }
 
 /**
- * Transform Responses API stream event to UPP StreamEvents
+ * Transform OpenAI Responses API stream event to UPP StreamEvent
+ * Returns array since one event may produce multiple UPP events
  */
-export function transformResponsesStreamEvent(
+export function transformStreamEvent(
   event: OpenAIResponsesStreamEvent,
   state: ResponsesStreamState
 ): StreamEvent[] {
   const events: StreamEvent[] = [];
 
   switch (event.type) {
-    case 'response.created': {
-      if (event.response.id) state.id = event.response.id;
-      if (event.response.model) state.model = event.response.model;
-      if (state.isFirstChunk) {
-        events.push({ type: 'message_start', index: 0, delta: {} });
-        state.isFirstChunk = false;
-      }
+    case 'response.created':
+      state.id = event.response.id;
+      state.model = event.response.model;
+      events.push({ type: 'message_start', index: 0, delta: {} });
       break;
-    }
 
-    case 'response.output_item.added': {
-      const item = event.item;
-      if (item.type === 'function_call') {
-        const fc = item as OpenAIResponsesFunctionCall;
-        state.toolCalls.set(event.output_index, {
-          callId: fc.call_id,
-          name: fc.name,
+    case 'response.in_progress':
+      state.status = 'in_progress';
+      break;
+
+    case 'response.completed':
+      state.status = 'completed';
+      if (event.response.usage) {
+        state.inputTokens = event.response.usage.input_tokens;
+        state.outputTokens = event.response.usage.output_tokens;
+      }
+      events.push({ type: 'message_stop', index: 0, delta: {} });
+      break;
+
+    case 'response.failed':
+      state.status = 'failed';
+      events.push({ type: 'message_stop', index: 0, delta: {} });
+      break;
+
+    case 'response.output_item.added':
+      if (event.item.type === 'function_call') {
+        const functionCall = event.item as OpenAIResponsesFunctionCallOutput;
+        const existing = state.toolCalls.get(event.output_index) ?? {
           arguments: '',
-        });
+        };
+        existing.itemId = functionCall.id;
+        existing.callId = functionCall.call_id;
+        existing.name = functionCall.name;
+        if (functionCall.arguments) {
+          existing.arguments = functionCall.arguments;
+        }
+        state.toolCalls.set(event.output_index, existing);
       }
+      events.push({
+        type: 'content_block_start',
+        index: event.output_index,
+        delta: {},
+      });
       break;
-    }
 
-    case 'response.output_text.delta': {
-      state.content += event.delta;
+    case 'response.output_item.done':
+      if (event.item.type === 'function_call') {
+        const functionCall = event.item as OpenAIResponsesFunctionCallOutput;
+        const existing = state.toolCalls.get(event.output_index) ?? {
+          arguments: '',
+        };
+        existing.itemId = functionCall.id;
+        existing.callId = functionCall.call_id;
+        existing.name = functionCall.name;
+        if (functionCall.arguments) {
+          existing.arguments = functionCall.arguments;
+        }
+        state.toolCalls.set(event.output_index, existing);
+      }
+      events.push({
+        type: 'content_block_stop',
+        index: event.output_index,
+        delta: {},
+      });
+      break;
+
+    case 'response.output_text.delta':
+      // Accumulate text
+      const currentText = state.textByIndex.get(event.output_index) ?? '';
+      state.textByIndex.set(event.output_index, currentText + event.delta);
       events.push({
         type: 'text_delta',
-        index: 0,
+        index: event.output_index,
+        delta: { text: event.delta },
+      });
+      break;
+
+    case 'response.output_text.done':
+      state.textByIndex.set(event.output_index, event.text);
+      break;
+
+    case 'response.refusal.delta': {
+      state.hadRefusal = true;
+      const currentRefusal = state.textByIndex.get(event.output_index) ?? '';
+      state.textByIndex.set(event.output_index, currentRefusal + event.delta);
+      events.push({
+        type: 'text_delta',
+        index: event.output_index,
         delta: { text: event.delta },
       });
       break;
     }
 
+    case 'response.refusal.done':
+      state.hadRefusal = true;
+      state.textByIndex.set(event.output_index, event.refusal);
+      break;
+
     case 'response.function_call_arguments.delta': {
-      const existing = state.toolCalls.get(event.output_index);
-      if (existing) {
-        existing.arguments += event.delta;
-        events.push({
-          type: 'tool_call_delta',
-          index: event.output_index,
-          delta: {
-            toolCallId: existing.callId,
-            toolName: existing.name,
-            argumentsJson: event.delta,
-          },
-        });
+      // Accumulate function call arguments
+      let toolCall = state.toolCalls.get(event.output_index);
+      if (!toolCall) {
+        toolCall = { arguments: '' };
+        state.toolCalls.set(event.output_index, toolCall);
       }
+      if (event.item_id && !toolCall.itemId) {
+        toolCall.itemId = event.item_id;
+      }
+      if (event.call_id && !toolCall.callId) {
+        toolCall.callId = event.call_id;
+      }
+      toolCall.arguments += event.delta;
+      events.push({
+        type: 'tool_call_delta',
+        index: event.output_index,
+        delta: {
+          toolCallId: toolCall.callId ?? toolCall.itemId ?? '',
+          toolName: toolCall.name,
+          argumentsJson: event.delta,
+        },
+      });
       break;
     }
 
-    case 'response.completed': {
-      state.status = event.response.status;
-      state.inputTokens = event.response.usage.input_tokens;
-      state.outputTokens = event.response.usage.output_tokens;
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+    case 'response.function_call_arguments.done': {
+      // Finalize function call
+      let toolCall = state.toolCalls.get(event.output_index);
+      if (!toolCall) {
+        toolCall = { arguments: '' };
+        state.toolCalls.set(event.output_index, toolCall);
+      }
+      if (event.item_id) {
+        toolCall.itemId = event.item_id;
+      }
+      if (event.call_id) {
+        toolCall.callId = event.call_id;
+      }
+      toolCall.name = event.name;
+      toolCall.arguments = event.arguments;
       break;
     }
 
-    case 'error': {
-      // Handle error event
+    case 'error':
+      // Error events are handled at the handler level
       break;
-    }
+
+    default:
+      // Ignore other events
+      break;
   }
 
   return events;
 }
 
 /**
- * Build LLMResponse from accumulated Responses API stream state
+ * Build LLMResponse from accumulated stream state
  */
-export function buildResponsesFromState(state: ResponsesStreamState): LLMResponse {
+export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
   const textContent: TextBlock[] = [];
-  const toolCalls: ToolCall[] = [];
 
-  if (state.content) {
-    textContent.push({ type: 'text', text: state.content });
+  // Combine all text content
+  for (const [, text] of state.textByIndex) {
+    if (text) {
+      textContent.push({ type: 'text', text });
+    }
   }
 
-  for (const [_, tc] of state.toolCalls) {
+  const toolCalls: ToolCall[] = [];
+  const functionCallItems: Array<{
+    id: string;
+    call_id: string;
+    name: string;
+    arguments: string;
+  }> = [];
+  for (const [, toolCall] of state.toolCalls) {
     let args: Record<string, unknown> = {};
-    try {
-      args = JSON.parse(tc.arguments);
-    } catch {
-      // Invalid JSON
+    if (toolCall.arguments) {
+      try {
+        args = JSON.parse(toolCall.arguments);
+      } catch {
+        // Invalid JSON - use empty object
+      }
     }
+    const itemId = toolCall.itemId ?? '';
+    const callId = toolCall.callId ?? toolCall.itemId ?? '';
+    const name = toolCall.name ?? '';
     toolCalls.push({
-      toolCallId: tc.callId,
-      toolName: tc.name,
+      toolCallId: callId,
+      toolName: name,
       arguments: args,
     });
+
+    if (itemId && callId && name) {
+      functionCallItems.push({
+        id: itemId,
+        call_id: callId,
+        name,
+        arguments: toolCall.arguments,
+      });
+    }
   }
 
   const message = new AssistantMessage(
@@ -470,7 +663,10 @@ export function buildResponsesFromState(state: ResponsesStreamState): LLMRespons
         openai: {
           model: state.model,
           status: state.status,
-          api: 'responses',
+          // Store response_id for multi-turn tool calling
+          response_id: state.id,
+          functionCallItems:
+            functionCallItems.length > 0 ? functionCallItems : undefined,
         },
       },
     }
@@ -482,9 +678,20 @@ export function buildResponsesFromState(state: ResponsesStreamState): LLMRespons
     totalTokens: state.inputTokens + state.outputTokens,
   };
 
+  // Map status to stop reason
+  let stopReason = 'end_turn';
+  if (state.status === 'completed') {
+    stopReason = toolCalls.length > 0 ? 'tool_use' : 'end_turn';
+  } else if (state.status === 'failed') {
+    stopReason = 'error';
+  }
+  if (state.hadRefusal && stopReason !== 'error') {
+    stopReason = 'content_filter';
+  }
+
   return {
     message,
     usage,
-    stopReason: state.status || 'completed',
+    stopReason,
   };
 }
