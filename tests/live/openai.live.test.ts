@@ -2,6 +2,14 @@ import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { openai } from '../../src/openai/index.ts';
 import type { OpenAILLMParams } from '../../src/openai/index.ts';
+import { UserMessage } from '../../src/types/messages.ts';
+import { UPPError } from '../../src/types/errors.ts';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Load duck.png for vision tests
+const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
+const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 
 /**
  * Live API tests for OpenAI
@@ -120,5 +128,133 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Live API', () => {
 
     expect(turn.toolExecutions.length).toBeGreaterThan(0);
     expect(turn.response.text).toContain('42');
+  });
+
+  test('vision/multimodal with base64 image', async () => {
+    const gpt = llm<OpenAILLMParams>({
+      model: openai('gpt-4o-mini'),
+      params: { max_completion_tokens: 100 },
+    });
+
+    // Create a user message with duck image
+    const imageMessage = new UserMessage([
+      { type: 'text', text: 'What animal is in this image? Reply with just the animal name.' },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        source: { type: 'base64', data: DUCK_IMAGE_BASE64 },
+      },
+    ]);
+
+    const turn = await gpt.generate([imageMessage]);
+
+    // Should identify the duck
+    expect(turn.response.text.toLowerCase()).toMatch(/duck|bird|waterfowl/);
+    expect(turn.usage.totalTokens).toBeGreaterThan(0);
+  });
+
+  test('streaming with tool execution', async () => {
+    const calculator = {
+      name: 'multiply',
+      description: 'Multiply two numbers',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          a: { type: 'number' as const, description: 'First number' },
+          b: { type: 'number' as const, description: 'Second number' },
+        },
+        required: ['a', 'b'],
+      },
+      run: async (params: { a: number; b: number }) => {
+        return `The product is ${params.a * params.b}`;
+      },
+    };
+
+    const gpt = llm<OpenAILLMParams>({
+      model: openai('gpt-4o-mini'),
+      params: { max_completion_tokens: 200 },
+      tools: [calculator],
+    });
+
+    const stream = gpt.stream('What is 6 times 7? Use the multiply tool.');
+
+    const events: string[] = [];
+    let hasToolCallDelta = false;
+
+    for await (const event of stream) {
+      events.push(event.type);
+      if (event.type === 'tool_call_delta') {
+        hasToolCallDelta = true;
+      }
+    }
+
+    const turn = await stream.turn;
+
+    // Should have streamed tool call events
+    expect(hasToolCallDelta || turn.toolExecutions.length > 0).toBe(true);
+    // Final response should contain the answer
+    expect(turn.response.text).toContain('42');
+  });
+
+  test('structured output with JSON mode', async () => {
+    const gpt = llm<OpenAILLMParams>({
+      model: openai('gpt-4o-mini'),
+      params: {
+        max_completion_tokens: 200,
+        response_format: { type: 'json_object' },
+      },
+    });
+
+    const turn = await gpt.generate(
+      'Return a JSON object with fields "name" (string) and "age" (number) for a person named John who is 30.'
+    );
+
+    // Should be valid JSON
+    const text = turn.response.text.trim();
+    expect(() => JSON.parse(text)).not.toThrow();
+    const parsed = JSON.parse(text);
+    expect(parsed.name).toBe('John');
+    expect(parsed.age).toBe(30);
+  });
+});
+
+/**
+ * Error handling tests
+ */
+describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Error Handling', () => {
+  test('invalid API key returns UPPError', async () => {
+    const gpt = llm<OpenAILLMParams>({
+      model: openai('gpt-4o-mini'),
+      params: { max_completion_tokens: 10 },
+      config: { apiKey: 'invalid-key-12345' },
+    });
+
+    try {
+      await gpt.generate('Hello');
+      expect(true).toBe(false); // Should not reach
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      const uppError = error as UPPError;
+      expect(uppError.code).toBe('AUTHENTICATION_FAILED');
+      expect(uppError.provider).toBe('openai');
+      expect(uppError.modality).toBe('llm');
+    }
+  });
+
+  test('invalid model returns UPPError', async () => {
+    const gpt = llm<OpenAILLMParams>({
+      model: openai('nonexistent-model-xyz'),
+      params: { max_completion_tokens: 10 },
+    });
+
+    try {
+      await gpt.generate('Hello');
+      expect(true).toBe(false); // Should not reach
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      const uppError = error as UPPError;
+      expect(['MODEL_NOT_FOUND', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect(uppError.provider).toBe('openai');
+    }
   });
 });

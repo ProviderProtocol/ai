@@ -1,7 +1,15 @@
-import { test, expect, describe, beforeAll } from 'bun:test';
+import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { anthropic } from '../../src/anthropic/index.ts';
 import type { AnthropicLLMParams } from '../../src/anthropic/index.ts';
+import { UserMessage } from '../../src/types/messages.ts';
+import { UPPError } from '../../src/types/errors.ts';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Load duck.png for vision tests
+const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
+const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 
 /**
  * Live API tests for Anthropic
@@ -110,5 +118,131 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
     expect(turn.toolExecutions.length).toBeGreaterThan(0);
     expect(turn.toolExecutions[0]?.toolName).toBe('getWeather');
     expect(turn.response.text.toLowerCase()).toContain('tokyo');
+  });
+
+  test('vision/multimodal with base64 image', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 100 },
+    });
+
+    // Create a user message with duck image
+    const imageMessage = new UserMessage([
+      { type: 'text', text: 'What animal is in this image? Reply with just the animal name.' },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        source: { type: 'base64', data: DUCK_IMAGE_BASE64 },
+      },
+    ]);
+
+    const turn = await claude.generate([imageMessage]);
+
+    // Should identify the duck
+    expect(turn.response.text.toLowerCase()).toMatch(/duck|bird|waterfowl/);
+    expect(turn.usage.totalTokens).toBeGreaterThan(0);
+  });
+
+  test('streaming with tool execution', async () => {
+    const calculator = {
+      name: 'add',
+      description: 'Add two numbers together',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          a: { type: 'number' as const, description: 'First number' },
+          b: { type: 'number' as const, description: 'Second number' },
+        },
+        required: ['a', 'b'],
+      },
+      run: async (params: { a: number; b: number }) => {
+        return `The sum is ${params.a + params.b}`;
+      },
+    };
+
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 200 },
+      tools: [calculator],
+    });
+
+    const stream = claude.stream('What is 7 + 15? Use the add tool.');
+
+    const events: string[] = [];
+    let hasToolCallDelta = false;
+
+    for await (const event of stream) {
+      events.push(event.type);
+      if (event.type === 'tool_call_delta') {
+        hasToolCallDelta = true;
+      }
+    }
+
+    const turn = await stream.turn;
+
+    // Should have streamed tool call events
+    expect(hasToolCallDelta || turn.toolExecutions.length > 0).toBe(true);
+    // Final response should contain the answer
+    expect(turn.response.text).toContain('22');
+  });
+
+  test('structured output with JSON schema', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 200 },
+    });
+
+    // Anthropic doesn't have native structured output, but we can request JSON
+    const turn = await claude.generate(
+      'Return a JSON object with fields "name" (string) and "age" (number) for a person named John who is 30. Only return the JSON, no other text.'
+    );
+
+    // Should be valid JSON
+    const text = turn.response.text.trim();
+    expect(() => JSON.parse(text)).not.toThrow();
+    const parsed = JSON.parse(text);
+    expect(parsed.name).toBe('John');
+    expect(parsed.age).toBe(30);
+  });
+});
+
+/**
+ * Error handling tests
+ */
+describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Error Handling', () => {
+  test('invalid API key returns UPPError', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 10 },
+      config: { apiKey: 'invalid-key-12345' },
+    });
+
+    try {
+      await claude.generate('Hello');
+      expect(true).toBe(false); // Should not reach
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      const uppError = error as UPPError;
+      expect(uppError.code).toBe('AUTHENTICATION_FAILED');
+      expect(uppError.provider).toBe('anthropic');
+      expect(uppError.modality).toBe('llm');
+    }
+  });
+
+  test('invalid model returns UPPError', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('nonexistent-model-xyz'),
+      params: { max_tokens: 10 },
+    });
+
+    try {
+      await claude.generate('Hello');
+      expect(true).toBe(false); // Should not reach
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      const uppError = error as UPPError;
+      expect(['MODEL_NOT_FOUND', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect(uppError.provider).toBe('anthropic');
+    }
   });
 });

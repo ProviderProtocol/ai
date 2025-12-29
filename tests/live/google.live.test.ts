@@ -2,6 +2,14 @@ import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { google } from '../../src/google/index.ts';
 import type { GoogleLLMParams } from '../../src/google/index.ts';
+import { UserMessage } from '../../src/types/messages.ts';
+import { UPPError } from '../../src/types/errors.ts';
+import { readFileSync } from 'fs';
+import { join } from 'path';
+
+// Load duck.png for vision tests
+const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
+const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 
 /**
  * Live API tests for Google Gemini
@@ -108,5 +116,134 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
     expect(turn.toolExecutions.length).toBeGreaterThan(0);
     expect(turn.response.text).toContain('3:00');
+  });
+
+  test('vision/multimodal with base64 image', async () => {
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-2.0-flash'),
+      params: { maxOutputTokens: 100 },
+    });
+
+    // Create a user message with duck image
+    const imageMessage = new UserMessage([
+      { type: 'text', text: 'What animal is in this image? Reply with just the animal name.' },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        source: { type: 'base64', data: DUCK_IMAGE_BASE64 },
+      },
+    ]);
+
+    const turn = await gemini.generate([imageMessage]);
+
+    // Should identify the duck
+    expect(turn.response.text.toLowerCase()).toMatch(/duck|bird|waterfowl/);
+    expect(turn.usage.totalTokens).toBeGreaterThan(0);
+  });
+
+  test('streaming with tool execution', async () => {
+    const calculator = {
+      name: 'divide',
+      description: 'Divide two numbers',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          a: { type: 'number' as const, description: 'Dividend' },
+          b: { type: 'number' as const, description: 'Divisor' },
+        },
+        required: ['a', 'b'],
+      },
+      run: async (params: { a: number; b: number }) => {
+        return `The result is ${params.a / params.b}`;
+      },
+    };
+
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-2.0-flash'),
+      params: { maxOutputTokens: 200 },
+      tools: [calculator],
+    });
+
+    const stream = gemini.stream('What is 100 divided by 4? Use the divide tool.');
+
+    const events: string[] = [];
+    let hasToolCallDelta = false;
+
+    for await (const event of stream) {
+      events.push(event.type);
+      if (event.type === 'tool_call_delta') {
+        hasToolCallDelta = true;
+      }
+    }
+
+    const turn = await stream.turn;
+
+    // Should have streamed tool call events
+    expect(hasToolCallDelta || turn.toolExecutions.length > 0).toBe(true);
+    // Final response should contain the answer
+    expect(turn.response.text).toContain('25');
+  });
+
+  test('structured output with JSON mode', async () => {
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-2.0-flash'),
+      params: {
+        maxOutputTokens: 200,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const turn = await gemini.generate(
+      'Return a JSON object with fields "name" (string) and "age" (number) for a person named John who is 30.'
+    );
+
+    // Should be valid JSON
+    const text = turn.response.text.trim();
+    expect(() => JSON.parse(text)).not.toThrow();
+    const parsed = JSON.parse(text);
+    expect(parsed.name).toBe('John');
+    expect(parsed.age).toBe(30);
+  });
+});
+
+/**
+ * Error handling tests
+ */
+describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Error Handling', () => {
+  test('invalid API key returns UPPError', async () => {
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-2.0-flash'),
+      params: { maxOutputTokens: 10 },
+      config: { apiKey: 'invalid-key-12345' },
+    });
+
+    try {
+      await gemini.generate('Hello');
+      expect(true).toBe(false); // Should not reach
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      const uppError = error as UPPError;
+      // Google returns INVALID_REQUEST for bad API keys (not AUTHENTICATION_FAILED)
+      expect(['AUTHENTICATION_FAILED', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect(uppError.provider).toBe('google');
+      expect(uppError.modality).toBe('llm');
+    }
+  });
+
+  test('invalid model returns UPPError', async () => {
+    const gemini = llm<GoogleLLMParams>({
+      model: google('nonexistent-model-xyz'),
+      params: { maxOutputTokens: 10 },
+    });
+
+    try {
+      await gemini.generate('Hello');
+      expect(true).toBe(false); // Should not reach
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      const uppError = error as UPPError;
+      expect(['MODEL_NOT_FOUND', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect(uppError.provider).toBe('google');
+    }
   });
 });
