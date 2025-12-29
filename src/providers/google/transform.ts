@@ -73,8 +73,13 @@ export function transformRequest<TParams extends GoogleLLMParams>(
     generationConfig.responseMimeType = params.responseMimeType;
     hasConfig = true;
   }
+  // Provider-specific responseSchema from params
+  if (params.responseSchema !== undefined) {
+    generationConfig.responseSchema = params.responseSchema as Record<string, unknown>;
+    hasConfig = true;
+  }
 
-  // Structured output
+  // Protocol-level structured output (overrides provider-specific settings)
   if (request.structure) {
     generationConfig.responseMimeType = 'application/json';
     generationConfig.responseSchema = request.structure as unknown as Record<string, unknown>;
@@ -126,8 +131,31 @@ function transformMessages(messages: Message[]): GoogleContent[] {
       const validContent = filterValidContent(msg.content);
       const parts: GooglePart[] = validContent.map(transformContentBlock);
 
-      // Add function calls
-      if (msg.toolCalls) {
+      // Add function calls - use stored parts with thought signatures if available
+      const googleMeta = msg.metadata?.google as {
+        functionCallParts?: Array<{
+          name: string;
+          args: Record<string, unknown>;
+          thoughtSignature?: string;
+        }>;
+      } | undefined;
+
+      if (googleMeta?.functionCallParts && googleMeta.functionCallParts.length > 0) {
+        // Use stored function call parts with thought signatures
+        for (const fc of googleMeta.functionCallParts) {
+          const part: GoogleFunctionCallPart = {
+            functionCall: {
+              name: fc.name,
+              args: fc.args,
+            },
+          };
+          if (fc.thoughtSignature) {
+            part.thoughtSignature = fc.thoughtSignature;
+          }
+          parts.push(part);
+        }
+      } else if (msg.toolCalls) {
+        // Fallback: reconstruct from tool calls (no thought signatures)
         for (const call of msg.toolCalls) {
           parts.push({
             functionCall: {
@@ -230,6 +258,12 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
 
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
+  // Store original function call parts with thought signatures for echoing back
+  const functionCallParts: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    thoughtSignature?: string;
+  }> = [];
 
   for (const part of candidate.content.parts) {
     if ('text' in part) {
@@ -240,6 +274,12 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
         toolCallId: fc.functionCall.name, // Google doesn't have call IDs, use name
         toolName: fc.functionCall.name,
         arguments: fc.functionCall.args,
+      });
+      // Store the full part including thought signature
+      functionCallParts.push({
+        name: fc.functionCall.name,
+        args: fc.functionCall.args,
+        thoughtSignature: fc.thoughtSignature,
       });
     }
   }
@@ -252,6 +292,8 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
         google: {
           finishReason: candidate.finishReason,
           safetyRatings: candidate.safetyRatings,
+          // Store function call parts with thought signatures for multi-turn
+          functionCallParts: functionCallParts.length > 0 ? functionCallParts : undefined,
         },
       },
     }
@@ -275,7 +317,7 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
  */
 export interface StreamState {
   content: string;
-  toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  toolCalls: Array<{ name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
   finishReason: string | null;
   inputTokens: number;
   outputTokens: number;
@@ -333,9 +375,11 @@ export function transformStreamChunk(
       });
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
+      // Store with thought signature for echoing back
       state.toolCalls.push({
         name: fc.functionCall.name,
         args: fc.functionCall.args,
+        thoughtSignature: fc.thoughtSignature,
       });
       events.push({
         type: 'tool_call_delta',
@@ -364,6 +408,11 @@ export function transformStreamChunk(
 export function buildResponseFromState(state: StreamState): LLMResponse {
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
+  const functionCallParts: Array<{
+    name: string;
+    args: Record<string, unknown>;
+    thoughtSignature?: string;
+  }> = [];
 
   if (state.content) {
     textContent.push({ type: 'text', text: state.content });
@@ -375,6 +424,11 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
       toolName: tc.name,
       arguments: tc.args,
     });
+    functionCallParts.push({
+      name: tc.name,
+      args: tc.args,
+      thoughtSignature: tc.thoughtSignature,
+    });
   }
 
   const message = new AssistantMessage(
@@ -384,6 +438,8 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
       metadata: {
         google: {
           finishReason: state.finishReason,
+          // Store function call parts with thought signatures for multi-turn
+          functionCallParts: functionCallParts.length > 0 ? functionCallParts : undefined,
         },
       },
     }

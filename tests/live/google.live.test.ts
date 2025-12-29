@@ -18,8 +18,8 @@ const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
   test('simple text generation', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 100 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 500 },
     });
 
     const turn = await gemini.generate('Say "Hello UPP" and nothing else.');
@@ -31,8 +31,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
   test('streaming text generation', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 50 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 500 },
     });
 
     const stream = gemini.stream('Count from 1 to 5.');
@@ -55,7 +55,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
   test('multi-turn conversation', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
+      model: google('gemini-3-flash-preview'),
       params: { maxOutputTokens: 100 },
     });
 
@@ -73,8 +73,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
   test('with system instruction', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 50 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 100 },
       system: 'You are a friendly cat. Always respond like a cat would. (meow!)',
     });
 
@@ -108,8 +108,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     };
 
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 200 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 500 },
       tools: [getTime],
     });
 
@@ -121,7 +121,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
   test('vision/multimodal with base64 image', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
+      model: google('gemini-3-flash-preview'),
       params: { maxOutputTokens: 100 },
     });
 
@@ -160,8 +160,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     };
 
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 200 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 500 },
       tools: [calculator],
     });
 
@@ -187,10 +187,19 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
   test('structured output with JSON mode', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
+      model: google('gemini-3-flash-preview'),
       params: {
-        maxOutputTokens: 200,
+        maxOutputTokens: 500,
         responseMimeType: 'application/json',
+        // Gemini 3 requires a schema for reliable JSON output
+        responseSchema: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            age: { type: 'number' },
+          },
+          required: ['name', 'age'],
+        },
       },
     });
 
@@ -208,8 +217,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
   test('protocol-level structured output (schema enforcement)', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 200 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 500 },
       structure: {
         type: 'object',
         properties: {
@@ -242,8 +251,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     };
 
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 300 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 500 },
       tools: [getWeather],
     });
 
@@ -263,8 +272,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
   test('streaming with structured output', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
-      params: { maxOutputTokens: 200 },
+      model: google('gemini-3-flash-preview'),
+      params: { maxOutputTokens: 500 },
       structure: {
         type: 'object',
         properties: {
@@ -310,7 +319,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
     const gemini = llm<GoogleLLMParams>({
-      model: google('gemini-2.0-flash'),
+      model: google('gemini-3-flash-preview'),
       params: { maxOutputTokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
     });

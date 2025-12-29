@@ -82,6 +82,8 @@ export interface GoogleFunctionCallPart {
     name: string;
     args: Record<string, unknown>;
   };
+  /** Gemini 3+ thought signature for multi-turn tool calls */
+  thoughtSignature?: string;
 }
 
 export interface GoogleFunctionResponsePart {
