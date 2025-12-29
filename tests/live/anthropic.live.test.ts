@@ -204,6 +204,71 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
     expect(parsed.name).toBe('John');
     expect(parsed.age).toBe(30);
   });
+
+  test('protocol-level structured output (schema enforcement)', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 200 },
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          population: { type: 'number' },
+          isCapital: { type: 'boolean' },
+        },
+        required: ['city', 'population', 'isCapital'],
+      },
+    });
+
+    const turn = await claude.generate('Tell me about Paris, France.');
+
+    // The 'data' field should be automatically populated and typed
+    expect(turn.data).toBeDefined();
+    expect((turn.data as any).city).toBe('Paris');
+    expect(typeof (turn.data as any).population).toBe('number');
+  });
+
+  test('streaming with structured output', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 200 },
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          population: { type: 'number' },
+          isCapital: { type: 'boolean' },
+        },
+        required: ['city', 'population', 'isCapital'],
+      },
+    });
+
+    const stream = claude.stream('Tell me about Tokyo, Japan.');
+
+    // Anthropic uses tool-based structured output, so we accumulate tool_call_delta events
+    let accumulatedJson = '';
+    for await (const event of stream) {
+      if (event.type === 'tool_call_delta' && event.delta.argumentsJson) {
+        accumulatedJson += event.delta.argumentsJson;
+      }
+    }
+
+    // The accumulated JSON should be valid and parseable
+    expect(accumulatedJson.length).toBeGreaterThan(0);
+    const streamedData = JSON.parse(accumulatedJson);
+    expect(streamedData.city).toBe('Tokyo');
+
+    const turn = await stream.turn;
+
+    // The 'data' field should match what we accumulated
+    expect(turn.data).toBeDefined();
+    expect((turn.data as any).city).toBe('Tokyo');
+    expect(typeof (turn.data as any).population).toBe('number');
+    expect((turn.data as any).isCapital).toBe(true);
+
+    // Verify streamed matches final
+    expect(streamedData.city).toBe((turn.data as any).city);
+  });
 });
 
 /**

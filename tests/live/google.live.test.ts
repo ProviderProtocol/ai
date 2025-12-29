@@ -75,7 +75,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     const gemini = llm<GoogleLLMParams>({
       model: google('gemini-2.0-flash'),
       params: { maxOutputTokens: 50 },
-      system: 'You are a friendly cat. Always respond like a cat would.',
+      system: 'You are a friendly cat. Always respond like a cat would. (meow!)',
     });
 
     const turn = await gemini.generate('Hello!');
@@ -86,7 +86,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
       text.includes('purr') ||
       text.includes('cat') ||
       text.includes('paw') ||
-      text.includes('*')
+      text.includes('*') ||
+      text.includes('Meeeooow')
     ).toBe(true);
   });
 
@@ -203,6 +204,71 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     const parsed = JSON.parse(text);
     expect(parsed.name).toBe('John');
     expect(parsed.age).toBe(30);
+  });
+
+  test('protocol-level structured output (schema enforcement)', async () => {
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-2.0-flash'),
+      params: { maxOutputTokens: 200 },
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          population: { type: 'number' },
+          isCapital: { type: 'boolean' },
+        },
+        required: ['city', 'population', 'isCapital'],
+      },
+    });
+
+    const turn = await gemini.generate('Tell me about Paris, France.');
+
+    // The 'data' field should be automatically populated and typed
+    expect(turn.data).toBeDefined();
+    expect((turn.data as any).city).toBe('Paris');
+    expect(typeof (turn.data as any).population).toBe('number');
+  });
+
+  test('streaming with structured output', async () => {
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-2.0-flash'),
+      params: { maxOutputTokens: 200 },
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          population: { type: 'number' },
+          isCapital: { type: 'boolean' },
+        },
+        required: ['city', 'population', 'isCapital'],
+      },
+    });
+
+    const stream = gemini.stream('Tell me about Tokyo, Japan.');
+
+    // Google uses native structured output, so we accumulate text_delta events
+    let accumulatedJson = '';
+    for await (const event of stream) {
+      if (event.type === 'text_delta' && event.delta.text) {
+        accumulatedJson += event.delta.text;
+      }
+    }
+
+    // The accumulated JSON should be valid and parseable
+    expect(accumulatedJson.length).toBeGreaterThan(0);
+    const streamedData = JSON.parse(accumulatedJson);
+    expect(streamedData.city).toBe('Tokyo');
+
+    const turn = await stream.turn;
+
+    // The 'data' field should match what we accumulated
+    expect(turn.data).toBeDefined();
+    expect((turn.data as any).city).toBe('Tokyo');
+    expect(typeof (turn.data as any).population).toBe('number');
+    expect((turn.data as any).isCapital).toBe(true);
+
+    // Verify streamed matches final
+    expect(streamedData.city).toBe((turn.data as any).city);
   });
 });
 

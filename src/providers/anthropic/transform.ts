@@ -69,6 +69,25 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
     anthropicRequest.tool_choice = { type: 'auto' };
   }
 
+  // Structured output via tool-based approach
+  // Anthropic doesn't have native structured output, so we use a tool to enforce the schema
+  if (request.structure) {
+    const structuredTool: AnthropicTool = {
+      name: 'json_response',
+      description: 'Return the response in the specified JSON format. You MUST use this tool to provide your response.',
+      input_schema: {
+        type: 'object',
+        properties: request.structure.properties,
+        required: request.structure.required,
+      },
+    };
+
+    // Add the structured output tool (may coexist with user tools)
+    anthropicRequest.tools = [...(anthropicRequest.tools ?? []), structuredTool];
+    // Force the model to use the json_response tool
+    anthropicRequest.tool_choice = { type: 'tool', name: 'json_response' };
+  }
+
   return anthropicRequest;
 }
 

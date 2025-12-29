@@ -90,11 +90,16 @@ export function transformRequest<TParams extends OpenAILLMParams>(
 
   // Structured output
   if (request.structure) {
+    // OpenAI requires additionalProperties: false for strict mode
+    const schemaWithAdditional = {
+      ...request.structure,
+      additionalProperties: false,
+    };
     openaiRequest.response_format = {
       type: 'json_schema',
       json_schema: {
         name: 'response',
-        schema: request.structure as unknown as Record<string, unknown>,
+        schema: schemaWithAdditional as unknown as Record<string, unknown>,
         strict: true,
       },
     };

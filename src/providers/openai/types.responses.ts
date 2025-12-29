@@ -57,6 +57,19 @@ export interface OpenAIResponsesRequest {
 
   /** Items to include in response */
   include?: string[];
+
+  /** Text output configuration for structured output */
+  text?: {
+    format:
+      | { type: 'text' }
+      | {
+          type: 'json_schema';
+          name: string;
+          schema: Record<string, unknown>;
+          strict?: boolean;
+        }
+      | { type: 'json_object' };
+  };
 }
 
 /**

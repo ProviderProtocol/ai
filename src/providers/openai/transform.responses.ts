@@ -70,8 +70,22 @@ export function transformResponsesRequest<TParams extends OpenAILLMParams>(
     responsesRequest.tool_choice = 'auto';
   }
 
-  // Don't store by default (matches UPP's stateless behavior)
-  responsesRequest.store = true;
+  // Structured output via text format
+  if (request.structure) {
+    // OpenAI requires additionalProperties: false for strict mode
+    const schemaWithAdditional = {
+      ...request.structure,
+      additionalProperties: false,
+    };
+    responsesRequest.text = {
+      format: {
+        type: 'json_schema',
+        name: 'response',
+        schema: schemaWithAdditional as unknown as Record<string, unknown>,
+        strict: true,
+      },
+    };
+  }
 
   return responsesRequest;
 }

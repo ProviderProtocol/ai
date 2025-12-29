@@ -197,6 +197,13 @@ async function executeGenerate<TParams>(
 
     // Check for tool calls
     if (response.message.hasToolCalls && tools && tools.length > 0) {
+      // If this is a structured output response (json_response tool), don't execute - just break
+      const isStructuredOutputResponse = structure &&
+        response.message.toolCalls?.some(tc => tc.toolName === 'json_response');
+      if (isStructuredOutputResponse) {
+        break;
+      }
+
       // Check if we've hit max iterations (subtract 1 because we already incremented)
       if (cycles >= maxIterations) {
         await toolStrategy?.onMaxIterations?.(maxIterations);
@@ -230,11 +237,28 @@ async function executeGenerate<TParams>(
   let data: unknown;
   if (structure) {
     const lastMessage = allMessages[allMessages.length - 1] as AssistantMessage;
-    try {
-      data = JSON.parse(lastMessage.text);
-    } catch {
+
+    // First, check for tool-based structured output (Anthropic's approach)
+    // Look for a json_response tool call
+    const jsonResponseCall = lastMessage.toolCalls?.find(tc => tc.toolName === 'json_response');
+    if (jsonResponseCall) {
+      // The arguments ARE the structured data
+      data = jsonResponseCall.arguments;
+    } else if (lastMessage.text) {
+      // Native structured output (OpenAI/Google) - parse from text
+      try {
+        data = JSON.parse(lastMessage.text);
+      } catch {
+        throw new UPPError(
+          'Failed to parse structured output as JSON',
+          'INVALID_RESPONSE',
+          model.provider.name,
+          'llm'
+        );
+      }
+    } else {
       throw new UPPError(
-        'Failed to parse structured output as JSON',
+        'No structured output found in response',
         'INVALID_RESPONSE',
         model.provider.name,
         'llm'
@@ -314,6 +338,13 @@ function executeStream<TParams>(
 
         // Check for tool calls
         if (response.message.hasToolCalls && tools && tools.length > 0) {
+          // If this is a structured output response (json_response tool), don't execute - just break
+          const isStructuredOutputResponse = structure &&
+            response.message.toolCalls?.some(tc => tc.toolName === 'json_response');
+          if (isStructuredOutputResponse) {
+            break;
+          }
+
           if (cycles >= maxIterations) {
             await toolStrategy?.onMaxIterations?.(maxIterations);
             throw new UPPError(
@@ -359,11 +390,25 @@ function executeStream<TParams>(
     let data: unknown;
     if (structure) {
       const lastMessage = allMessages[allMessages.length - 1] as AssistantMessage;
-      try {
-        data = JSON.parse(lastMessage.text);
-      } catch {
+
+      // First, check for tool-based structured output (Anthropic's approach)
+      const jsonResponseCall = lastMessage.toolCalls?.find(tc => tc.toolName === 'json_response');
+      if (jsonResponseCall) {
+        data = jsonResponseCall.arguments;
+      } else if (lastMessage.text) {
+        try {
+          data = JSON.parse(lastMessage.text);
+        } catch {
+          throw new UPPError(
+            'Failed to parse structured output as JSON',
+            'INVALID_RESPONSE',
+            model.provider.name,
+            'llm'
+          );
+        }
+      } else {
         throw new UPPError(
-          'Failed to parse structured output as JSON',
+          'No structured output found in response',
           'INVALID_RESPONSE',
           model.provider.name,
           'llm'
