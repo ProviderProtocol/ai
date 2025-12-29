@@ -33,7 +33,6 @@ export function transformResponsesRequest<TParams extends OpenAILLMParams>(
 
   const responsesRequest: OpenAIResponsesRequest = {
     model: modelId,
-    // Cast to any since the input can include function_call items
     input: transformMessagesToInput(request.messages) as any,
   };
 
@@ -101,6 +100,7 @@ interface OpenAIResponsesFunctionCallInput {
   arguments: string;
 }
 
+
 /**
  * Transform UPP Messages to Responses API input items
  */
@@ -147,7 +147,23 @@ function transformMessagesToInput(messages: Message[]): (OpenAIResponsesInputIte
 
       // Include function calls from assistant messages
       // The Responses API requires these when sending function_call_output items
-      if (msg.toolCalls && msg.toolCalls.length > 0) {
+      // Use the stored original function call items if available (they have correct IDs)
+      const storedFunctionCalls = (msg.metadata?.openai as any)?.functionCallItems as
+        Array<{ id: string; call_id: string; name: string; arguments: string }> | undefined;
+
+      if (storedFunctionCalls && storedFunctionCalls.length > 0) {
+        // Use the original function call items from the API response
+        for (const fc of storedFunctionCalls) {
+          input.push({
+            type: 'function_call',
+            id: fc.id,
+            call_id: fc.call_id,
+            name: fc.name,
+            arguments: fc.arguments,
+          });
+        }
+      } else if (msg.toolCalls && msg.toolCalls.length > 0) {
+        // Fallback: reconstruct from tool calls (may not have correct IDs)
         for (const call of msg.toolCalls) {
           input.push({
             type: 'function_call',
@@ -236,6 +252,8 @@ function transformTool(tool: Tool): OpenAIResponsesTool {
 export function transformResponsesResponse(data: OpenAIResponsesResponse): LLMResponse {
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
+  // Store original function_call items to echo back in subsequent requests
+  const functionCallItems: Array<{ id: string; call_id: string; name: string; arguments: string }> = [];
 
   // Extract text and tool calls from output items
   for (const item of data.output) {
@@ -258,6 +276,13 @@ export function transformResponsesResponse(data: OpenAIResponsesResponse): LLMRe
         toolName: fc.name,
         arguments: args,
       });
+      // Store the original function call for echoing back
+      functionCallItems.push({
+        id: fc.id,
+        call_id: fc.call_id,
+        name: fc.name,
+        arguments: fc.arguments,
+      });
     }
   }
 
@@ -276,6 +301,8 @@ export function transformResponsesResponse(data: OpenAIResponsesResponse): LLMRe
           model: data.model,
           status: data.status,
           api: 'responses',
+          // Store function call items to echo back in subsequent requests
+          functionCallItems: functionCallItems.length > 0 ? functionCallItems : undefined,
         },
       },
     }

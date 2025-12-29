@@ -43,7 +43,21 @@ export function transformRequest<TParams extends OpenAILLMParams>(
 
   // Transform conversation messages
   for (const msg of request.messages) {
-    messages.push(transformMessage(msg));
+    if (isToolResultMessage(msg)) {
+      // OpenAI requires each tool result as a separate message
+      for (const result of msg.results) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: result.toolCallId,
+          content:
+            typeof result.result === 'string'
+              ? result.result
+              : JSON.stringify(result.result),
+        });
+      }
+    } else {
+      messages.push(transformMessage(msg));
+    }
   }
 
   const openaiRequest: OpenAIRequest = {
@@ -164,24 +178,8 @@ function transformMessage(message: Message): OpenAIMessage {
     return result;
   }
 
-  if (isToolResultMessage(message)) {
-    // OpenAI uses separate tool messages for each result
-    // For now, return the first result (the caller should split these)
-    const result = message.results[0];
-    if (!result) {
-      throw new Error('ToolResultMessage must have at least one result');
-    }
-
-    return {
-      role: 'tool',
-      tool_call_id: result.toolCallId,
-      content:
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result),
-    };
-  }
-
+  // Note: ToolResultMessage is handled separately in transformRequest
+  // to expand into multiple tool messages
   throw new Error(`Unknown message type: ${message.type}`);
 }
 
