@@ -267,124 +267,93 @@ function executeStream<TParams>(
 ): StreamResult {
   const abortController = new AbortController();
 
-  // Create the async generator
+  // Shared state between generator and turn promise
+  const allMessages: Message[] = [...history, ...newMessages];
+  const toolExecutions: ToolExecution[] = [];
+  const usages: TokenUsage[] = [];
+  let cycles = 0;
+  let generatorError: Error | null = null;
+
+  // Deferred to signal when generator completes
+  let resolveGenerator: () => void;
+  let rejectGenerator: (error: Error) => void;
+  const generatorDone = new Promise<void>((resolve, reject) => {
+    resolveGenerator = resolve;
+    rejectGenerator = reject;
+  });
+
+  const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+
+  // Create the async generator - this is the ONLY place that calls the API
   async function* generateStream(): AsyncGenerator<StreamEvent, void, unknown> {
-    const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-    const allMessages: Message[] = [...history, ...newMessages];
-    const toolExecutions: ToolExecution[] = [];
-    const usages: TokenUsage[] = [];
-    let cycles = 0;
+    try {
+      while (cycles < maxIterations + 1) {
+        cycles++;
 
-    while (cycles < maxIterations + 1) {
-      cycles++;
+        const request: LLMRequest<TParams> = {
+          messages: allMessages,
+          system,
+          params,
+          tools,
+          structure,
+          config,
+          signal: abortController.signal,
+        };
 
-      const request: LLMRequest<TParams> = {
-        messages: allMessages,
-        system,
-        params,
-        tools,
-        structure,
-        config,
-        signal: abortController.signal,
-      };
+        const streamResult = model.stream(request);
 
-      const streamResult = model.stream(request);
-
-      // Forward stream events
-      for await (const event of streamResult) {
-        yield event;
-      }
-
-      // Get the response
-      const response = await streamResult.response;
-      usages.push(response.usage);
-      allMessages.push(response.message);
-
-      // Check for tool calls
-      if (response.message.hasToolCalls && tools && tools.length > 0) {
-        if (cycles >= maxIterations) {
-          await toolStrategy?.onMaxIterations?.(maxIterations);
-          throw new UPPError(
-            `Tool execution exceeded maximum iterations (${maxIterations})`,
-            'INVALID_REQUEST',
-            model.provider.name,
-            'llm'
-          );
+        // Forward stream events
+        for await (const event of streamResult) {
+          yield event;
         }
 
-        // Execute tools
-        const results = await executeTools(
-          response.message,
-          tools,
-          toolStrategy,
-          toolExecutions
-        );
+        // Get the response
+        const response = await streamResult.response;
+        usages.push(response.usage);
+        allMessages.push(response.message);
 
-        // Add tool results
-        allMessages.push(new ToolResultMessage(results));
+        // Check for tool calls
+        if (response.message.hasToolCalls && tools && tools.length > 0) {
+          if (cycles >= maxIterations) {
+            await toolStrategy?.onMaxIterations?.(maxIterations);
+            throw new UPPError(
+              `Tool execution exceeded maximum iterations (${maxIterations})`,
+              'INVALID_REQUEST',
+              model.provider.name,
+              'llm'
+            );
+          }
 
-        continue;
+          // Execute tools
+          const results = await executeTools(
+            response.message,
+            tools,
+            toolStrategy,
+            toolExecutions
+          );
+
+          // Add tool results
+          allMessages.push(new ToolResultMessage(results));
+
+          continue;
+        }
+
+        break;
       }
-
-      break;
+      resolveGenerator();
+    } catch (error) {
+      generatorError = error as Error;
+      rejectGenerator(error as Error);
+      throw error;
     }
   }
 
-  // Create the turn promise
+  // Turn promise waits for the generator to complete, then builds the Turn
   const turnPromise = (async (): Promise<Turn> => {
-    const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-    const allMessages: Message[] = [...history, ...newMessages];
-    const toolExecutions: ToolExecution[] = [];
-    const usages: TokenUsage[] = [];
-    let cycles = 0;
+    await generatorDone;
 
-    while (cycles < maxIterations + 1) {
-      cycles++;
-
-      const request: LLMRequest<TParams> = {
-        messages: allMessages,
-        system,
-        params,
-        tools,
-        structure,
-        config,
-        signal: abortController.signal,
-      };
-
-      const streamResult = model.stream(request);
-
-      // Consume stream (events already yielded above)
-      for await (const _ of streamResult) {
-        // Events are consumed by the generator above
-      }
-
-      const response = await streamResult.response;
-      usages.push(response.usage);
-      allMessages.push(response.message);
-
-      if (response.message.hasToolCalls && tools && tools.length > 0) {
-        if (cycles >= maxIterations) {
-          await toolStrategy?.onMaxIterations?.(maxIterations);
-          throw new UPPError(
-            `Tool execution exceeded maximum iterations (${maxIterations})`,
-            'INVALID_REQUEST',
-            model.provider.name,
-            'llm'
-          );
-        }
-
-        const results = await executeTools(
-          response.message,
-          tools,
-          toolStrategy,
-          toolExecutions
-        );
-
-        allMessages.push(new ToolResultMessage(results));
-        continue;
-      }
-
-      break;
+    if (generatorError) {
+      throw generatorError;
     }
 
     let data: unknown;
