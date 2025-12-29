@@ -89,6 +89,18 @@ export function transformRequest<TParams extends OpenAILLMParams>(
   if (params.metadata !== undefined) {
     openaiRequest.metadata = params.metadata;
   }
+  if (params.prediction !== undefined) {
+    openaiRequest.prediction = params.prediction;
+  }
+  if (params.prompt_cache_key !== undefined) {
+    openaiRequest.prompt_cache_key = params.prompt_cache_key;
+  }
+  if (params.prompt_cache_retention !== undefined) {
+    openaiRequest.prompt_cache_retention = params.prompt_cache_retention;
+  }
+  if (params.safety_identifier !== undefined) {
+    openaiRequest.safety_identifier = params.safety_identifier;
+  }
 
   // Tools
   if (request.tools && request.tools.length > 0) {

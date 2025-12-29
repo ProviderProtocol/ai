@@ -25,6 +25,52 @@ export interface GoogleLLMParams {
 
   /** Response schema for structured output */
   responseSchema?: Record<string, unknown>;
+
+  /**
+   * Presence penalty for new topics
+   * Positive values encourage discussing new topics
+   */
+  presencePenalty?: number;
+
+  /**
+   * Frequency penalty for repeated tokens
+   * Positive values discourage repetition
+   */
+  frequencyPenalty?: number;
+
+  /**
+   * Seed for deterministic sampling
+   * Same seed with same parameters should produce same results
+   */
+  seed?: number;
+
+  /**
+   * Whether to return log probabilities in response
+   */
+  responseLogprobs?: boolean;
+
+  /**
+   * Number of log probabilities to return (requires responseLogprobs: true)
+   */
+  logprobs?: number;
+
+  /**
+   * Whether to include audio timestamps in response
+   */
+  audioTimestamp?: boolean;
+
+  /**
+   * Thinking/reasoning configuration for Gemini 3+ models
+   */
+  thinkingConfig?: GoogleThinkingConfig;
+}
+
+/**
+ * Thinking configuration for Gemini 3+ models
+ */
+export interface GoogleThinkingConfig {
+  /** Whether thinking is enabled */
+  thinkingBudget?: number;
 }
 
 /**
@@ -44,6 +90,13 @@ export interface GoogleRequest {
     candidateCount?: number;
     responseMimeType?: string;
     responseSchema?: Record<string, unknown>;
+    presencePenalty?: number;
+    frequencyPenalty?: number;
+    seed?: number;
+    responseLogprobs?: boolean;
+    logprobs?: number;
+    audioTimestamp?: boolean;
+    thinkingConfig?: GoogleThinkingConfig;
   };
   tools?: GoogleTool[];
   safetySettings?: GoogleSafetySetting[];

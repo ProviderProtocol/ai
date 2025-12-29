@@ -42,51 +42,61 @@ export function transformRequest<TParams extends GoogleLLMParams>(
   }
 
   // Generation config
-  const generationConfig: GoogleRequest['generationConfig'] = {};
-  let hasConfig = false;
+  const generationConfig: NonNullable<GoogleRequest['generationConfig']> = {};
 
   if (params.maxOutputTokens !== undefined) {
     generationConfig.maxOutputTokens = params.maxOutputTokens;
-    hasConfig = true;
   }
   if (params.temperature !== undefined) {
     generationConfig.temperature = params.temperature;
-    hasConfig = true;
   }
   if (params.topP !== undefined) {
     generationConfig.topP = params.topP;
-    hasConfig = true;
   }
   if (params.topK !== undefined) {
     generationConfig.topK = params.topK;
-    hasConfig = true;
   }
   if (params.stopSequences !== undefined) {
     generationConfig.stopSequences = params.stopSequences;
-    hasConfig = true;
   }
   if (params.candidateCount !== undefined) {
     generationConfig.candidateCount = params.candidateCount;
-    hasConfig = true;
   }
   if (params.responseMimeType !== undefined) {
     generationConfig.responseMimeType = params.responseMimeType;
-    hasConfig = true;
   }
-  // Provider-specific responseSchema from params
   if (params.responseSchema !== undefined) {
     generationConfig.responseSchema = params.responseSchema as Record<string, unknown>;
-    hasConfig = true;
+  }
+  if (params.presencePenalty !== undefined) {
+    generationConfig.presencePenalty = params.presencePenalty;
+  }
+  if (params.frequencyPenalty !== undefined) {
+    generationConfig.frequencyPenalty = params.frequencyPenalty;
+  }
+  if (params.seed !== undefined) {
+    generationConfig.seed = params.seed;
+  }
+  if (params.responseLogprobs !== undefined) {
+    generationConfig.responseLogprobs = params.responseLogprobs;
+  }
+  if (params.logprobs !== undefined) {
+    generationConfig.logprobs = params.logprobs;
+  }
+  if (params.audioTimestamp !== undefined) {
+    generationConfig.audioTimestamp = params.audioTimestamp;
+  }
+  if (params.thinkingConfig !== undefined) {
+    generationConfig.thinkingConfig = params.thinkingConfig;
   }
 
   // Protocol-level structured output (overrides provider-specific settings)
   if (request.structure) {
     generationConfig.responseMimeType = 'application/json';
     generationConfig.responseSchema = request.structure as unknown as Record<string, unknown>;
-    hasConfig = true;
   }
 
-  if (hasConfig) {
+  if (Object.keys(generationConfig).length > 0) {
     googleRequest.generationConfig = generationConfig;
   }
 

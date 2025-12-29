@@ -62,6 +62,9 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   if (params.thinking) {
     anthropicRequest.thinking = params.thinking;
   }
+  if (params.service_tier !== undefined) {
+    anthropicRequest.service_tier = params.service_tier;
+  }
 
   // Tools
   if (request.tools && request.tools.length > 0) {

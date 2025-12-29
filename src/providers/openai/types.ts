@@ -83,6 +83,34 @@ export interface OpenAILLMParams {
 
   /** Response format for structured output (Chat Completions API only) */
   response_format?: OpenAIResponseFormat;
+
+  /**
+   * Predicted Output configuration for faster regeneration
+   * Improves response times when large parts of the response are known ahead of time
+   * Most useful when regenerating a file with only minor changes
+   */
+  prediction?: {
+    type: 'content';
+    content: string | Array<{ type: 'text'; text: string }>;
+  };
+
+  /**
+   * Stable identifier for caching similar requests (replaces user field)
+   * Used to optimize cache hit rates
+   */
+  prompt_cache_key?: string;
+
+  /**
+   * Retention policy for prompt cache
+   * Set to "24h" to enable extended prompt caching up to 24 hours
+   */
+  prompt_cache_retention?: '24h';
+
+  /**
+   * Stable identifier for abuse detection
+   * Recommend hashing username or email address
+   */
+  safety_identifier?: string;
 }
 
 /**
@@ -148,6 +176,17 @@ export interface OpenAICompletionsRequest {
   service_tier?: string;
   store?: boolean;
   metadata?: Record<string, string>;
+  /** Predicted output for faster regeneration */
+  prediction?: {
+    type: 'content';
+    content: string | Array<{ type: 'text'; text: string }>;
+  };
+  /** Stable identifier for caching (replaces user) */
+  prompt_cache_key?: string;
+  /** Retention policy for prompt cache */
+  prompt_cache_retention?: string;
+  /** Stable identifier for abuse detection */
+  safety_identifier?: string;
 }
 
 /**

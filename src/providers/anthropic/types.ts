@@ -28,6 +28,13 @@ export interface AnthropicLLMParams {
     type: 'enabled';
     budget_tokens: number;
   };
+
+  /**
+   * Service tier for priority/standard capacity
+   * - "auto": Automatically select based on availability (default)
+   * - "standard_only": Only use standard capacity
+   */
+  service_tier?: 'auto' | 'standard_only';
 }
 
 /**
@@ -47,6 +54,7 @@ export interface AnthropicRequest {
   tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string };
   metadata?: { user_id?: string };
   thinking?: { type: 'enabled'; budget_tokens: number };
+  service_tier?: 'auto' | 'standard_only';
 }
 
 /**
