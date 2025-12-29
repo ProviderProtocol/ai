@@ -285,8 +285,8 @@ export const openai = createProvider({
 
 #### Embedding Data Flow
 
-1. Developer calls `embedding()` with a provider-bound model
-2. Developer calls `embedding()` or `embedBatch()` with text/content
+1. Developer calls `embedding()` with a provider-bound model to create an embedder instance
+2. Developer calls `embed()` or `embedBatch()` on the embedder with text/content
 3. Provider transforms input to vendor-specific format
 4. Provider returns `Embedding` or `EmbeddingBatch` with vectors
 5. Developer uses vectors for search, clustering, etc.
@@ -375,6 +375,47 @@ interface ProviderConfig {
   retryStrategy?: RetryStrategy;
 }
 ```
+
+#### Provider-Specific Options
+
+`ProviderConfig` defines common infrastructure settings shared across all providers. However, some providers may offer additional options for vendor-specific operational choices—for example, selecting between different API variants.
+
+These options are passed to the **provider factory function**, not to `ProviderConfig`:
+
+```ts
+// Provider factory signature with optional options
+function openai(modelId: string, options?: OpenAIProviderOptions): ModelReference;
+
+interface OpenAIProviderOptions {
+  /**
+   * Which API to use:
+   * - 'responses': Modern Responses API (default, recommended)
+   * - 'completions': Legacy Chat Completions API
+   */
+  api?: 'responses' | 'completions';
+}
+```
+
+Usage:
+
+```ts
+// Use the modern Responses API (default)
+const gpt = llm({
+  model: openai('gpt-4o'),
+});
+
+// Explicitly use the legacy Completions API
+const gptLegacy = llm({
+  model: openai('gpt-4o', { api: 'completions' }),
+});
+```
+
+Provider options should be:
+- **Rare**: Most providers need no options beyond the model ID
+- **Well-documented**: Clearly explain when and why each option is needed
+- **Defaulted sensibly**: The provider should work without any options
+
+Note: Fundamentally different deployment targets (e.g., Google Vertex AI vs standard Gemini API) should be implemented as **separate providers** rather than options on a single provider.
 
 ### 4.2 Key Strategies
 
@@ -492,9 +533,9 @@ interface ModelReference {
 /**
  * A provider factory function with metadata and modality handlers.
  */
-interface Provider {
-  /** Create a model reference */
-  (modelId: string): ModelReference;
+interface Provider<TOptions = unknown> {
+  /** Create a model reference, optionally with provider-specific options */
+  (modelId: string, options?: TOptions): ModelReference;
 
   /** Provider name */
   readonly name: string;
@@ -695,9 +736,6 @@ await claude.generate(thread, 'Continue the conversation');
 interface BoundLLMModel<TParams = unknown> {
   /** The model identifier */
   readonly modelId: string;
-
-  /** Reference to the parent provider (see LLMProvider in Section 4.5) */
-  readonly provider: LLMProvider<TParams>;
 
   /** Execute a single non-streaming inference request */
   complete(request: LLMRequest<TParams>): Promise<LLMResponse>;
@@ -2226,9 +2264,6 @@ interface BoundEmbeddingModel<TParams = unknown> {
   /** The model identifier */
   readonly modelId: string;
 
-  /** Reference to the parent provider */
-  readonly provider: EmbeddingProvider<TParams>;
-
   /** Maximum inputs per batch */
   readonly maxBatchSize: number;
 
@@ -2548,9 +2583,6 @@ interface ImageCapabilities {
 interface BoundImageModel<TParams = unknown> {
   /** The model identifier */
   readonly modelId: string;
-
-  /** Reference to the parent provider */
-  readonly provider: ImageProvider<TParams>;
 
   /** Model capabilities */
   readonly capabilities: ImageCapabilities;
@@ -3058,7 +3090,12 @@ UPP provides utilities for provider implementations. These are available from `@
 ```ts
 /**
  * Resolve API key from ProviderConfig, supporting string, function, or KeyStrategy.
- * Falls back to environment variable if provided and config.apiKey is not set.
+ * If config.apiKey is not set, automatically falls back to standard environment variables:
+ *   - Anthropic: ANTHROPIC_API_KEY
+ *   - OpenAI: OPENAI_API_KEY
+ *   - Google: GOOGLE_API_KEY, GEMINI_API_KEY
+ *   - Stability: STABILITY_API_KEY
+ *   - Voyage: VOYAGE_API_KEY
  * Throws UPPError with AUTHENTICATION_FAILED if no key is available.
  */
 function resolveApiKey(config: ProviderConfig, envVar?: string): Promise<string>;
@@ -3131,7 +3168,7 @@ Providers may implement one or more modalities. For each modality, conformance i
 #### 16.1.2 Embedding Conformance
 
 **Level 1: Core (Required)**
-- `embedding()` method for single inputs
+- `embed()` method for single inputs
 - Return `EmbeddingResponse` with vectors and usage
 - Text input support
 - Error normalization with `modality: 'embedding'`
