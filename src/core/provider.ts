@@ -22,12 +22,33 @@ export interface CreateProviderOptions {
 /**
  * Create a provider factory function
  *
+ * @typeParam TOptions - Provider-specific options type (defaults to unknown)
  * @param options - Provider configuration
  * @returns Provider function with modalities attached
+ *
+ * @example
+ * ```ts
+ * // Basic provider without options
+ * const anthropic = createProvider({
+ *   name: 'anthropic',
+ *   version: '1.0.0',
+ *   modalities: { llm: createLLMHandler() },
+ * });
+ *
+ * // Provider with custom options (typically needs custom factory)
+ * interface MyProviderOptions { api?: 'v1' | 'v2' }
+ * const myProvider = createProvider<MyProviderOptions>({
+ *   name: 'my-provider',
+ *   version: '1.0.0',
+ *   modalities: { llm: createLLMHandler() },
+ * });
+ * ```
  */
-export function createProvider(options: CreateProviderOptions): Provider {
-  // Create the base function
-  const fn = function (modelId: string): ModelReference {
+export function createProvider<TOptions = unknown>(
+  options: CreateProviderOptions
+): Provider<TOptions> {
+  // Create the base function that accepts optional provider-specific options
+  const fn = function (modelId: string, _options?: TOptions): ModelReference<TOptions> {
     return { modelId, provider };
   };
 
@@ -50,6 +71,6 @@ export function createProvider(options: CreateProviderOptions): Provider {
     },
   });
 
-  const provider = fn as Provider;
+  const provider = fn as Provider<TOptions>;
   return provider;
 }

@@ -62,13 +62,15 @@ export interface ProviderConfig {
 
 /**
  * A reference to a model, created by a provider factory
+ *
+ * @typeParam TOptions - Provider-specific options type
  */
-export interface ModelReference {
+export interface ModelReference<TOptions = unknown> {
   /** The model identifier */
   readonly modelId: string;
 
   /** The provider that created this reference */
-  readonly provider: Provider;
+  readonly provider: Provider<TOptions>;
 }
 
 // Forward declarations for handler types (defined in llm.ts)
@@ -117,11 +119,13 @@ export interface BoundImageModel<TParams = any> {
 }
 
 /**
- * A provider factory function with metadata and modality handlers
+ * A provider factory function with metadata and modality handlers.
+ *
+ * @typeParam TOptions - Provider-specific options passed to the factory function
  */
-export interface Provider {
-  /** Create a model reference */
-  (modelId: string): ModelReference;
+export interface Provider<TOptions = unknown> {
+  /** Create a model reference, optionally with provider-specific options */
+  (modelId: string, options?: TOptions): ModelReference<TOptions>;
 
   /** Provider name */
   readonly name: string;
@@ -139,24 +143,33 @@ export interface Provider {
 
 /**
  * Provider with LLM modality
+ *
+ * @typeParam TParams - Model-specific parameters type
+ * @typeParam TOptions - Provider-specific options type
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type LLMProvider<TParams = any> = Provider & {
+export type LLMProvider<TParams = any, TOptions = unknown> = Provider<TOptions> & {
   readonly modalities: { llm: LLMHandler<TParams> };
 };
 
 /**
  * Provider with Embedding modality
+ *
+ * @typeParam TParams - Model-specific parameters type
+ * @typeParam TOptions - Provider-specific options type
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type EmbeddingProvider<TParams = any> = Provider & {
+export type EmbeddingProvider<TParams = any, TOptions = unknown> = Provider<TOptions> & {
   readonly modalities: { embedding: EmbeddingHandler<TParams> };
 };
 
 /**
  * Provider with Image modality
+ *
+ * @typeParam TParams - Model-specific parameters type
+ * @typeParam TOptions - Provider-specific options type
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ImageProvider<TParams = any> = Provider & {
+export type ImageProvider<TParams = any, TOptions = unknown> = Provider<TOptions> & {
   readonly modalities: { image: ImageHandler<TParams> };
 };
