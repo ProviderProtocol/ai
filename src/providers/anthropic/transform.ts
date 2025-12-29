@@ -226,11 +226,17 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
   // Extract text content
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
+  let structuredData: unknown;
 
   for (const block of data.content) {
     if (block.type === 'text') {
       textContent.push({ type: 'text', text: block.text });
     } else if (block.type === 'tool_use') {
+      // Check if this is the json_response tool (structured output)
+      if (block.name === 'json_response') {
+        // Extract structured data from tool arguments
+        structuredData = block.input;
+      }
       toolCalls.push({
         toolCallId: block.id,
         toolName: block.name,
@@ -265,6 +271,7 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
     message,
     usage,
     stopReason: data.stop_reason ?? 'end_turn',
+    data: structuredData,
   };
 }
 
@@ -387,6 +394,7 @@ export function transformStreamEvent(
 export function buildResponseFromState(state: StreamState): LLMResponse {
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
+  let structuredData: unknown;
 
   for (const block of state.content) {
     if (block.type === 'text' && block.text) {
@@ -399,6 +407,10 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
         } catch {
           // Invalid JSON - use empty object
         }
+      }
+      // Check if this is the json_response tool (structured output)
+      if (block.name === 'json_response') {
+        structuredData = args;
       }
       toolCalls.push({
         toolCallId: block.id,
@@ -432,5 +444,6 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     message,
     usage,
     stopReason: state.stopReason ?? 'end_turn',
+    data: structuredData,
   };
 }

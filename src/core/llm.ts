@@ -242,6 +242,9 @@ async function executeGenerate<TParams>(
   const usages: TokenUsage[] = [];
   let cycles = 0;
 
+  // Track structured data from responses (providers handle extraction)
+  let structuredData: unknown;
+
   // Tool loop
   while (cycles < maxIterations + 1) {
     cycles++;
@@ -259,12 +262,16 @@ async function executeGenerate<TParams>(
     usages.push(response.usage);
     allMessages.push(response.message);
 
+    // Track structured data from provider (if present)
+    if (response.data !== undefined) {
+      structuredData = response.data;
+    }
+
     // Check for tool calls
     if (response.message.hasToolCalls && tools && tools.length > 0) {
-      // If this is a structured output response (json_response tool), don't execute - just break
-      const isStructuredOutputResponse = structure &&
-        response.message.toolCalls?.some(tc => tc.toolName === 'json_response');
-      if (isStructuredOutputResponse) {
+      // If provider already extracted structured data, don't try to execute tool calls
+      // (some providers use tool calls internally for structured output)
+      if (response.data !== undefined) {
         break;
       }
 
@@ -297,38 +304,8 @@ async function executeGenerate<TParams>(
     break;
   }
 
-  // Parse structured output if requested
-  let data: unknown;
-  if (structure) {
-    const lastMessage = allMessages[allMessages.length - 1] as AssistantMessage;
-
-    // First, check for tool-based structured output (Anthropic's approach)
-    // Look for a json_response tool call
-    const jsonResponseCall = lastMessage.toolCalls?.find(tc => tc.toolName === 'json_response');
-    if (jsonResponseCall) {
-      // The arguments ARE the structured data
-      data = jsonResponseCall.arguments;
-    } else if (lastMessage.text) {
-      // Native structured output (OpenAI/Google) - parse from text
-      try {
-        data = JSON.parse(lastMessage.text);
-      } catch {
-        throw new UPPError(
-          'Failed to parse structured output as JSON',
-          'INVALID_RESPONSE',
-          model.provider.name,
-          'llm'
-        );
-      }
-    } else {
-      throw new UPPError(
-        'No structured output found in response',
-        'INVALID_RESPONSE',
-        model.provider.name,
-        'llm'
-      );
-    }
-  }
+  // Use structured data from provider if structure was requested
+  const data = structure ? structuredData : undefined;
 
   return createTurn(
     allMessages.slice(history.length), // Only messages from this turn
@@ -368,6 +345,7 @@ function executeStream<TParams>(
   const usages: TokenUsage[] = [];
   let cycles = 0;
   let generatorError: Error | null = null;
+  let structuredData: unknown; // Providers extract this
 
   // Deferred to signal when generator completes
   let resolveGenerator: () => void;
@@ -407,12 +385,16 @@ function executeStream<TParams>(
         usages.push(response.usage);
         allMessages.push(response.message);
 
+        // Track structured data from provider (if present)
+        if (response.data !== undefined) {
+          structuredData = response.data;
+        }
+
         // Check for tool calls
         if (response.message.hasToolCalls && tools && tools.length > 0) {
-          // If this is a structured output response (json_response tool), don't execute - just break
-          const isStructuredOutputResponse = structure &&
-            response.message.toolCalls?.some(tc => tc.toolName === 'json_response');
-          if (isStructuredOutputResponse) {
+          // If provider already extracted structured data, don't try to execute tool calls
+          // (some providers use tool calls internally for structured output)
+          if (response.data !== undefined) {
             break;
           }
 
@@ -458,34 +440,8 @@ function executeStream<TParams>(
       throw generatorError;
     }
 
-    let data: unknown;
-    if (structure) {
-      const lastMessage = allMessages[allMessages.length - 1] as AssistantMessage;
-
-      // First, check for tool-based structured output (Anthropic's approach)
-      const jsonResponseCall = lastMessage.toolCalls?.find(tc => tc.toolName === 'json_response');
-      if (jsonResponseCall) {
-        data = jsonResponseCall.arguments;
-      } else if (lastMessage.text) {
-        try {
-          data = JSON.parse(lastMessage.text);
-        } catch {
-          throw new UPPError(
-            'Failed to parse structured output as JSON',
-            'INVALID_RESPONSE',
-            model.provider.name,
-            'llm'
-          );
-        }
-      } else {
-        throw new UPPError(
-          'No structured output found in response',
-          'INVALID_RESPONSE',
-          model.provider.name,
-          'llm'
-        );
-      }
-    }
+    // Use structured data from provider if structure was requested
+    const data = structure ? structuredData : undefined;
 
     return createTurn(
       allMessages.slice(history.length),

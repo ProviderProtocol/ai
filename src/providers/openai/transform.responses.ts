@@ -328,6 +328,7 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
     arguments: string;
   }> = [];
   let hadRefusal = false;
+  let structuredData: unknown;
 
   for (const item of data.output) {
     if (item.type === 'message') {
@@ -335,6 +336,15 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
       for (const content of messageItem.content) {
         if (content.type === 'output_text') {
           textContent.push({ type: 'text', text: content.text });
+          // Try to parse as JSON for structured output (native JSON mode)
+          // Only set data if text is valid JSON
+          if (structuredData === undefined) {
+            try {
+              structuredData = JSON.parse(content.text);
+            } catch {
+              // Not valid JSON - that's fine, might not be structured output
+            }
+          }
         } else if (content.type === 'refusal') {
           textContent.push({ type: 'text', text: content.refusal });
           hadRefusal = true;
@@ -405,6 +415,7 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
     message,
     usage,
     stopReason,
+    data: structuredData,
   };
 }
 
@@ -611,11 +622,20 @@ export function transformStreamEvent(
  */
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
   const textContent: TextBlock[] = [];
+  let structuredData: unknown;
 
   // Combine all text content
   for (const [, text] of state.textByIndex) {
     if (text) {
       textContent.push({ type: 'text', text });
+      // Try to parse as JSON for structured output (native JSON mode)
+      if (structuredData === undefined) {
+        try {
+          structuredData = JSON.parse(text);
+        } catch {
+          // Not valid JSON - that's fine, might not be structured output
+        }
+      }
     }
   }
 
@@ -693,5 +713,6 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     message,
     usage,
     stopReason,
+    data: structuredData,
   };
 }

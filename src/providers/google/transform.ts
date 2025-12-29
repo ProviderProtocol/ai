@@ -258,6 +258,7 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
 
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
+  let structuredData: unknown;
   // Store original function call parts with thought signatures for echoing back
   const functionCallParts: Array<{
     name: string;
@@ -268,6 +269,14 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
   for (const part of candidate.content.parts) {
     if ('text' in part) {
       textContent.push({ type: 'text', text: part.text });
+      // Try to parse as JSON for structured output (native JSON mode)
+      if (structuredData === undefined) {
+        try {
+          structuredData = JSON.parse(part.text);
+        } catch {
+          // Not valid JSON - that's fine, might not be structured output
+        }
+      }
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
       toolCalls.push({
@@ -309,6 +318,7 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
     message,
     usage,
     stopReason: candidate.finishReason ?? 'STOP',
+    data: structuredData,
   };
 }
 
@@ -408,6 +418,7 @@ export function transformStreamChunk(
 export function buildResponseFromState(state: StreamState): LLMResponse {
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
+  let structuredData: unknown;
   const functionCallParts: Array<{
     name: string;
     args: Record<string, unknown>;
@@ -416,6 +427,12 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
 
   if (state.content) {
     textContent.push({ type: 'text', text: state.content });
+    // Try to parse as JSON for structured output (native JSON mode)
+    try {
+      structuredData = JSON.parse(state.content);
+    } catch {
+      // Not valid JSON - that's fine, might not be structured output
+    }
   }
 
   for (const tc of state.toolCalls) {
@@ -455,5 +472,6 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     message,
     usage,
     stopReason: state.finishReason ?? 'STOP',
+    data: structuredData,
   };
 }

@@ -331,8 +331,15 @@ export function transformResponse(data: OpenAICompletionsResponse): LLMResponse 
 
   // Extract text content
   const textContent: TextBlock[] = [];
+  let structuredData: unknown;
   if (choice.message.content) {
     textContent.push({ type: 'text', text: choice.message.content });
+    // Try to parse as JSON for structured output (native JSON mode)
+    try {
+      structuredData = JSON.parse(choice.message.content);
+    } catch {
+      // Not valid JSON - that's fine, might not be structured output
+    }
   }
   let hadRefusal = false;
   if (choice.message.refusal) {
@@ -404,6 +411,7 @@ export function transformResponse(data: OpenAICompletionsResponse): LLMResponse 
     message,
     usage,
     stopReason,
+    data: structuredData,
   };
 }
 
@@ -531,8 +539,15 @@ export function transformStreamEvent(
  */
 export function buildResponseFromState(state: CompletionsStreamState): LLMResponse {
   const textContent: TextBlock[] = [];
+  let structuredData: unknown;
   if (state.text) {
     textContent.push({ type: 'text', text: state.text });
+    // Try to parse as JSON for structured output (native JSON mode)
+    try {
+      structuredData = JSON.parse(state.text);
+    } catch {
+      // Not valid JSON - that's fine, might not be structured output
+    }
   }
 
   const toolCalls: ToolCall[] = [];
@@ -596,5 +611,6 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     message,
     usage,
     stopReason,
+    data: structuredData,
   };
 }

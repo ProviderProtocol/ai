@@ -157,6 +157,14 @@ export interface LLMResponse {
   message: AssistantMessage;
   usage: TokenUsage;
   stopReason: string;
+
+  /**
+   * Structured output data extracted by the provider.
+   * Present when a structure schema was requested and the provider
+   * successfully extracted the data (via tool call or native JSON mode).
+   * Providers handle their own extraction logic - core just uses this value.
+   */
+  data?: unknown;
 }
 
 /**
