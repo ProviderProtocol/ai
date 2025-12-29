@@ -1,5 +1,5 @@
 {
-  "name": "providerprotocol",
+  "name": "@providerprotocol/core",
   "module": "index.ts",
   "type": "module",
   "devDependencies": {
