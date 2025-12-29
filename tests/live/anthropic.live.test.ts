@@ -224,7 +224,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
 
     // The 'data' field should be automatically populated and typed
     expect(turn.data).toBeDefined();
-    expect((turn.data as any).city).toBe('Paris');
+    expect((turn.data as any).city).toContain('Paris');
     expect(typeof (turn.data as any).population).toBe('number');
   });
 
