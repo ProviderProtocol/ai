@@ -1,0 +1,403 @@
+import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
+import type { Message } from '../../types/messages.ts';
+import type { StreamEvent } from '../../types/stream.ts';
+import type { Tool, ToolCall } from '../../types/tool.ts';
+import type { TokenUsage } from '../../types/turn.ts';
+import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import {
+  AssistantMessage,
+  isUserMessage,
+  isAssistantMessage,
+  isToolResultMessage,
+} from '../../types/messages.ts';
+import type {
+  GoogleLLMParams,
+  GoogleRequest,
+  GoogleContent,
+  GooglePart,
+  GoogleTool,
+  GoogleResponse,
+  GoogleStreamChunk,
+  GoogleFunctionCallPart,
+} from './types.ts';
+
+/**
+ * Transform UPP request to Google format
+ */
+export function transformRequest<TParams extends GoogleLLMParams>(
+  request: LLMRequest<TParams>,
+  modelId: string
+): GoogleRequest {
+  const params = (request.params ?? {}) as GoogleLLMParams;
+
+  const googleRequest: GoogleRequest = {
+    contents: transformMessages(request.messages),
+  };
+
+  // System instruction (separate from contents in Google)
+  if (request.system) {
+    googleRequest.systemInstruction = {
+      parts: [{ text: request.system }],
+    };
+  }
+
+  // Generation config
+  const generationConfig: GoogleRequest['generationConfig'] = {};
+  let hasConfig = false;
+
+  if (params.maxOutputTokens !== undefined) {
+    generationConfig.maxOutputTokens = params.maxOutputTokens;
+    hasConfig = true;
+  }
+  if (params.temperature !== undefined) {
+    generationConfig.temperature = params.temperature;
+    hasConfig = true;
+  }
+  if (params.topP !== undefined) {
+    generationConfig.topP = params.topP;
+    hasConfig = true;
+  }
+  if (params.topK !== undefined) {
+    generationConfig.topK = params.topK;
+    hasConfig = true;
+  }
+  if (params.stopSequences !== undefined) {
+    generationConfig.stopSequences = params.stopSequences;
+    hasConfig = true;
+  }
+  if (params.candidateCount !== undefined) {
+    generationConfig.candidateCount = params.candidateCount;
+    hasConfig = true;
+  }
+  if (params.responseMimeType !== undefined) {
+    generationConfig.responseMimeType = params.responseMimeType;
+    hasConfig = true;
+  }
+
+  // Structured output
+  if (request.structure) {
+    generationConfig.responseMimeType = 'application/json';
+    generationConfig.responseSchema = request.structure as unknown as Record<string, unknown>;
+    hasConfig = true;
+  }
+
+  if (hasConfig) {
+    googleRequest.generationConfig = generationConfig;
+  }
+
+  // Tools
+  if (request.tools && request.tools.length > 0) {
+    googleRequest.tools = [
+      {
+        functionDeclarations: request.tools.map(transformTool),
+      },
+    ];
+  }
+
+  return googleRequest;
+}
+
+/**
+ * Filter to only valid content blocks with a type property
+ */
+function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
+  return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transform UPP Messages to Google contents
+ */
+function transformMessages(messages: Message[]): GoogleContent[] {
+  const contents: GoogleContent[] = [];
+
+  for (const msg of messages) {
+    if (isUserMessage(msg)) {
+      const validContent = filterValidContent(msg.content);
+      const parts = validContent.map(transformContentBlock);
+      // Google requires at least one part - add placeholder if empty
+      if (parts.length === 0) {
+        parts.push({ text: '' });
+      }
+      contents.push({
+        role: 'user',
+        parts,
+      });
+    } else if (isAssistantMessage(msg)) {
+      const validContent = filterValidContent(msg.content);
+      const parts: GooglePart[] = validContent.map(transformContentBlock);
+
+      // Add function calls
+      if (msg.toolCalls) {
+        for (const call of msg.toolCalls) {
+          parts.push({
+            functionCall: {
+              name: call.toolName,
+              args: call.arguments,
+            },
+          });
+        }
+      }
+
+      // Google requires at least one part - add placeholder if empty
+      if (parts.length === 0) {
+        parts.push({ text: '' });
+      }
+
+      contents.push({
+        role: 'model',
+        parts,
+      });
+    } else if (isToolResultMessage(msg)) {
+      // Function results are sent as user messages in Google
+      contents.push({
+        role: 'user',
+        parts: msg.results.map((result) => ({
+          functionResponse: {
+            name: result.toolCallId, // Google uses the function name, but we store it in toolCallId
+            response:
+              typeof result.result === 'object'
+                ? (result.result as Record<string, unknown>)
+                : { result: result.result },
+          },
+        })),
+      });
+    }
+  }
+
+  return contents;
+}
+
+/**
+ * Transform a content block to Google format
+ */
+function transformContentBlock(block: ContentBlock): GooglePart {
+  switch (block.type) {
+    case 'text':
+      return { text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      let data: string;
+
+      if (imageBlock.source.type === 'base64') {
+        data = imageBlock.source.data;
+      } else if (imageBlock.source.type === 'bytes') {
+        data = btoa(
+          Array.from(imageBlock.source.data)
+            .map((b) => String.fromCharCode(b))
+            .join('')
+        );
+      } else {
+        throw new Error('Google API does not support URL image sources directly');
+      }
+
+      return {
+        inlineData: {
+          mimeType: imageBlock.mimeType,
+          data,
+        },
+      };
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
+}
+
+/**
+ * Transform a UPP Tool to Google format
+ */
+function transformTool(tool: Tool): GoogleTool['functionDeclarations'][0] {
+  return {
+    name: tool.name,
+    description: tool.description,
+    parameters: {
+      type: 'object',
+      properties: tool.parameters.properties,
+      required: tool.parameters.required,
+    },
+  };
+}
+
+/**
+ * Transform Google response to UPP LLMResponse
+ */
+export function transformResponse(data: GoogleResponse): LLMResponse {
+  const candidate = data.candidates?.[0];
+  if (!candidate) {
+    throw new Error('No candidates in Google response');
+  }
+
+  const textContent: TextBlock[] = [];
+  const toolCalls: ToolCall[] = [];
+
+  for (const part of candidate.content.parts) {
+    if ('text' in part) {
+      textContent.push({ type: 'text', text: part.text });
+    } else if ('functionCall' in part) {
+      const fc = part as GoogleFunctionCallPart;
+      toolCalls.push({
+        toolCallId: fc.functionCall.name, // Google doesn't have call IDs, use name
+        toolName: fc.functionCall.name,
+        arguments: fc.functionCall.args,
+      });
+    }
+  }
+
+  const message = new AssistantMessage(
+    textContent,
+    toolCalls.length > 0 ? toolCalls : undefined,
+    {
+      metadata: {
+        google: {
+          finishReason: candidate.finishReason,
+          safetyRatings: candidate.safetyRatings,
+        },
+      },
+    }
+  );
+
+  const usage: TokenUsage = {
+    inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
+    outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
+    totalTokens: data.usageMetadata?.totalTokenCount ?? 0,
+  };
+
+  return {
+    message,
+    usage,
+    stopReason: candidate.finishReason ?? 'STOP',
+  };
+}
+
+/**
+ * State for accumulating streaming response
+ */
+export interface StreamState {
+  content: string;
+  toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  finishReason: string | null;
+  inputTokens: number;
+  outputTokens: number;
+  isFirstChunk: boolean;
+}
+
+/**
+ * Create initial stream state
+ */
+export function createStreamState(): StreamState {
+  return {
+    content: '',
+    toolCalls: [],
+    finishReason: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    isFirstChunk: true,
+  };
+}
+
+/**
+ * Transform Google stream chunk to UPP StreamEvents
+ */
+export function transformStreamChunk(
+  chunk: GoogleStreamChunk,
+  state: StreamState
+): StreamEvent[] {
+  const events: StreamEvent[] = [];
+
+  // First chunk - emit message start
+  if (state.isFirstChunk) {
+    events.push({ type: 'message_start', index: 0, delta: {} });
+    state.isFirstChunk = false;
+  }
+
+  // Usage metadata
+  if (chunk.usageMetadata) {
+    state.inputTokens = chunk.usageMetadata.promptTokenCount;
+    state.outputTokens = chunk.usageMetadata.candidatesTokenCount;
+  }
+
+  const candidate = chunk.candidates?.[0];
+  if (!candidate) {
+    return events;
+  }
+
+  // Process parts
+  for (const part of candidate.content?.parts ?? []) {
+    if ('text' in part) {
+      state.content += part.text;
+      events.push({
+        type: 'text_delta',
+        index: 0,
+        delta: { text: part.text },
+      });
+    } else if ('functionCall' in part) {
+      const fc = part as GoogleFunctionCallPart;
+      state.toolCalls.push({
+        name: fc.functionCall.name,
+        args: fc.functionCall.args,
+      });
+      events.push({
+        type: 'tool_call_delta',
+        index: state.toolCalls.length - 1,
+        delta: {
+          toolCallId: fc.functionCall.name,
+          toolName: fc.functionCall.name,
+          argumentsJson: JSON.stringify(fc.functionCall.args),
+        },
+      });
+    }
+  }
+
+  // Finish reason
+  if (candidate.finishReason) {
+    state.finishReason = candidate.finishReason;
+    events.push({ type: 'message_stop', index: 0, delta: {} });
+  }
+
+  return events;
+}
+
+/**
+ * Build LLMResponse from accumulated stream state
+ */
+export function buildResponseFromState(state: StreamState): LLMResponse {
+  const textContent: TextBlock[] = [];
+  const toolCalls: ToolCall[] = [];
+
+  if (state.content) {
+    textContent.push({ type: 'text', text: state.content });
+  }
+
+  for (const tc of state.toolCalls) {
+    toolCalls.push({
+      toolCallId: tc.name,
+      toolName: tc.name,
+      arguments: tc.args,
+    });
+  }
+
+  const message = new AssistantMessage(
+    textContent,
+    toolCalls.length > 0 ? toolCalls : undefined,
+    {
+      metadata: {
+        google: {
+          finishReason: state.finishReason,
+        },
+      },
+    }
+  );
+
+  const usage: TokenUsage = {
+    inputTokens: state.inputTokens,
+    outputTokens: state.outputTokens,
+    totalTokens: state.inputTokens + state.outputTokens,
+  };
+
+  return {
+    message,
+    usage,
+    stopReason: state.finishReason ?? 'STOP',
+  };
+}

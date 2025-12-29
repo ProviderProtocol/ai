@@ -1,12 +1,28 @@
 {
   "name": "@providerprotocol/ai",
-  "version": "0.0.0",
-  "module": "index.ts",
+  "version": "0.0.1",
+  "description": "UPP-1.1: Unified Provider Protocol for AI inference",
+  "module": "src/index.ts",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
   "license": "MIT",
   "author": {
     "name": "Provider Protocol"
   },
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./anthropic": "./src/anthropic/index.ts",
+    "./openai": "./src/openai/index.ts",
+    "./google": "./src/google/index.ts",
+    "./http": "./src/http/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "test:unit": "bun test tests/unit",
+    "test:live": "bun test tests/live",
+    "typecheck": "tsc --noEmit"
+  },
   "publishConfig": {
     "access": "public"
   },
@@ -15,5 +31,17 @@
   },
   "peerDependencies": {
     "typescript": "^5"
-  }
+  },
+  "keywords": [
+    "ai",
+    "llm",
+    "anthropic",
+    "openai",
+    "google",
+    "gemini",
+    "claude",
+    "gpt",
+    "provider",
+    "protocol"
+  ]
 }

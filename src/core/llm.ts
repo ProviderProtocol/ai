@@ -1,0 +1,538 @@
+import type {
+  LLMOptions,
+  LLMInstance,
+  LLMRequest,
+  LLMResponse,
+  InferenceInput,
+  BoundLLMModel,
+} from '../types/llm.ts';
+import type {
+  Message,
+  UserMessage,
+  AssistantMessage,
+} from '../types/messages.ts';
+import type { ContentBlock, TextBlock } from '../types/content.ts';
+import type { Tool, ToolExecution, ToolResult } from '../types/tool.ts';
+import type { Turn, TokenUsage } from '../types/turn.ts';
+import type { StreamResult, StreamEvent } from '../types/stream.ts';
+import type { Thread } from '../types/thread.ts';
+import type { ProviderConfig } from '../types/provider.ts';
+import { UPPError } from '../types/errors.ts';
+import {
+  UserMessage as UserMessageClass,
+  ToolResultMessage,
+  isAssistantMessage,
+} from '../types/messages.ts';
+import { createTurn, aggregateUsage, emptyUsage } from '../types/turn.ts';
+import { createStreamResult } from '../types/stream.ts';
+import { generateShortId } from '../utils/id.ts';
+
+/**
+ * Default maximum iterations for tool execution
+ */
+const DEFAULT_MAX_ITERATIONS = 10;
+
+/**
+ * Create an LLM instance
+ */
+export function llm<TParams = unknown>(
+  options: LLMOptions<TParams>
+): LLMInstance<TParams> {
+  const { model: modelRef, config = {}, params, system, tools, toolStrategy, structure } = options;
+
+  // Validate that the provider supports LLM
+  const provider = modelRef.provider;
+  if (!provider.modalities.llm) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support LLM modality`,
+      'INVALID_REQUEST',
+      provider.name,
+      'llm'
+    );
+  }
+
+  // Bind the model
+  const boundModel = provider.modalities.llm.bind(modelRef.modelId) as BoundLLMModel<TParams>;
+
+  // Build the instance
+  const instance: LLMInstance<TParams> = {
+    model: boundModel,
+    system,
+    params,
+
+    async generate(
+      historyOrInput: Message[] | Thread | InferenceInput,
+      ...inputs: InferenceInput[]
+    ): Promise<Turn> {
+      const { history, messages } = parseInputs(historyOrInput, inputs);
+      return executeGenerate(
+        boundModel,
+        config,
+        system,
+        params,
+        tools,
+        toolStrategy,
+        structure,
+        history,
+        messages
+      );
+    },
+
+    stream(
+      historyOrInput: Message[] | Thread | InferenceInput,
+      ...inputs: InferenceInput[]
+    ): StreamResult {
+      const { history, messages } = parseInputs(historyOrInput, inputs);
+      return executeStream(
+        boundModel,
+        config,
+        system,
+        params,
+        tools,
+        toolStrategy,
+        structure,
+        history,
+        messages
+      );
+    },
+  };
+
+  return instance;
+}
+
+/**
+ * Parse inputs to determine history and new messages
+ */
+function parseInputs(
+  historyOrInput: Message[] | Thread | InferenceInput,
+  inputs: InferenceInput[]
+): { history: Message[]; messages: Message[] } {
+  // Check if first arg is history
+  if (Array.isArray(historyOrInput) && historyOrInput.length > 0) {
+    const first = historyOrInput[0];
+    // If it's an array of Messages
+    if (first && typeof first === 'object' && 'type' in first && 'id' in first) {
+      // It's history (Message[])
+      const newMessages = inputs.map(inputToMessage);
+      return { history: historyOrInput as Message[], messages: newMessages };
+    }
+  }
+
+  // Check if it's a Thread
+  if (
+    typeof historyOrInput === 'object' &&
+    historyOrInput !== null &&
+    'messages' in historyOrInput &&
+    'id' in historyOrInput
+  ) {
+    const thread = historyOrInput as Thread;
+    const newMessages = inputs.map(inputToMessage);
+    return { history: [...thread.messages], messages: newMessages };
+  }
+
+  // It's input (no history)
+  const allInputs = [historyOrInput as InferenceInput, ...inputs];
+  const newMessages = allInputs.map(inputToMessage);
+  return { history: [], messages: newMessages };
+}
+
+/**
+ * Convert an InferenceInput to a Message
+ */
+function inputToMessage(input: InferenceInput): Message {
+  if (typeof input === 'string') {
+    return new UserMessageClass(input);
+  }
+
+  // It's already a Message
+  if ('type' in input && 'id' in input && 'timestamp' in input) {
+    return input as Message;
+  }
+
+  // It's a ContentBlock - wrap in UserMessage
+  const block = input as ContentBlock;
+  if (block.type === 'text') {
+    return new UserMessageClass((block as TextBlock).text);
+  }
+
+  return new UserMessageClass([block as any]);
+}
+
+/**
+ * Execute a non-streaming generate call with tool loop
+ */
+async function executeGenerate<TParams>(
+  model: BoundLLMModel<TParams>,
+  config: ProviderConfig,
+  system: string | undefined,
+  params: TParams | undefined,
+  tools: Tool[] | undefined,
+  toolStrategy: LLMOptions<TParams>['toolStrategy'],
+  structure: LLMOptions<TParams>['structure'],
+  history: Message[],
+  newMessages: Message[]
+): Promise<Turn> {
+  const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+  const allMessages: Message[] = [...history, ...newMessages];
+  const toolExecutions: ToolExecution[] = [];
+  const usages: TokenUsage[] = [];
+  let cycles = 0;
+
+  // Tool loop
+  while (cycles < maxIterations + 1) {
+    cycles++;
+
+    const request: LLMRequest<TParams> = {
+      messages: allMessages,
+      system,
+      params,
+      tools,
+      structure,
+      config,
+    };
+
+    const response = await model.complete(request);
+    usages.push(response.usage);
+    allMessages.push(response.message);
+
+    // Check for tool calls
+    if (response.message.hasToolCalls && tools && tools.length > 0) {
+      // Check if we've hit max iterations (subtract 1 because we already incremented)
+      if (cycles >= maxIterations) {
+        await toolStrategy?.onMaxIterations?.(maxIterations);
+        throw new UPPError(
+          `Tool execution exceeded maximum iterations (${maxIterations})`,
+          'INVALID_REQUEST',
+          model.provider.name,
+          'llm'
+        );
+      }
+
+      // Execute tools
+      const results = await executeTools(
+        response.message,
+        tools,
+        toolStrategy,
+        toolExecutions
+      );
+
+      // Add tool results
+      allMessages.push(new ToolResultMessage(results));
+
+      continue;
+    }
+
+    // No tool calls - we're done
+    break;
+  }
+
+  // Parse structured output if requested
+  let data: unknown;
+  if (structure) {
+    const lastMessage = allMessages[allMessages.length - 1] as AssistantMessage;
+    try {
+      data = JSON.parse(lastMessage.text);
+    } catch {
+      throw new UPPError(
+        'Failed to parse structured output as JSON',
+        'INVALID_RESPONSE',
+        model.provider.name,
+        'llm'
+      );
+    }
+  }
+
+  return createTurn(
+    allMessages.slice(history.length), // Only messages from this turn
+    toolExecutions,
+    aggregateUsage(usages),
+    cycles,
+    data
+  );
+}
+
+/**
+ * Execute a streaming generate call with tool loop
+ */
+function executeStream<TParams>(
+  model: BoundLLMModel<TParams>,
+  config: ProviderConfig,
+  system: string | undefined,
+  params: TParams | undefined,
+  tools: Tool[] | undefined,
+  toolStrategy: LLMOptions<TParams>['toolStrategy'],
+  structure: LLMOptions<TParams>['structure'],
+  history: Message[],
+  newMessages: Message[]
+): StreamResult {
+  const abortController = new AbortController();
+
+  // Create the async generator
+  async function* generateStream(): AsyncGenerator<StreamEvent, void, unknown> {
+    const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const allMessages: Message[] = [...history, ...newMessages];
+    const toolExecutions: ToolExecution[] = [];
+    const usages: TokenUsage[] = [];
+    let cycles = 0;
+
+    while (cycles < maxIterations + 1) {
+      cycles++;
+
+      const request: LLMRequest<TParams> = {
+        messages: allMessages,
+        system,
+        params,
+        tools,
+        structure,
+        config,
+        signal: abortController.signal,
+      };
+
+      const streamResult = model.stream(request);
+
+      // Forward stream events
+      for await (const event of streamResult) {
+        yield event;
+      }
+
+      // Get the response
+      const response = await streamResult.response;
+      usages.push(response.usage);
+      allMessages.push(response.message);
+
+      // Check for tool calls
+      if (response.message.hasToolCalls && tools && tools.length > 0) {
+        if (cycles >= maxIterations) {
+          await toolStrategy?.onMaxIterations?.(maxIterations);
+          throw new UPPError(
+            `Tool execution exceeded maximum iterations (${maxIterations})`,
+            'INVALID_REQUEST',
+            model.provider.name,
+            'llm'
+          );
+        }
+
+        // Execute tools
+        const results = await executeTools(
+          response.message,
+          tools,
+          toolStrategy,
+          toolExecutions
+        );
+
+        // Add tool results
+        allMessages.push(new ToolResultMessage(results));
+
+        continue;
+      }
+
+      break;
+    }
+  }
+
+  // Create the turn promise
+  const turnPromise = (async (): Promise<Turn> => {
+    const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
+    const allMessages: Message[] = [...history, ...newMessages];
+    const toolExecutions: ToolExecution[] = [];
+    const usages: TokenUsage[] = [];
+    let cycles = 0;
+
+    while (cycles < maxIterations + 1) {
+      cycles++;
+
+      const request: LLMRequest<TParams> = {
+        messages: allMessages,
+        system,
+        params,
+        tools,
+        structure,
+        config,
+        signal: abortController.signal,
+      };
+
+      const streamResult = model.stream(request);
+
+      // Consume stream (events already yielded above)
+      for await (const _ of streamResult) {
+        // Events are consumed by the generator above
+      }
+
+      const response = await streamResult.response;
+      usages.push(response.usage);
+      allMessages.push(response.message);
+
+      if (response.message.hasToolCalls && tools && tools.length > 0) {
+        if (cycles >= maxIterations) {
+          await toolStrategy?.onMaxIterations?.(maxIterations);
+          throw new UPPError(
+            `Tool execution exceeded maximum iterations (${maxIterations})`,
+            'INVALID_REQUEST',
+            model.provider.name,
+            'llm'
+          );
+        }
+
+        const results = await executeTools(
+          response.message,
+          tools,
+          toolStrategy,
+          toolExecutions
+        );
+
+        allMessages.push(new ToolResultMessage(results));
+        continue;
+      }
+
+      break;
+    }
+
+    let data: unknown;
+    if (structure) {
+      const lastMessage = allMessages[allMessages.length - 1] as AssistantMessage;
+      try {
+        data = JSON.parse(lastMessage.text);
+      } catch {
+        throw new UPPError(
+          'Failed to parse structured output as JSON',
+          'INVALID_RESPONSE',
+          model.provider.name,
+          'llm'
+        );
+      }
+    }
+
+    return createTurn(
+      allMessages.slice(history.length),
+      toolExecutions,
+      aggregateUsage(usages),
+      cycles,
+      data
+    );
+  })();
+
+  return createStreamResult(generateStream(), turnPromise, abortController);
+}
+
+/**
+ * Execute tools from an assistant message
+ */
+async function executeTools(
+  message: AssistantMessage,
+  tools: Tool[],
+  toolStrategy: LLMOptions<unknown>['toolStrategy'],
+  executions: ToolExecution[]
+): Promise<ToolResult[]> {
+  const toolCalls = message.toolCalls ?? [];
+  const results: ToolResult[] = [];
+
+  // Build tool map
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
+
+  // Execute tools (in parallel)
+  const promises = toolCalls.map(async (call) => {
+    const tool = toolMap.get(call.toolName);
+    if (!tool) {
+      return {
+        toolCallId: call.toolCallId,
+        result: `Tool '${call.toolName}' not found`,
+        isError: true,
+      };
+    }
+
+    const startTime = Date.now();
+
+    // Notify strategy
+    await toolStrategy?.onToolCall?.(tool, call.arguments);
+
+    // Check before call
+    if (toolStrategy?.onBeforeCall) {
+      const shouldRun = await toolStrategy.onBeforeCall(tool, call.arguments);
+      if (!shouldRun) {
+        return {
+          toolCallId: call.toolCallId,
+          result: 'Tool execution skipped',
+          isError: true,
+        };
+      }
+    }
+
+    // Check approval
+    let approved = true;
+    if (tool.approval) {
+      try {
+        approved = await tool.approval(call.arguments);
+      } catch (error) {
+        // Approval threw - propagate
+        throw error;
+      }
+    }
+
+    if (!approved) {
+      const execution: ToolExecution = {
+        toolName: tool.name,
+        toolCallId: call.toolCallId,
+        arguments: call.arguments,
+        result: 'Tool execution denied',
+        isError: true,
+        duration: Date.now() - startTime,
+        approved: false,
+      };
+      executions.push(execution);
+
+      return {
+        toolCallId: call.toolCallId,
+        result: 'Tool execution denied by approval handler',
+        isError: true,
+      };
+    }
+
+    // Execute tool
+    try {
+      const result = await tool.run(call.arguments);
+
+      await toolStrategy?.onAfterCall?.(tool, call.arguments, result);
+
+      const execution: ToolExecution = {
+        toolName: tool.name,
+        toolCallId: call.toolCallId,
+        arguments: call.arguments,
+        result,
+        isError: false,
+        duration: Date.now() - startTime,
+        approved,
+      };
+      executions.push(execution);
+
+      return {
+        toolCallId: call.toolCallId,
+        result,
+        isError: false,
+      };
+    } catch (error) {
+      await toolStrategy?.onError?.(tool, call.arguments, error as Error);
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      const execution: ToolExecution = {
+        toolName: tool.name,
+        toolCallId: call.toolCallId,
+        arguments: call.arguments,
+        result: errorMessage,
+        isError: true,
+        duration: Date.now() - startTime,
+        approved,
+      };
+      executions.push(execution);
+
+      return {
+        toolCallId: call.toolCallId,
+        result: errorMessage,
+        isError: true,
+      };
+    }
+  });
+
+  results.push(...(await Promise.all(promises)));
+  return results;
+}
