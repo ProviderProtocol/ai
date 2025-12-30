@@ -7,6 +7,7 @@ export default defineConfig({
     "openai/index": "src/openai/index.ts",
     "google/index": "src/google/index.ts",
     "ollama/index": "src/ollama/index.ts",
+    "openrouter/index": "src/openrouter/index.ts",
     "http/index": "src/http/index.ts",
   },
   format: ["esm"],

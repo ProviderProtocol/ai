@@ -41,6 +41,12 @@
       "import": "./dist/ollama/index.js",
       "default": "./dist/ollama/index.js"
     },
+    "./openrouter": {
+      "types": "./dist/openrouter/index.d.ts",
+      "bun": "./src/openrouter/index.ts",
+      "import": "./dist/openrouter/index.js",
+      "default": "./dist/openrouter/index.js"
+    },
     "./http": {
       "types": "./dist/http/index.d.ts",
       "bun": "./src/http/index.ts",
@@ -82,6 +88,7 @@
     "gpt",
     "ollama",
     "llama",
+    "openrouter",
     "provider",
     "protocol",
     "unified"
