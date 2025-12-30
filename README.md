@@ -15,6 +15,8 @@ import { llm } from '@providerprotocol/ai';
 import { anthropic } from '@providerprotocol/ai/anthropic';
 import { openai } from '@providerprotocol/ai/openai';
 import { google } from '@providerprotocol/ai/google';
+import { ollama } from '@providerprotocol/ai/ollama';
+import { openrouter } from '@providerprotocol/ai/openrouter';
 
 // Simple generation
 const claude = llm({ model: anthropic('claude-sonnet-4-20250514') });
@@ -61,6 +63,8 @@ console.log(turn.data); // { name: 'John', age: 30 }
 | Anthropic | `@providerprotocol/ai/anthropic` |
 | OpenAI | `@providerprotocol/ai/openai` |
 | Google | `@providerprotocol/ai/google` |
+| Ollama | `@providerprotocol/ai/ollama` |
+| OpenRouter | `@providerprotocol/ai/openrouter` |
 
 ## Configuration
 
