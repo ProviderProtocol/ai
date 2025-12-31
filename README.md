@@ -1,6 +1,6 @@
 # @providerprotocol/ai
 
-Unified Provider Protocol (UPP-1.1) implementation for AI inference across multiple providers.
+Unified Provider Protocol (UPP-1.2) implementation for AI inference across multiple providers.
 
 ## Install
 
