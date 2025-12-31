@@ -25,6 +25,10 @@ import type {
 
 /**
  * Transform UPP request to OpenAI Responses API format
+ *
+ * Params are spread directly to allow pass-through of any OpenAI API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest(
   request: LLMRequest<OpenAIResponsesParams>,
@@ -32,55 +36,19 @@ export function transformRequest(
 ): OpenAIResponsesRequest {
   const params = request.params ?? ({} as OpenAIResponsesParams);
 
+  // Spread params to pass through all fields, then set required fields
   const openaiRequest: OpenAIResponsesRequest = {
+    ...params,
     model: modelId,
     input: transformInputItems(request.messages, request.system),
   };
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    openaiRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    openaiRequest.top_p = params.top_p;
-  }
-  if (params.max_output_tokens !== undefined) {
-    openaiRequest.max_output_tokens = params.max_output_tokens;
-  }
-  if (params.service_tier !== undefined) {
-    openaiRequest.service_tier = params.service_tier;
-  }
-  if (params.store !== undefined) {
-    openaiRequest.store = params.store;
-  }
-  if (params.metadata !== undefined) {
-    openaiRequest.metadata = params.metadata;
-  }
-  if (params.truncation !== undefined) {
-    openaiRequest.truncation = params.truncation;
-  }
-  if (params.include !== undefined) {
-    openaiRequest.include = params.include;
-  }
-  if (params.background !== undefined) {
-    openaiRequest.background = params.background;
-  }
-  if (params.previous_response_id !== undefined) {
-    openaiRequest.previous_response_id = params.previous_response_id;
-  }
-  if (params.reasoning !== undefined) {
-    openaiRequest.reasoning = { ...params.reasoning };
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     openaiRequest.tools = request.tools.map(transformTool);
-    if (params.parallel_tool_calls !== undefined) {
-      openaiRequest.parallel_tool_calls = params.parallel_tool_calls;
-    }
   }
 
-  // Structured output via text.format
+  // Structured output via text.format (overrides params.text if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',

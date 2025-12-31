@@ -23,6 +23,10 @@ import type {
 
 /**
  * Transform UPP request to OpenAI Chat Completions format
+ *
+ * Params are spread directly to allow pass-through of any OpenAI API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest(
   request: LLMRequest<OpenAICompletionsParams>,
@@ -30,87 +34,19 @@ export function transformRequest(
 ): OpenAICompletionsRequest {
   const params = request.params ?? ({} as OpenAICompletionsParams);
 
+  // Spread params to pass through all fields, then set required fields
   const openaiRequest: OpenAICompletionsRequest = {
+    ...params,
     model: modelId,
     messages: transformMessages(request.messages, request.system),
   };
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    openaiRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    openaiRequest.top_p = params.top_p;
-  }
-  if (params.max_completion_tokens !== undefined) {
-    openaiRequest.max_completion_tokens = params.max_completion_tokens;
-  } else if (params.max_tokens !== undefined) {
-    openaiRequest.max_tokens = params.max_tokens;
-  }
-  if (params.frequency_penalty !== undefined) {
-    openaiRequest.frequency_penalty = params.frequency_penalty;
-  }
-  if (params.presence_penalty !== undefined) {
-    openaiRequest.presence_penalty = params.presence_penalty;
-  }
-  if (params.stop !== undefined) {
-    openaiRequest.stop = params.stop;
-  }
-  if (params.n !== undefined) {
-    openaiRequest.n = params.n;
-  }
-  if (params.logprobs !== undefined) {
-    openaiRequest.logprobs = params.logprobs;
-  }
-  if (params.top_logprobs !== undefined) {
-    openaiRequest.top_logprobs = params.top_logprobs;
-  }
-  if (params.seed !== undefined) {
-    openaiRequest.seed = params.seed;
-  }
-  if (params.user !== undefined) {
-    openaiRequest.user = params.user;
-  }
-  if (params.logit_bias !== undefined) {
-    openaiRequest.logit_bias = params.logit_bias;
-  }
-  if (params.reasoning_effort !== undefined) {
-    openaiRequest.reasoning_effort = params.reasoning_effort;
-  }
-  if (params.verbosity !== undefined) {
-    openaiRequest.verbosity = params.verbosity;
-  }
-  if (params.service_tier !== undefined) {
-    openaiRequest.service_tier = params.service_tier;
-  }
-  if (params.store !== undefined) {
-    openaiRequest.store = params.store;
-  }
-  if (params.metadata !== undefined) {
-    openaiRequest.metadata = params.metadata;
-  }
-  if (params.prediction !== undefined) {
-    openaiRequest.prediction = params.prediction;
-  }
-  if (params.prompt_cache_key !== undefined) {
-    openaiRequest.prompt_cache_key = params.prompt_cache_key;
-  }
-  if (params.prompt_cache_retention !== undefined) {
-    openaiRequest.prompt_cache_retention = params.prompt_cache_retention;
-  }
-  if (params.safety_identifier !== undefined) {
-    openaiRequest.safety_identifier = params.safety_identifier;
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     openaiRequest.tools = request.tools.map(transformTool);
-    if (params.parallel_tool_calls !== undefined) {
-      openaiRequest.parallel_tool_calls = params.parallel_tool_calls;
-    }
   }
 
-  // Structured output via response_format
+  // Structured output via response_format (overrides params.response_format if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',
@@ -133,9 +69,6 @@ export function transformRequest(
         strict: true,
       },
     };
-  } else if (params.response_format !== undefined) {
-    // Pass through response_format from params if no structure is defined
-    openaiRequest.response_format = params.response_format;
   }
 
   return openaiRequest;

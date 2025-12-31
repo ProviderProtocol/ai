@@ -23,6 +23,10 @@ import type {
 
 /**
  * Transform UPP request to xAI Messages API format (Anthropic-compatible)
+ *
+ * Params are spread directly to allow pass-through of any xAI API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest(
   request: LLMRequest<XAIMessagesParams>,
@@ -30,42 +34,19 @@ export function transformRequest(
 ): XAIMessagesRequest {
   const params = request.params ?? ({} as XAIMessagesParams);
 
+  // Spread params to pass through all fields, then set required fields
   const xaiRequest: XAIMessagesRequest = {
+    ...params,
     model: modelId,
     messages: request.messages.map(transformMessage),
   };
-
-  // Only include max_tokens if provided - let API enforce its requirement
-  if (params.max_tokens !== undefined) {
-    xaiRequest.max_tokens = params.max_tokens;
-  }
 
   // System prompt (top-level in Messages API)
   if (request.system) {
     xaiRequest.system = request.system;
   }
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    xaiRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    xaiRequest.top_p = params.top_p;
-  }
-  if (params.top_k !== undefined) {
-    xaiRequest.top_k = params.top_k;
-  }
-  if (params.stop_sequences) {
-    xaiRequest.stop_sequences = params.stop_sequences;
-  }
-  if (params.metadata) {
-    xaiRequest.metadata = params.metadata;
-  }
-  if (params.thinking) {
-    xaiRequest.thinking = params.thinking;
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     xaiRequest.tools = request.tools.map(transformTool);
     xaiRequest.tool_choice = { type: 'auto' };

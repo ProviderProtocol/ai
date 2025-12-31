@@ -25,6 +25,10 @@ import type {
 
 /**
  * Transform UPP request to OpenRouter Responses API format
+ *
+ * Params are spread directly to allow pass-through of any OpenRouter API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest(
   request: LLMRequest<OpenRouterResponsesParams>,
@@ -32,34 +36,19 @@ export function transformRequest(
 ): OpenRouterResponsesRequest {
   const params = request.params ?? ({} as OpenRouterResponsesParams);
 
+  // Spread params to pass through all fields, then set required fields
   const openrouterRequest: OpenRouterResponsesRequest = {
+    ...params,
     model: modelId,
     input: transformInputItems(request.messages, request.system),
   };
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    openrouterRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    openrouterRequest.top_p = params.top_p;
-  }
-  if (params.max_output_tokens !== undefined) {
-    openrouterRequest.max_output_tokens = params.max_output_tokens;
-  }
-  if (params.reasoning !== undefined) {
-    openrouterRequest.reasoning = { ...params.reasoning };
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     openrouterRequest.tools = request.tools.map(transformTool);
-    if (params.parallel_tool_calls !== undefined) {
-      openrouterRequest.parallel_tool_calls = params.parallel_tool_calls;
-    }
   }
 
-  // Structured output via text.format
+  // Structured output via text.format (overrides params.text if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',

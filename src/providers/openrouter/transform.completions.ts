@@ -23,6 +23,10 @@ import type {
 
 /**
  * Transform UPP request to OpenRouter Chat Completions format
+ *
+ * Params are spread directly to allow pass-through of any OpenRouter API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest(
   request: LLMRequest<OpenRouterCompletionsParams>,
@@ -30,87 +34,19 @@ export function transformRequest(
 ): OpenRouterCompletionsRequest {
   const params = request.params ?? ({} as OpenRouterCompletionsParams);
 
+  // Spread params to pass through all fields, then set required fields
   const openrouterRequest: OpenRouterCompletionsRequest = {
+    ...params,
     model: modelId,
     messages: transformMessages(request.messages, request.system),
   };
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    openrouterRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    openrouterRequest.top_p = params.top_p;
-  }
-  if (params.top_k !== undefined) {
-    openrouterRequest.top_k = params.top_k;
-  }
-  if (params.min_p !== undefined) {
-    openrouterRequest.min_p = params.min_p;
-  }
-  if (params.top_a !== undefined) {
-    openrouterRequest.top_a = params.top_a;
-  }
-  if (params.max_tokens !== undefined) {
-    openrouterRequest.max_tokens = params.max_tokens;
-  }
-  if (params.frequency_penalty !== undefined) {
-    openrouterRequest.frequency_penalty = params.frequency_penalty;
-  }
-  if (params.presence_penalty !== undefined) {
-    openrouterRequest.presence_penalty = params.presence_penalty;
-  }
-  if (params.repetition_penalty !== undefined) {
-    openrouterRequest.repetition_penalty = params.repetition_penalty;
-  }
-  if (params.stop !== undefined) {
-    openrouterRequest.stop = params.stop;
-  }
-  if (params.logprobs !== undefined) {
-    openrouterRequest.logprobs = params.logprobs;
-  }
-  if (params.top_logprobs !== undefined) {
-    openrouterRequest.top_logprobs = params.top_logprobs;
-  }
-  if (params.seed !== undefined) {
-    openrouterRequest.seed = params.seed;
-  }
-  if (params.user !== undefined) {
-    openrouterRequest.user = params.user;
-  }
-  if (params.logit_bias !== undefined) {
-    openrouterRequest.logit_bias = params.logit_bias;
-  }
-  if (params.prediction !== undefined) {
-    openrouterRequest.prediction = params.prediction;
-  }
-
-  // OpenRouter-specific parameters
-  if (params.transforms !== undefined) {
-    openrouterRequest.transforms = params.transforms;
-  }
-  if (params.models !== undefined) {
-    openrouterRequest.models = params.models;
-  }
-  if (params.route !== undefined) {
-    openrouterRequest.route = params.route;
-  }
-  if (params.provider !== undefined) {
-    openrouterRequest.provider = params.provider;
-  }
-  if (params.debug !== undefined) {
-    openrouterRequest.debug = params.debug;
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     openrouterRequest.tools = request.tools.map(transformTool);
-    if (params.parallel_tool_calls !== undefined) {
-      openrouterRequest.parallel_tool_calls = params.parallel_tool_calls;
-    }
   }
 
-  // Structured output via response_format
+  // Structured output via response_format (overrides params.response_format if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',
@@ -133,9 +69,6 @@ export function transformRequest(
         strict: true,
       },
     };
-  } else if (params.response_format !== undefined) {
-    // Pass through response_format from params if no structure is defined
-    openrouterRequest.response_format = params.response_format;
   }
 
   return openrouterRequest;

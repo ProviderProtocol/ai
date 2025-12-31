@@ -25,6 +25,10 @@ import type {
 
 /**
  * Transform UPP request to Anthropic format
+ *
+ * Params are spread directly to allow pass-through of any Anthropic API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest<TParams extends AnthropicLLMParams>(
   request: LLMRequest<TParams>,
@@ -32,45 +36,19 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
 ): AnthropicRequest {
   const params = (request.params ?? {}) as AnthropicLLMParams;
 
+  // Spread params to pass through all fields, then set required fields
   const anthropicRequest: AnthropicRequest = {
+    ...params,
     model: modelId,
     messages: request.messages.map(transformMessage),
   };
-
-  // Only include max_tokens if provided - let Anthropic API enforce its requirement
-  if (params.max_tokens !== undefined) {
-    anthropicRequest.max_tokens = params.max_tokens;
-  }
 
   // System prompt (top-level in Anthropic)
   if (request.system) {
     anthropicRequest.system = request.system;
   }
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    anthropicRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    anthropicRequest.top_p = params.top_p;
-  }
-  if (params.top_k !== undefined) {
-    anthropicRequest.top_k = params.top_k;
-  }
-  if (params.stop_sequences) {
-    anthropicRequest.stop_sequences = params.stop_sequences;
-  }
-  if (params.metadata) {
-    anthropicRequest.metadata = params.metadata;
-  }
-  if (params.thinking) {
-    anthropicRequest.thinking = params.thinking;
-  }
-  if (params.service_tier !== undefined) {
-    anthropicRequest.service_tier = params.service_tier;
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     anthropicRequest.tools = request.tools.map(transformTool);
     anthropicRequest.tool_choice = { type: 'auto' };

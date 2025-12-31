@@ -25,6 +25,10 @@ import type {
 
 /**
  * Transform UPP request to xAI Responses API format
+ *
+ * Params are spread directly to allow pass-through of any xAI API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest(
   request: LLMRequest<XAIResponsesParams>,
@@ -32,52 +36,19 @@ export function transformRequest(
 ): XAIResponsesRequest {
   const params = request.params ?? ({} as XAIResponsesParams);
 
+  // Spread params to pass through all fields, then set required fields
   const xaiRequest: XAIResponsesRequest = {
+    ...params,
     model: modelId,
     input: transformInputItems(request.messages, request.system),
   };
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    xaiRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    xaiRequest.top_p = params.top_p;
-  }
-  if (params.max_output_tokens !== undefined) {
-    xaiRequest.max_output_tokens = params.max_output_tokens;
-  }
-  if (params.store !== undefined) {
-    xaiRequest.store = params.store;
-  }
-  if (params.metadata !== undefined) {
-    xaiRequest.metadata = params.metadata;
-  }
-  if (params.truncation !== undefined) {
-    xaiRequest.truncation = params.truncation;
-  }
-  if (params.include !== undefined) {
-    xaiRequest.include = params.include;
-  }
-  if (params.previous_response_id !== undefined) {
-    xaiRequest.previous_response_id = params.previous_response_id;
-  }
-  if (params.reasoning !== undefined) {
-    xaiRequest.reasoning = { ...params.reasoning };
-  }
-  if (params.search_parameters !== undefined) {
-    xaiRequest.search_parameters = params.search_parameters;
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     xaiRequest.tools = request.tools.map(transformTool);
-    if (params.parallel_tool_calls !== undefined) {
-      xaiRequest.parallel_tool_calls = params.parallel_tool_calls;
-    }
   }
 
-  // Structured output via text.format
+  // Structured output via text.format (overrides params.text if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',

@@ -23,6 +23,14 @@ import type {
 
 /**
  * Transform UPP request to Ollama format
+ *
+ * Params are spread to allow pass-through of any Ollama API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
+ *
+ * Note: Ollama uses nested 'options' for model parameters. Params that belong
+ * in options (like temperature, top_p, etc.) are spread into options, while
+ * top-level params (like keep_alive, think) are spread at the request level.
  */
 export function transformRequest<TParams extends OllamaLLMParams>(
   request: LLMRequest<TParams>,
@@ -30,63 +38,33 @@ export function transformRequest<TParams extends OllamaLLMParams>(
 ): OllamaRequest {
   const params = (request.params ?? {}) as OllamaLLMParams;
 
+  // Extract top-level params vs options params
+  const {
+    keep_alive,
+    think,
+    logprobs,
+    top_logprobs,
+    ...optionsParams
+  } = params;
+
+  // Spread params to pass through all fields, then set required fields
   const ollamaRequest: OllamaRequest = {
     model: modelId,
     messages: transformMessages(request.messages, request.system),
   };
 
-  // Build options object for runtime parameters
-  const options: OllamaOptions = {};
+  // Add top-level params if provided
+  if (keep_alive !== undefined) ollamaRequest.keep_alive = keep_alive;
+  if (think !== undefined) ollamaRequest.think = think;
+  if (logprobs !== undefined) ollamaRequest.logprobs = logprobs;
+  if (top_logprobs !== undefined) ollamaRequest.top_logprobs = top_logprobs;
 
-  if (params.num_predict !== undefined) options.num_predict = params.num_predict;
-  if (params.temperature !== undefined) options.temperature = params.temperature;
-  if (params.top_p !== undefined) options.top_p = params.top_p;
-  if (params.top_k !== undefined) options.top_k = params.top_k;
-  if (params.min_p !== undefined) options.min_p = params.min_p;
-  if (params.typical_p !== undefined) options.typical_p = params.typical_p;
-  if (params.repeat_penalty !== undefined) options.repeat_penalty = params.repeat_penalty;
-  if (params.repeat_last_n !== undefined) options.repeat_last_n = params.repeat_last_n;
-  if (params.presence_penalty !== undefined) options.presence_penalty = params.presence_penalty;
-  if (params.frequency_penalty !== undefined) options.frequency_penalty = params.frequency_penalty;
-  if (params.mirostat !== undefined) options.mirostat = params.mirostat;
-  if (params.mirostat_eta !== undefined) options.mirostat_eta = params.mirostat_eta;
-  if (params.mirostat_tau !== undefined) options.mirostat_tau = params.mirostat_tau;
-  if (params.penalize_newline !== undefined) options.penalize_newline = params.penalize_newline;
-  if (params.stop !== undefined) options.stop = params.stop;
-  if (params.seed !== undefined) options.seed = params.seed;
-  if (params.num_keep !== undefined) options.num_keep = params.num_keep;
-  if (params.num_ctx !== undefined) options.num_ctx = params.num_ctx;
-  if (params.num_batch !== undefined) options.num_batch = params.num_batch;
-  if (params.num_thread !== undefined) options.num_thread = params.num_thread;
-  if (params.num_gpu !== undefined) options.num_gpu = params.num_gpu;
-  if (params.main_gpu !== undefined) options.main_gpu = params.main_gpu;
-  if (params.low_vram !== undefined) options.low_vram = params.low_vram;
-  if (params.f16_kv !== undefined) options.f16_kv = params.f16_kv;
-  if (params.use_mmap !== undefined) options.use_mmap = params.use_mmap;
-  if (params.use_mlock !== undefined) options.use_mlock = params.use_mlock;
-  if (params.vocab_only !== undefined) options.vocab_only = params.vocab_only;
-  if (params.numa !== undefined) options.numa = params.numa;
-  if (params.tfs_z !== undefined) options.tfs_z = params.tfs_z;
-
-  if (Object.keys(options).length > 0) {
-    ollamaRequest.options = options;
+  // Spread remaining params into options to pass through all model parameters
+  if (Object.keys(optionsParams).length > 0) {
+    ollamaRequest.options = optionsParams as OllamaOptions;
   }
 
-  // Top-level parameters
-  if (params.keep_alive !== undefined) {
-    ollamaRequest.keep_alive = params.keep_alive;
-  }
-  if (params.think !== undefined) {
-    ollamaRequest.think = params.think;
-  }
-  if (params.logprobs !== undefined) {
-    ollamaRequest.logprobs = params.logprobs;
-  }
-  if (params.top_logprobs !== undefined) {
-    ollamaRequest.top_logprobs = params.top_logprobs;
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     ollamaRequest.tools = request.tools.map(transformTool);
   }

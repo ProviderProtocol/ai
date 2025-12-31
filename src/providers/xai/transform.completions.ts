@@ -23,6 +23,10 @@ import type {
 
 /**
  * Transform UPP request to xAI Chat Completions format
+ *
+ * Params are spread directly to allow pass-through of any xAI API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest(
   request: LLMRequest<XAICompletionsParams>,
@@ -30,72 +34,19 @@ export function transformRequest(
 ): XAICompletionsRequest {
   const params = request.params ?? ({} as XAICompletionsParams);
 
+  // Spread params to pass through all fields, then set required fields
   const xaiRequest: XAICompletionsRequest = {
+    ...params,
     model: modelId,
     messages: transformMessages(request.messages, request.system),
   };
 
-  // Model parameters
-  if (params.temperature !== undefined) {
-    xaiRequest.temperature = params.temperature;
-  }
-  if (params.top_p !== undefined) {
-    xaiRequest.top_p = params.top_p;
-  }
-  if (params.max_completion_tokens !== undefined) {
-    xaiRequest.max_completion_tokens = params.max_completion_tokens;
-  } else if (params.max_tokens !== undefined) {
-    xaiRequest.max_tokens = params.max_tokens;
-  }
-  if (params.frequency_penalty !== undefined) {
-    xaiRequest.frequency_penalty = params.frequency_penalty;
-  }
-  if (params.presence_penalty !== undefined) {
-    xaiRequest.presence_penalty = params.presence_penalty;
-  }
-  if (params.stop !== undefined) {
-    xaiRequest.stop = params.stop;
-  }
-  if (params.n !== undefined) {
-    xaiRequest.n = params.n;
-  }
-  if (params.logprobs !== undefined) {
-    xaiRequest.logprobs = params.logprobs;
-  }
-  if (params.top_logprobs !== undefined) {
-    xaiRequest.top_logprobs = params.top_logprobs;
-  }
-  if (params.seed !== undefined) {
-    xaiRequest.seed = params.seed;
-  }
-  if (params.user !== undefined) {
-    xaiRequest.user = params.user;
-  }
-  if (params.logit_bias !== undefined) {
-    xaiRequest.logit_bias = params.logit_bias;
-  }
-  if (params.reasoning_effort !== undefined) {
-    xaiRequest.reasoning_effort = params.reasoning_effort;
-  }
-  if (params.store !== undefined) {
-    xaiRequest.store = params.store;
-  }
-  if (params.metadata !== undefined) {
-    xaiRequest.metadata = params.metadata;
-  }
-  if (params.search_parameters !== undefined) {
-    xaiRequest.search_parameters = params.search_parameters;
-  }
-
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     xaiRequest.tools = request.tools.map(transformTool);
-    if (params.parallel_tool_calls !== undefined) {
-      xaiRequest.parallel_tool_calls = params.parallel_tool_calls;
-    }
   }
 
-  // Structured output via response_format
+  // Structured output via response_format (overrides params.response_format if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',
@@ -118,9 +69,6 @@ export function transformRequest(
         strict: true,
       },
     };
-  } else if (params.response_format !== undefined) {
-    // Pass through response_format from params if no structure is defined
-    xaiRequest.response_format = params.response_format;
   }
 
   return xaiRequest;

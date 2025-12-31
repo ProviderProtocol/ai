@@ -23,6 +23,10 @@ import type {
 
 /**
  * Transform UPP request to Google format
+ *
+ * Params are spread into generationConfig to allow pass-through of any Google API fields,
+ * even those not explicitly defined in our type. This enables developers to
+ * use new API features without waiting for library updates.
  */
 export function transformRequest<TParams extends GoogleLLMParams>(
   request: LLMRequest<TParams>,
@@ -41,54 +45,10 @@ export function transformRequest<TParams extends GoogleLLMParams>(
     };
   }
 
-  // Generation config
-  const generationConfig: NonNullable<GoogleRequest['generationConfig']> = {};
-
-  if (params.maxOutputTokens !== undefined) {
-    generationConfig.maxOutputTokens = params.maxOutputTokens;
-  }
-  if (params.temperature !== undefined) {
-    generationConfig.temperature = params.temperature;
-  }
-  if (params.topP !== undefined) {
-    generationConfig.topP = params.topP;
-  }
-  if (params.topK !== undefined) {
-    generationConfig.topK = params.topK;
-  }
-  if (params.stopSequences !== undefined) {
-    generationConfig.stopSequences = params.stopSequences;
-  }
-  if (params.candidateCount !== undefined) {
-    generationConfig.candidateCount = params.candidateCount;
-  }
-  if (params.responseMimeType !== undefined) {
-    generationConfig.responseMimeType = params.responseMimeType;
-  }
-  if (params.responseSchema !== undefined) {
-    generationConfig.responseSchema = params.responseSchema as Record<string, unknown>;
-  }
-  if (params.presencePenalty !== undefined) {
-    generationConfig.presencePenalty = params.presencePenalty;
-  }
-  if (params.frequencyPenalty !== undefined) {
-    generationConfig.frequencyPenalty = params.frequencyPenalty;
-  }
-  if (params.seed !== undefined) {
-    generationConfig.seed = params.seed;
-  }
-  if (params.responseLogprobs !== undefined) {
-    generationConfig.responseLogprobs = params.responseLogprobs;
-  }
-  if (params.logprobs !== undefined) {
-    generationConfig.logprobs = params.logprobs;
-  }
-  if (params.audioTimestamp !== undefined) {
-    generationConfig.audioTimestamp = params.audioTimestamp;
-  }
-  if (params.thinkingConfig !== undefined) {
-    generationConfig.thinkingConfig = params.thinkingConfig;
-  }
+  // Spread params into generationConfig to pass through all fields
+  const generationConfig: NonNullable<GoogleRequest['generationConfig']> = {
+    ...params,
+  };
 
   // Protocol-level structured output (overrides provider-specific settings)
   if (request.structure) {
@@ -100,7 +60,7 @@ export function transformRequest<TParams extends GoogleLLMParams>(
     googleRequest.generationConfig = generationConfig;
   }
 
-  // Tools
+  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     googleRequest.tools = [
       {
