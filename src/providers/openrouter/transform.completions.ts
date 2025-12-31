@@ -11,7 +11,7 @@ import {
   isToolResultMessage,
 } from '../../types/messages.ts';
 import type {
-  OpenRouterLLMParams,
+  OpenRouterCompletionsParams,
   OpenRouterCompletionsRequest,
   OpenRouterCompletionsMessage,
   OpenRouterUserContent,
@@ -24,11 +24,11 @@ import type {
 /**
  * Transform UPP request to OpenRouter Chat Completions format
  */
-export function transformRequest<TParams extends OpenRouterLLMParams>(
-  request: LLMRequest<TParams>,
+export function transformRequest(
+  request: LLMRequest<OpenRouterCompletionsParams>,
   modelId: string
 ): OpenRouterCompletionsRequest {
-  const params: OpenRouterLLMParams = request.params ?? {};
+  const params = request.params ?? ({} as OpenRouterCompletionsParams);
 
   const openrouterRequest: OpenRouterCompletionsRequest = {
     model: modelId,

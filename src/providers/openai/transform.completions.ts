@@ -11,7 +11,7 @@ import {
   isToolResultMessage,
 } from '../../types/messages.ts';
 import type {
-  OpenAILLMParams,
+  OpenAICompletionsParams,
   OpenAICompletionsRequest,
   OpenAICompletionsMessage,
   OpenAIUserContent,
@@ -24,11 +24,11 @@ import type {
 /**
  * Transform UPP request to OpenAI Chat Completions format
  */
-export function transformRequest<TParams extends OpenAILLMParams>(
-  request: LLMRequest<TParams>,
+export function transformRequest(
+  request: LLMRequest<OpenAICompletionsParams>,
   modelId: string
 ): OpenAICompletionsRequest {
-  const params: OpenAILLMParams = request.params ?? {};
+  const params = request.params ?? ({} as OpenAICompletionsParams);
 
   const openaiRequest: OpenAICompletionsRequest = {
     model: modelId,

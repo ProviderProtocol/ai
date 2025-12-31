@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { xai } from '../../src/xai/index.ts';
-import type { XAILLMParams } from '../../src/xai/index.ts';
+import type { XAICompletionsParams } from '../../src/xai/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
 import { readFileSync } from 'fs';
@@ -20,7 +20,7 @@ const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
  */
 describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
   test('simple text generation', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 100 },
     });
@@ -33,7 +33,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
   });
 
   test('streaming text generation', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 50 },
     });
@@ -57,7 +57,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
   });
 
   test('multi-turn conversation', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 100 },
     });
@@ -75,7 +75,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
   });
 
   test('with system prompt', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 50 },
       system: 'You are a robot. Always respond like a robot.',
@@ -109,7 +109,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
       },
     };
 
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 200 },
       tools: [calculate],
@@ -122,7 +122,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
   });
 
   test('vision/multimodal with base64 image', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 100 },
     });
@@ -161,7 +161,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
       },
     };
 
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 200 },
       tools: [calculator],
@@ -188,7 +188,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
   });
 
   test('structured output with JSON mode', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: {
         max_tokens: 200,
@@ -209,7 +209,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
   });
 
   test('protocol-level structured output (schema enforcement)', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 200 },
       structure: {
@@ -243,7 +243,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
       run: async (params: { city: string }) => `${params.city}: 75°F`,
     };
 
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 300 },
       tools: [getWeather],
@@ -270,7 +270,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
  */
 describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('grok-4-1-fast-non-reasoning', { api: 'completions' }),
       params: { max_tokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
@@ -290,7 +290,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Error Handling', 
   });
 
   test('invalid model returns UPPError', async () => {
-    const grok = llm<XAILLMParams>({
+    const grok = llm<XAICompletionsParams>({
       model: xai('nonexistent-model-xyz', { api: 'completions' }),
       params: { max_tokens: 10 },
     });

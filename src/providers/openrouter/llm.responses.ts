@@ -6,7 +6,7 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
-import type { OpenRouterLLMParams, OpenRouterResponsesResponse, OpenRouterResponsesStreamEvent, OpenRouterResponseErrorEvent } from './types.ts';
+import type { OpenRouterResponsesParams, OpenRouterResponsesResponse, OpenRouterResponsesStreamEvent, OpenRouterResponseErrorEvent } from './types.ts';
 import {
   transformRequest,
   transformResponse,
@@ -32,16 +32,16 @@ const OPENROUTER_CAPABILITIES: LLMCapabilities = {
 /**
  * Create OpenRouter Responses API LLM handler
  */
-export function createResponsesLLMHandler(): LLMHandler<OpenRouterLLMParams> {
+export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParams> {
   // Provider reference injected by createProvider() or OpenRouter's custom factory
-  let providerRef: LLMProvider<OpenRouterLLMParams> | null = null;
+  let providerRef: LLMProvider<OpenRouterResponsesParams> | null = null;
 
   return {
-    _setProvider(provider: LLMProvider<OpenRouterLLMParams>) {
+    _setProvider(provider: LLMProvider<OpenRouterResponsesParams>) {
       providerRef = provider;
     },
 
-    bind(modelId: string): BoundLLMModel<OpenRouterLLMParams> {
+    bind(modelId: string): BoundLLMModel<OpenRouterResponsesParams> {
       // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
@@ -52,15 +52,15 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterLLMParams> {
         );
       }
 
-      const model: BoundLLMModel<OpenRouterLLMParams> = {
+      const model: BoundLLMModel<OpenRouterResponsesParams> = {
         modelId,
         capabilities: OPENROUTER_CAPABILITIES,
 
-        get provider(): LLMProvider<OpenRouterLLMParams> {
+        get provider(): LLMProvider<OpenRouterResponsesParams> {
           return providerRef!;
         },
 
-        async complete(request: LLMRequest<OpenRouterLLMParams>): Promise<LLMResponse> {
+        async complete(request: LLMRequest<OpenRouterResponsesParams>): Promise<LLMResponse> {
           const apiKey = await resolveApiKey(
             request.config,
             'OPENROUTER_API_KEY',
@@ -102,7 +102,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterLLMParams> {
           return transformResponse(data);
         },
 
-        stream(request: LLMRequest<OpenRouterLLMParams>): LLMStreamResult {
+        stream(request: LLMRequest<OpenRouterResponsesParams>): LLMStreamResult {
           const state = createStreamState();
           let responseResolve: (value: LLMResponse) => void;
           let responseReject: (error: Error) => void;

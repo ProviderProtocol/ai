@@ -11,7 +11,7 @@ import {
   isToolResultMessage,
 } from '../../types/messages.ts';
 import type {
-  OpenRouterLLMParams,
+  OpenRouterResponsesParams,
   OpenRouterResponsesRequest,
   OpenRouterResponsesInputItem,
   OpenRouterResponsesContentPart,
@@ -26,11 +26,11 @@ import type {
 /**
  * Transform UPP request to OpenRouter Responses API format
  */
-export function transformRequest<TParams extends OpenRouterLLMParams>(
-  request: LLMRequest<TParams>,
+export function transformRequest(
+  request: LLMRequest<OpenRouterResponsesParams>,
   modelId: string
 ): OpenRouterResponsesRequest {
-  const params: OpenRouterLLMParams = request.params ?? {};
+  const params = request.params ?? ({} as OpenRouterResponsesParams);
 
   const openrouterRequest: OpenRouterResponsesRequest = {
     model: modelId,
@@ -46,8 +46,6 @@ export function transformRequest<TParams extends OpenRouterLLMParams>(
   }
   if (params.max_output_tokens !== undefined) {
     openrouterRequest.max_output_tokens = params.max_output_tokens;
-  } else if (params.max_tokens !== undefined) {
-    openrouterRequest.max_output_tokens = params.max_tokens;
   }
   if (params.reasoning !== undefined) {
     openrouterRequest.reasoning = { ...params.reasoning };

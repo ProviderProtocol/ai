@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { openrouter } from '../../src/openrouter/index.ts';
-import type { OpenRouterLLMParams } from '../../src/openrouter/index.ts';
+import type { OpenRouterResponsesParams } from '../../src/openrouter/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
 import { readFileSync } from 'fs';
@@ -35,7 +35,7 @@ const VISION_MODEL = 'openai/gpt-5.2';
  */
 describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live (Beta)', () => {
   test('simple text generation', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 100 },
     });
@@ -48,7 +48,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
   });
 
   test('streaming text generation', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 50 },
     });
@@ -72,7 +72,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
   });
 
   test('multi-turn conversation', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 100 },
     });
@@ -90,7 +90,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
   });
 
   test('with system prompt', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 50 },
       system: 'You are a pirate. Always respond like a pirate.',
@@ -133,7 +133,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
       },
     };
 
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 200 },
       tools: [calculate],
@@ -146,7 +146,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
   });
 
   test('vision/multimodal with base64 image', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(VISION_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 100 },
     });
@@ -187,7 +187,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
       },
     };
 
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 200 },
       tools: [calculator],
@@ -215,7 +215,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
   });
 
   test('structured output with JSON schema', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 200 },
       structure: {
@@ -249,7 +249,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
       run: async (params: { city: string }) => `${params.city}: 72°F`,
     };
 
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 300 },
       tools: [getWeather],
@@ -270,7 +270,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
   });
 
   test('streaming with structured output', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 200 },
       structure: {
@@ -312,7 +312,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
   });
 
   test('reasoning effort parameter', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: {
         max_output_tokens: 200,
@@ -332,7 +332,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
  */
 describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter(TEST_MODEL, { api: 'responses' }),
       params: { max_output_tokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
@@ -351,7 +351,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Error
   });
 
   test('invalid model returns UPPError', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterResponsesParams>({
       model: openrouter('nonexistent/model-xyz-12345', { api: 'responses' }),
       params: { max_output_tokens: 10 },
     });

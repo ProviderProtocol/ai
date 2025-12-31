@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { openai } from '../../src/openai/index.ts';
-import type { OpenAILLMParams } from '../../src/openai/index.ts';
+import type { OpenAICompletionsParams } from '../../src/openai/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
 import { readFileSync } from 'fs';
@@ -20,7 +20,7 @@ const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
  */
 describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () => {
   test('simple text generation', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
@@ -33,7 +33,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
   });
 
   test('streaming text generation', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 50 },
     });
@@ -57,7 +57,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
   });
 
   test('multi-turn conversation', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
@@ -75,7 +75,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
   });
 
   test('with system prompt', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 50 },
       system: 'You are a robot. Always respond like a robot.',
@@ -121,7 +121,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
       },
     };
 
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       tools: [calculate],
@@ -134,7 +134,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
   });
 
   test('vision/multimodal with base64 image', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 100 },
     });
@@ -173,7 +173,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
       },
     };
 
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       tools: [calculator],
@@ -200,7 +200,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
   });
 
   test('structured output with JSON mode', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: {
         max_completion_tokens: 200,
@@ -221,7 +221,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
   });
 
   test('protocol-level structured output (schema enforcement)', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       structure: {
@@ -256,7 +256,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
       run: async (params: { city: string }) => `${params.city}: 75°F`,
     };
 
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 300 },
       tools: [getWeather],
@@ -277,7 +277,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
   });
 
   test('streaming with structured output', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 200 },
       structure: {
@@ -324,7 +324,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
  */
 describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('gpt-5.2', { api: 'completions' }),
       params: { max_completion_tokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
@@ -343,7 +343,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Error Handl
   });
 
   test('invalid model returns UPPError', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAICompletionsParams>({
       model: openai('nonexistent-model-xyz', { api: 'completions' }),
       params: { max_completion_tokens: 10 },
     });

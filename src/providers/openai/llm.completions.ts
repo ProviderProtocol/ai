@@ -6,7 +6,7 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
-import type { OpenAILLMParams, OpenAICompletionsResponse, OpenAICompletionsStreamChunk } from './types.ts';
+import type { OpenAICompletionsParams, OpenAICompletionsResponse, OpenAICompletionsStreamChunk } from './types.ts';
 import {
   transformRequest,
   transformResponse,
@@ -32,16 +32,16 @@ const OPENAI_CAPABILITIES: LLMCapabilities = {
 /**
  * Create OpenAI Chat Completions LLM handler
  */
-export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
+export function createCompletionsLLMHandler(): LLMHandler<OpenAICompletionsParams> {
   // Provider reference injected by createProvider() or OpenAI's custom factory
-  let providerRef: LLMProvider<OpenAILLMParams> | null = null;
+  let providerRef: LLMProvider<OpenAICompletionsParams> | null = null;
 
   return {
-    _setProvider(provider: LLMProvider<OpenAILLMParams>) {
+    _setProvider(provider: LLMProvider<OpenAICompletionsParams>) {
       providerRef = provider;
     },
 
-    bind(modelId: string): BoundLLMModel<OpenAILLMParams> {
+    bind(modelId: string): BoundLLMModel<OpenAICompletionsParams> {
       // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
@@ -52,15 +52,15 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
         );
       }
 
-      const model: BoundLLMModel<OpenAILLMParams> = {
+      const model: BoundLLMModel<OpenAICompletionsParams> = {
         modelId,
         capabilities: OPENAI_CAPABILITIES,
 
-        get provider(): LLMProvider<OpenAILLMParams> {
+        get provider(): LLMProvider<OpenAICompletionsParams> {
           return providerRef!;
         },
 
-        async complete(request: LLMRequest<OpenAILLMParams>): Promise<LLMResponse> {
+        async complete(request: LLMRequest<OpenAICompletionsParams>): Promise<LLMResponse> {
           const apiKey = await resolveApiKey(
             request.config,
             'OPENAI_API_KEY',
@@ -91,7 +91,7 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAILLMParams> {
           return transformResponse(data);
         },
 
-        stream(request: LLMRequest<OpenAILLMParams>): LLMStreamResult {
+        stream(request: LLMRequest<OpenAICompletionsParams>): LLMStreamResult {
           const state = createStreamState();
           let responseResolve: (value: LLMResponse) => void;
           let responseReject: (error: Error) => void;

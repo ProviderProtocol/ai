@@ -11,7 +11,7 @@ import {
   isToolResultMessage,
 } from '../../types/messages.ts';
 import type {
-  XAILLMParams,
+  XAIMessagesParams,
   XAIMessagesRequest,
   XAIMessagesMessage,
   XAIMessagesContent,
@@ -24,11 +24,11 @@ import type {
 /**
  * Transform UPP request to xAI Messages API format (Anthropic-compatible)
  */
-export function transformRequest<TParams extends XAILLMParams>(
-  request: LLMRequest<TParams>,
+export function transformRequest(
+  request: LLMRequest<XAIMessagesParams>,
   modelId: string
 ): XAIMessagesRequest {
-  const params = (request.params ?? {}) as XAILLMParams;
+  const params = request.params ?? ({} as XAIMessagesParams);
 
   const xaiRequest: XAIMessagesRequest = {
     model: modelId,
@@ -58,8 +58,8 @@ export function transformRequest<TParams extends XAILLMParams>(
   if (params.stop_sequences) {
     xaiRequest.stop_sequences = params.stop_sequences;
   }
-  if (params.messages_metadata) {
-    xaiRequest.metadata = params.messages_metadata;
+  if (params.metadata) {
+    xaiRequest.metadata = params.metadata;
   }
   if (params.thinking) {
     xaiRequest.thinking = params.thinking;

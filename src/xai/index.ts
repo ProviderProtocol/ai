@@ -29,7 +29,9 @@ export type {
   XAIProvider,
 } from '../providers/xai/index.ts';
 export type {
-  XAILLMParams,
+  XAICompletionsParams,
+  XAIResponsesParams,
+  XAIMessagesParams,
   XAIConfig,
   XAIAPIMode,
   XAIModelOptions,

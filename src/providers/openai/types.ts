@@ -1,16 +1,13 @@
 /**
- * OpenAI-specific LLM parameters
- * These are passed through to the relevant OpenAI APIs
+ * OpenAI Chat Completions API parameters
+ * These are passed through to the /v1/chat/completions endpoint
  */
-export interface OpenAILLMParams {
-  /** Maximum number of tokens to generate */
+export interface OpenAICompletionsParams {
+  /** Maximum number of tokens to generate (legacy, prefer max_completion_tokens) */
   max_tokens?: number;
 
-  /** Maximum completion tokens (preferred over max_tokens for newer models) */
+  /** Maximum completion tokens (preferred for newer models) */
   max_completion_tokens?: number;
-
-  /** Maximum output tokens (Responses API) */
-  max_output_tokens?: number;
 
   /** Temperature for randomness (0.0 - 2.0) */
   temperature?: number;
@@ -42,10 +39,10 @@ export interface OpenAILLMParams {
   /** User identifier for abuse detection */
   user?: string;
 
-  /** Logit bias map (Chat Completions API) */
+  /** Logit bias map */
   logit_bias?: Record<string, number>;
 
-  /** Verbosity control (Chat Completions API) */
+  /** Verbosity control */
   verbosity?: 'low' | 'medium' | 'high';
 
   /** Whether to enable parallel tool calls */
@@ -54,26 +51,8 @@ export interface OpenAILLMParams {
   /** Reasoning effort for reasoning models */
   reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
-  /** Reasoning configuration (Responses API) */
-  reasoning?: {
-    effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    summary?: string;
-  };
-
   /** Service tier */
   service_tier?: 'auto' | 'default' | 'flex' | 'priority';
-
-  /** Truncation strategy (Responses API) */
-  truncation?: 'auto' | 'disabled';
-
-  /** Fields to include in Responses API output */
-  include?: string[];
-
-  /** Background processing (Responses API) */
-  background?: boolean;
-
-  /** Continue from a previous response (Responses API) */
-  previous_response_id?: string;
 
   /** Store completion for distillation */
   store?: boolean;
@@ -81,13 +60,12 @@ export interface OpenAILLMParams {
   /** Metadata key-value pairs */
   metadata?: Record<string, string>;
 
-  /** Response format for structured output (Chat Completions API only) */
+  /** Response format for structured output */
   response_format?: OpenAIResponseFormat;
 
   /**
    * Predicted Output configuration for faster regeneration
    * Improves response times when large parts of the response are known ahead of time
-   * Most useful when regenerating a file with only minor changes
    */
   prediction?: {
     type: 'content';
@@ -95,7 +73,7 @@ export interface OpenAILLMParams {
   };
 
   /**
-   * Stable identifier for caching similar requests (replaces user field)
+   * Stable identifier for caching similar requests
    * Used to optimize cache hit rates
    */
   prompt_cache_key?: string;
@@ -111,6 +89,51 @@ export interface OpenAILLMParams {
    * Recommend hashing username or email address
    */
   safety_identifier?: string;
+}
+
+/**
+ * OpenAI Responses API parameters
+ * These are passed through to the /v1/responses endpoint
+ */
+export interface OpenAIResponsesParams {
+  /** Maximum output tokens */
+  max_output_tokens?: number;
+
+  /** Temperature for randomness (0.0 - 2.0) */
+  temperature?: number;
+
+  /** Top-p (nucleus) sampling (0.0 - 1.0) */
+  top_p?: number;
+
+  /** Whether to enable parallel tool calls */
+  parallel_tool_calls?: boolean;
+
+  /** Reasoning configuration */
+  reasoning?: {
+    effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+    summary?: string;
+  };
+
+  /** Service tier */
+  service_tier?: 'auto' | 'default' | 'flex' | 'priority';
+
+  /** Truncation strategy */
+  truncation?: 'auto' | 'disabled';
+
+  /** Fields to include in output */
+  include?: string[];
+
+  /** Background processing */
+  background?: boolean;
+
+  /** Continue from a previous response */
+  previous_response_id?: string;
+
+  /** Store response for continuation */
+  store?: boolean;
+
+  /** Metadata key-value pairs */
+  metadata?: Record<string, string>;
 }
 
 /**

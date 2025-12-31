@@ -11,7 +11,7 @@ import {
   isToolResultMessage,
 } from '../../types/messages.ts';
 import type {
-  XAILLMParams,
+  XAICompletionsParams,
   XAICompletionsRequest,
   XAICompletionsMessage,
   XAIUserContent,
@@ -24,11 +24,11 @@ import type {
 /**
  * Transform UPP request to xAI Chat Completions format
  */
-export function transformRequest<TParams extends XAILLMParams>(
-  request: LLMRequest<TParams>,
+export function transformRequest(
+  request: LLMRequest<XAICompletionsParams>,
   modelId: string
 ): XAICompletionsRequest {
-  const params: XAILLMParams = request.params ?? {};
+  const params = request.params ?? ({} as XAICompletionsParams);
 
   const xaiRequest: XAICompletionsRequest = {
     model: modelId,

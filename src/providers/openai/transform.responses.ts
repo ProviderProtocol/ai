@@ -11,7 +11,7 @@ import {
   isToolResultMessage,
 } from '../../types/messages.ts';
 import type {
-  OpenAILLMParams,
+  OpenAIResponsesParams,
   OpenAIResponsesRequest,
   OpenAIResponsesInputItem,
   OpenAIResponsesContentPart,
@@ -26,11 +26,11 @@ import type {
 /**
  * Transform UPP request to OpenAI Responses API format
  */
-export function transformRequest<TParams extends OpenAILLMParams>(
-  request: LLMRequest<TParams>,
+export function transformRequest(
+  request: LLMRequest<OpenAIResponsesParams>,
   modelId: string
 ): OpenAIResponsesRequest {
-  const params: OpenAILLMParams = request.params ?? {};
+  const params = request.params ?? ({} as OpenAIResponsesParams);
 
   const openaiRequest: OpenAIResponsesRequest = {
     model: modelId,
@@ -46,10 +46,6 @@ export function transformRequest<TParams extends OpenAILLMParams>(
   }
   if (params.max_output_tokens !== undefined) {
     openaiRequest.max_output_tokens = params.max_output_tokens;
-  } else if (params.max_completion_tokens !== undefined) {
-    openaiRequest.max_output_tokens = params.max_completion_tokens;
-  } else if (params.max_tokens !== undefined) {
-    openaiRequest.max_output_tokens = params.max_tokens;
   }
   if (params.service_tier !== undefined) {
     openaiRequest.service_tier = params.service_tier;
@@ -74,12 +70,6 @@ export function transformRequest<TParams extends OpenAILLMParams>(
   }
   if (params.reasoning !== undefined) {
     openaiRequest.reasoning = { ...params.reasoning };
-  }
-  if (params.reasoning_effort !== undefined) {
-    openaiRequest.reasoning = {
-      ...(openaiRequest.reasoning ?? {}),
-      effort: params.reasoning_effort,
-    };
   }
 
   // Tools

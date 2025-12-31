@@ -1,17 +1,10 @@
 /**
- * OpenRouter-specific LLM parameters
- * These are passed through to the OpenRouter APIs
+ * OpenRouter Chat Completions API parameters
+ * These are passed through to the /api/v1/chat/completions endpoint
  */
-export interface OpenRouterLLMParams {
-  // ============================================
-  // Common Parameters (both APIs)
-  // ============================================
-
+export interface OpenRouterCompletionsParams {
   /** Maximum number of tokens to generate */
   max_tokens?: number;
-
-  /** Maximum output tokens (Responses API) */
-  max_output_tokens?: number;
 
   /** Temperature for randomness (0.0 - 2.0) */
   temperature?: number;
@@ -55,23 +48,11 @@ export interface OpenRouterLLMParams {
   /** Top-a sampling threshold (0.0 - 1.0) */
   top_a?: number;
 
-  // ============================================
-  // Tool Calling
-  // ============================================
-
   /** Whether to enable parallel tool calls */
   parallel_tool_calls?: boolean;
 
-  // ============================================
-  // Structured Output
-  // ============================================
-
-  /** Response format for structured output (Chat Completions API only) */
+  /** Response format for structured output */
   response_format?: OpenRouterResponseFormat;
-
-  // ============================================
-  // OpenRouter-Specific Parameters
-  // ============================================
 
   /**
    * Prompt transforms to apply
@@ -98,7 +79,6 @@ export interface OpenRouterLLMParams {
 
   /**
    * Predicted output for latency optimization
-   * https://platform.openai.com/docs/guides/latency-optimization#use-predicted-outputs
    */
   prediction?: {
     type: 'content';
@@ -112,13 +92,27 @@ export interface OpenRouterLLMParams {
     /** If true, returns the transformed request body sent to the provider */
     echo_upstream_body?: boolean;
   };
+}
 
-  // ============================================
-  // Responses API Specific
-  // ============================================
+/**
+ * OpenRouter Responses API parameters (Beta)
+ * These are passed through to the /api/v1/responses endpoint
+ */
+export interface OpenRouterResponsesParams {
+  /** Maximum output tokens */
+  max_output_tokens?: number;
+
+  /** Temperature for randomness (0.0 - 2.0) */
+  temperature?: number;
+
+  /** Top-p (nucleus) sampling (0.0 - 1.0) */
+  top_p?: number;
+
+  /** Whether to enable parallel tool calls */
+  parallel_tool_calls?: boolean;
 
   /**
-   * Reasoning configuration (Responses API)
+   * Reasoning configuration
    */
   reasoning?: {
     effort?: 'low' | 'medium' | 'high';

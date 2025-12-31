@@ -7,7 +7,10 @@ import type {
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createMessagesLLMHandler } from './llm.messages.ts';
-import type { XAILLMParams, XAIConfig, XAIAPIMode } from './types.ts';
+import type { XAICompletionsParams, XAIResponsesParams, XAIMessagesParams, XAIConfig, XAIAPIMode } from './types.ts';
+
+/** Union type for modalities interface */
+type XAILLMParamsUnion = XAICompletionsParams | XAIResponsesParams | XAIMessagesParams;
 
 /**
  * xAI provider options
@@ -58,7 +61,7 @@ export interface XAIProvider extends Provider<XAIProviderOptions> {
 
   /** Supported modalities */
   readonly modalities: {
-    llm: LLMHandler<XAILLMParams>;
+    llm: LLMHandler<XAILLMParamsUnion>;
   };
 }
 
@@ -86,15 +89,15 @@ function createXAIProvider(): XAIProvider {
 
   // Create a dynamic modalities object that returns the correct handler
   const modalities = {
-    get llm(): LLMHandler<XAILLMParams> {
+    get llm(): LLMHandler<XAILLMParamsUnion> {
       switch (currentApiMode) {
         case 'responses':
-          return responsesHandler;
+          return responsesHandler as unknown as LLMHandler<XAILLMParamsUnion>;
         case 'messages':
-          return messagesHandler;
+          return messagesHandler as unknown as LLMHandler<XAILLMParamsUnion>;
         case 'completions':
         default:
-          return completionsHandler;
+          return completionsHandler as unknown as LLMHandler<XAILLMParamsUnion>;
       }
     },
   };
@@ -121,9 +124,9 @@ function createXAIProvider(): XAIProvider {
   const provider = fn as XAIProvider;
 
   // Inject provider reference into all handlers (spec compliance)
-  completionsHandler._setProvider?.(provider as unknown as LLMProvider<XAILLMParams>);
-  responsesHandler._setProvider?.(provider as unknown as LLMProvider<XAILLMParams>);
-  messagesHandler._setProvider?.(provider as unknown as LLMProvider<XAILLMParams>);
+  completionsHandler._setProvider?.(provider as unknown as LLMProvider<XAICompletionsParams>);
+  responsesHandler._setProvider?.(provider as unknown as LLMProvider<XAIResponsesParams>);
+  messagesHandler._setProvider?.(provider as unknown as LLMProvider<XAIMessagesParams>);
 
   return provider;
 }
@@ -208,7 +211,9 @@ export const xai = createXAIProvider();
 
 // Re-export types
 export type {
-  XAILLMParams,
+  XAICompletionsParams,
+  XAIResponsesParams,
+  XAIMessagesParams,
   XAIConfig,
   XAIAPIMode,
   XAIModelOptions,

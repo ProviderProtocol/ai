@@ -6,7 +6,7 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
-import type { XAILLMParams, XAIResponsesResponse, XAIResponsesStreamEvent, XAIResponseErrorEvent } from './types.ts';
+import type { XAIResponsesParams, XAIResponsesResponse, XAIResponsesStreamEvent, XAIResponseErrorEvent } from './types.ts';
 import {
   transformRequest,
   transformResponse,
@@ -32,16 +32,16 @@ const XAI_RESPONSES_CAPABILITIES: LLMCapabilities = {
 /**
  * Create xAI Responses API LLM handler
  */
-export function createResponsesLLMHandler(): LLMHandler<XAILLMParams> {
+export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
   // Provider reference injected by createProvider() or xAI's custom factory
-  let providerRef: LLMProvider<XAILLMParams> | null = null;
+  let providerRef: LLMProvider<XAIResponsesParams> | null = null;
 
   return {
-    _setProvider(provider: LLMProvider<XAILLMParams>) {
+    _setProvider(provider: LLMProvider<XAIResponsesParams>) {
       providerRef = provider;
     },
 
-    bind(modelId: string): BoundLLMModel<XAILLMParams> {
+    bind(modelId: string): BoundLLMModel<XAIResponsesParams> {
       // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
@@ -52,15 +52,15 @@ export function createResponsesLLMHandler(): LLMHandler<XAILLMParams> {
         );
       }
 
-      const model: BoundLLMModel<XAILLMParams> = {
+      const model: BoundLLMModel<XAIResponsesParams> = {
         modelId,
         capabilities: XAI_RESPONSES_CAPABILITIES,
 
-        get provider(): LLMProvider<XAILLMParams> {
+        get provider(): LLMProvider<XAIResponsesParams> {
           return providerRef!;
         },
 
-        async complete(request: LLMRequest<XAILLMParams>): Promise<LLMResponse> {
+        async complete(request: LLMRequest<XAIResponsesParams>): Promise<LLMResponse> {
           const apiKey = await resolveApiKey(
             request.config,
             'XAI_API_KEY',
@@ -102,7 +102,7 @@ export function createResponsesLLMHandler(): LLMHandler<XAILLMParams> {
           return transformResponse(data);
         },
 
-        stream(request: LLMRequest<XAILLMParams>): LLMStreamResult {
+        stream(request: LLMRequest<XAIResponsesParams>): LLMStreamResult {
           const state = createStreamState();
           let responseResolve: (value: LLMResponse) => void;
           let responseReject: (error: Error) => void;

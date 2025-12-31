@@ -6,7 +6,10 @@ import type {
 } from '../../types/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
-import type { OpenRouterLLMParams, OpenRouterConfig } from './types.ts';
+import type { OpenRouterCompletionsParams, OpenRouterResponsesParams, OpenRouterConfig } from './types.ts';
+
+/** Union type for modalities interface */
+type OpenRouterLLMParamsUnion = OpenRouterCompletionsParams | OpenRouterResponsesParams;
 
 /**
  * OpenRouter provider options
@@ -51,7 +54,7 @@ export interface OpenRouterProvider extends Provider<OpenRouterProviderOptions> 
 
   /** Supported modalities */
   readonly modalities: {
-    llm: LLMHandler<OpenRouterLLMParams>;
+    llm: LLMHandler<OpenRouterLLMParamsUnion>;
   };
 }
 
@@ -78,10 +81,10 @@ function createOpenRouterProvider(): OpenRouterProvider {
 
   // Create a dynamic modalities object that returns the correct handler
   const modalities = {
-    get llm(): LLMHandler<OpenRouterLLMParams> {
+    get llm(): LLMHandler<OpenRouterLLMParamsUnion> {
       return currentApiMode === 'responses'
-        ? responsesHandler
-        : completionsHandler;
+        ? (responsesHandler as unknown as LLMHandler<OpenRouterLLMParamsUnion>)
+        : (completionsHandler as unknown as LLMHandler<OpenRouterLLMParamsUnion>);
     },
   };
 
@@ -107,8 +110,8 @@ function createOpenRouterProvider(): OpenRouterProvider {
   const provider = fn as OpenRouterProvider;
 
   // Inject provider reference into both handlers (spec compliance)
-  completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterLLMParams>);
-  responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterLLMParams>);
+  completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterCompletionsParams>);
+  responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterResponsesParams>);
 
   return provider;
 }
@@ -164,7 +167,8 @@ export const openrouter = createOpenRouterProvider();
 
 // Re-export types
 export type {
-  OpenRouterLLMParams,
+  OpenRouterCompletionsParams,
+  OpenRouterResponsesParams,
   OpenRouterConfig,
   OpenRouterAPIMode,
   OpenRouterModelOptions,

@@ -1,30 +1,19 @@
 /**
- * xAI-specific LLM parameters
- * These are passed through to the relevant xAI APIs (Completions, Responses, Messages)
- *
- * xAI's APIs are compatible with OpenAI and Anthropic SDKs, supporting three API modes:
- * - Chat Completions API (OpenAI-compatible)
- * - Responses API (OpenAI Responses-compatible, with stateful conversations)
- * - Messages API (Anthropic-compatible)
+ * xAI Chat Completions API parameters (OpenAI-compatible)
+ * These are passed through to the /v1/chat/completions endpoint
  */
-export interface XAILLMParams {
+export interface XAICompletionsParams {
   /** Maximum number of tokens to generate */
   max_tokens?: number;
 
-  /** Maximum completion tokens (Chat Completions API) */
+  /** Maximum completion tokens */
   max_completion_tokens?: number;
-
-  /** Maximum output tokens (Responses API) */
-  max_output_tokens?: number;
 
   /** Temperature for randomness (0.0 - 2.0) */
   temperature?: number;
 
   /** Top-p (nucleus) sampling (0.0 - 1.0) */
   top_p?: number;
-
-  /** Top-k sampling (Messages API only) */
-  top_k?: number;
 
   /** Frequency penalty (-2.0 - 2.0) */
   frequency_penalty?: number;
@@ -34,9 +23,6 @@ export interface XAILLMParams {
 
   /** Custom stop sequences */
   stop?: string | string[];
-
-  /** Stop sequences (Messages API) */
-  stop_sequences?: string[];
 
   /** Number of completions to generate */
   n?: number;
@@ -53,7 +39,7 @@ export interface XAILLMParams {
   /** User identifier for abuse detection */
   user?: string;
 
-  /** Logit bias map (Chat Completions API) */
+  /** Logit bias map */
   logit_bias?: Record<string, number>;
 
   /** Whether to enable parallel tool calls */
@@ -62,36 +48,16 @@ export interface XAILLMParams {
   /**
    * Reasoning effort for Grok 3 Mini models
    * Note: Only 'low' and 'high' are supported by xAI
-   * Grok 4 does not support this parameter
    */
   reasoning_effort?: 'low' | 'high';
 
-  /** Reasoning configuration (Responses API) */
-  reasoning?: {
-    effort?: 'low' | 'high';
-    /** Include encrypted reasoning content for continuation */
-    encrypted_content?: boolean;
-  };
-
-  /** Truncation strategy (Responses API) */
-  truncation?: 'auto' | 'disabled';
-
-  /** Fields to include in Responses API output */
-  include?: string[];
-
-  /** Continue from a previous response (Responses API) */
-  previous_response_id?: string;
-
-  /** Store response for continuation (Responses API) */
+  /** Store completion */
   store?: boolean;
-
-  /** Store messages on xAI servers (default: true for Responses API) */
-  store_messages?: boolean;
 
   /** Metadata key-value pairs */
   metadata?: Record<string, string>;
 
-  /** Response format for structured output (Chat Completions API only) */
+  /** Response format for structured output */
   response_format?: XAIResponseFormat;
 
   /**
@@ -99,19 +65,83 @@ export interface XAILLMParams {
    * Use Agent Tools API instead for new implementations
    */
   search_parameters?: XAISearchParameters;
+}
+
+/**
+ * xAI Responses API parameters (OpenAI Responses-compatible)
+ * These are passed through to the /v1/responses endpoint
+ */
+export interface XAIResponsesParams {
+  /** Maximum output tokens */
+  max_output_tokens?: number;
+
+  /** Temperature for randomness (0.0 - 2.0) */
+  temperature?: number;
+
+  /** Top-p (nucleus) sampling (0.0 - 1.0) */
+  top_p?: number;
+
+  /** Whether to enable parallel tool calls */
+  parallel_tool_calls?: boolean;
+
+  /** Reasoning configuration */
+  reasoning?: {
+    effort?: 'low' | 'high';
+    /** Include encrypted reasoning content for continuation */
+    encrypted_content?: boolean;
+  };
+
+  /** Truncation strategy */
+  truncation?: 'auto' | 'disabled';
+
+  /** Fields to include in output */
+  include?: string[];
+
+  /** Continue from a previous response */
+  previous_response_id?: string;
+
+  /** Store response for continuation */
+  store?: boolean;
+
+  /** Store messages on xAI servers (default: true) */
+  store_messages?: boolean;
+
+  /** Metadata key-value pairs */
+  metadata?: Record<string, string>;
 
   /**
-   * Server-side agentic tools (Agent Tools API)
-   * These are executed server-side by xAI
+   * Live Search parameters (deprecated, will be removed Dec 15, 2025)
+   * Use Agent Tools API instead for new implementations
    */
-  agent_tools?: XAIAgentTool[];
+  search_parameters?: XAISearchParameters;
+}
 
-  /** Metadata for the request (Messages API) */
-  messages_metadata?: {
+/**
+ * xAI Messages API parameters (Anthropic-compatible)
+ * These are passed through to the /v1/messages endpoint
+ */
+export interface XAIMessagesParams {
+  /** Maximum number of tokens to generate */
+  max_tokens?: number;
+
+  /** Temperature for randomness (0.0 - 1.0) */
+  temperature?: number;
+
+  /** Top-p (nucleus) sampling (0.0 - 1.0) */
+  top_p?: number;
+
+  /** Top-k sampling */
+  top_k?: number;
+
+  /** Custom stop sequences */
+  stop_sequences?: string[];
+
+  /** Metadata for the request */
+  metadata?: {
     user_id?: string;
   };
 
-  /** Extended thinking configuration (Messages API) */
+  /** Extended thinking configuration */
   thinking?: {
     type: 'enabled';
     budget_tokens: number;

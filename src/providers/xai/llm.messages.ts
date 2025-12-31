@@ -6,7 +6,7 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
-import type { XAILLMParams, XAIMessagesResponse, XAIMessagesStreamEvent } from './types.ts';
+import type { XAIMessagesParams, XAIMessagesResponse, XAIMessagesStreamEvent } from './types.ts';
 import {
   transformRequest,
   transformResponse,
@@ -32,16 +32,16 @@ const XAI_MESSAGES_CAPABILITIES: LLMCapabilities = {
 /**
  * Create xAI Messages API LLM handler (Anthropic-compatible)
  */
-export function createMessagesLLMHandler(): LLMHandler<XAILLMParams> {
+export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
   // Provider reference injected by createProvider() or xAI's custom factory
-  let providerRef: LLMProvider<XAILLMParams> | null = null;
+  let providerRef: LLMProvider<XAIMessagesParams> | null = null;
 
   return {
-    _setProvider(provider: LLMProvider<XAILLMParams>) {
+    _setProvider(provider: LLMProvider<XAIMessagesParams>) {
       providerRef = provider;
     },
 
-    bind(modelId: string): BoundLLMModel<XAILLMParams> {
+    bind(modelId: string): BoundLLMModel<XAIMessagesParams> {
       // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
@@ -52,15 +52,15 @@ export function createMessagesLLMHandler(): LLMHandler<XAILLMParams> {
         );
       }
 
-      const model: BoundLLMModel<XAILLMParams> = {
+      const model: BoundLLMModel<XAIMessagesParams> = {
         modelId,
         capabilities: XAI_MESSAGES_CAPABILITIES,
 
-        get provider(): LLMProvider<XAILLMParams> {
+        get provider(): LLMProvider<XAIMessagesParams> {
           return providerRef!;
         },
 
-        async complete(request: LLMRequest<XAILLMParams>): Promise<LLMResponse> {
+        async complete(request: LLMRequest<XAIMessagesParams>): Promise<LLMResponse> {
           const apiKey = await resolveApiKey(
             request.config,
             'XAI_API_KEY',
@@ -92,7 +92,7 @@ export function createMessagesLLMHandler(): LLMHandler<XAILLMParams> {
           return transformResponse(data);
         },
 
-        stream(request: LLMRequest<XAILLMParams>): LLMStreamResult {
+        stream(request: LLMRequest<XAIMessagesParams>): LLMStreamResult {
           const state = createStreamState();
           let responseResolve: (value: LLMResponse) => void;
           let responseReject: (error: Error) => void;

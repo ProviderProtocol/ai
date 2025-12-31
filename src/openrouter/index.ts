@@ -1,7 +1,8 @@
 // Re-export from providers/openrouter
 export { openrouter } from '../providers/openrouter/index.ts';
 export type {
-  OpenRouterLLMParams,
+  OpenRouterCompletionsParams,
+  OpenRouterResponsesParams,
   OpenRouterConfig,
   OpenRouterAPIMode,
   OpenRouterModelOptions,

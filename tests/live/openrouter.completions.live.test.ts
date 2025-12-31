@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { openrouter } from '../../src/openrouter/index.ts';
-import type { OpenRouterLLMParams } from '../../src/openrouter/index.ts';
+import type { OpenRouterCompletionsParams } from '../../src/openrouter/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
 import { readFileSync } from 'fs';
@@ -21,7 +21,7 @@ const VISION_MODEL = 'openai/gpt-5.2'; // Supports vision
  */
 describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Live', () => {
   test('simple text generation', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL), // Default: uses Completions API
       params: { max_tokens: 100 },
     });
@@ -34,7 +34,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('explicitly use completions api', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL, { api: 'completions' }), // Explicit
       params: { max_tokens: 100 },
     });
@@ -46,7 +46,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('streaming text generation', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 50 },
     });
@@ -70,7 +70,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('multi-turn conversation', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 100 },
     });
@@ -88,7 +88,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('with system prompt', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 50 },
       system: 'You are a robot. Always respond like a robot.',
@@ -134,7 +134,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
       },
     };
 
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 200 },
       tools: [calculate],
@@ -147,7 +147,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('vision/multimodal with base64 image', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(VISION_MODEL),
       params: { max_tokens: 100 },
     });
@@ -186,7 +186,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
       },
     };
 
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 200 },
       tools: [calculator],
@@ -213,7 +213,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('structured output with JSON schema', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 200 },
       structure: {
@@ -247,7 +247,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
       run: async (params: { city: string }) => `${params.city}: 75°F`,
     };
 
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 300 },
       tools: [getWeather],
@@ -268,7 +268,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('streaming with structured output', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 200 },
       structure: {
@@ -310,7 +310,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('OpenRouter-specific: model routing with fallback', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: {
         max_tokens: 50,
@@ -326,7 +326,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('OpenRouter-specific: provider preferences', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: {
         max_tokens: 50,
@@ -344,7 +344,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
   });
 
   test('OpenRouter-specific: extended sampling parameters', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter('meta-llama/llama-3.1-8b-instruct'),
       params: {
         max_tokens: 50,
@@ -368,7 +368,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
  */
 describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter(TEST_MODEL),
       params: { max_tokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
@@ -387,7 +387,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Err
   });
 
   test('invalid model returns UPPError', async () => {
-    const model = llm<OpenRouterLLMParams>({
+    const model = llm<OpenRouterCompletionsParams>({
       model: openrouter('nonexistent/model-xyz-12345'),
       params: { max_tokens: 10 },
     });

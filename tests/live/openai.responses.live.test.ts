@@ -1,7 +1,7 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { openai } from '../../src/openai/index.ts';
-import type { OpenAILLMParams } from '../../src/openai/index.ts';
+import type { OpenAIResponsesParams } from '../../src/openai/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
 import { readFileSync } from 'fs';
@@ -17,9 +17,9 @@ const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
  */
 describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => {
   test('simple text generation', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'), // Default: uses Responses API
-      params: { max_completion_tokens: 100 },
+      params: { max_output_tokens: 100 },
     });
 
     const turn = await gpt.generate('Say "Hello UPP" and nothing else.');
@@ -30,9 +30,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
   });
 
   test('explicitly use responses api', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2', { api: 'responses' }), // Explicit
-      params: { max_completion_tokens: 100 },
+      params: { max_output_tokens: 100 },
     });
 
     const turn = await gpt.generate('Say "Responses API" and nothing else.');
@@ -42,9 +42,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
   });
 
   test('streaming text generation', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 50 },
+      params: { max_output_tokens: 50 },
     });
 
     const stream = gpt.stream('Count from 1 to 5.');
@@ -66,9 +66,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
   });
 
   test('multi-turn conversation', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 100 },
+      params: { max_output_tokens: 100 },
     });
 
     const history: any[] = [];
@@ -84,9 +84,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
   });
 
   test('with system prompt (instructions)', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 50 },
+      params: { max_output_tokens: 50 },
       system: 'You are a robot. Always respond like a robot.',
     });
 
@@ -130,9 +130,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
       },
     };
 
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 200 },
+      params: { max_output_tokens: 200 },
       tools: [calculate],
     });
 
@@ -143,9 +143,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
   });
 
   test('vision/multimodal with base64 image', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 100 },
+      params: { max_output_tokens: 100 },
     });
 
     // Create a user message with duck image
@@ -182,9 +182,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
       },
     };
 
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 200 },
+      params: { max_output_tokens: 200 },
       tools: [calculator],
     });
 
@@ -209,9 +209,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
   });
 
   test('protocol-level structured output (schema enforcement)', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 200 },
+      params: { max_output_tokens: 200 },
       structure: {
         type: 'object',
         properties: {
@@ -244,9 +244,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
       run: async (params: { city: string }) => `${params.city}: 75°F`,
     };
 
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 300 },
+      params: { max_output_tokens: 300 },
       tools: [getWeather],
     });
 
@@ -265,9 +265,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
   });
 
   test('streaming with structured output', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 200 },
+      params: { max_output_tokens: 200 },
       structure: {
         type: 'object',
         properties: {
@@ -312,9 +312,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
  */
 describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Error Handling', () => {
   test('invalid API key returns UPPError', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),
-      params: { max_completion_tokens: 10 },
+      params: { max_output_tokens: 10 },
       config: { apiKey: 'invalid-key-12345' },
     });
 
@@ -331,9 +331,9 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Error Handlin
   });
 
   test('invalid model returns UPPError', async () => {
-    const gpt = llm<OpenAILLMParams>({
+    const gpt = llm<OpenAIResponsesParams>({
       model: openai('nonexistent-model-xyz'),
-      params: { max_completion_tokens: 10 },
+      params: { max_output_tokens: 10 },
     });
 
     try {

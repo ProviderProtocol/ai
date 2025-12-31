@@ -11,7 +11,7 @@ import {
   isToolResultMessage,
 } from '../../types/messages.ts';
 import type {
-  XAILLMParams,
+  XAIResponsesParams,
   XAIResponsesRequest,
   XAIResponsesInputItem,
   XAIResponsesContentPart,
@@ -26,11 +26,11 @@ import type {
 /**
  * Transform UPP request to xAI Responses API format
  */
-export function transformRequest<TParams extends XAILLMParams>(
-  request: LLMRequest<TParams>,
+export function transformRequest(
+  request: LLMRequest<XAIResponsesParams>,
   modelId: string
 ): XAIResponsesRequest {
-  const params: XAILLMParams = request.params ?? {};
+  const params = request.params ?? ({} as XAIResponsesParams);
 
   const xaiRequest: XAIResponsesRequest = {
     model: modelId,
@@ -46,10 +46,6 @@ export function transformRequest<TParams extends XAILLMParams>(
   }
   if (params.max_output_tokens !== undefined) {
     xaiRequest.max_output_tokens = params.max_output_tokens;
-  } else if (params.max_completion_tokens !== undefined) {
-    xaiRequest.max_output_tokens = params.max_completion_tokens;
-  } else if (params.max_tokens !== undefined) {
-    xaiRequest.max_output_tokens = params.max_tokens;
   }
   if (params.store !== undefined) {
     xaiRequest.store = params.store;
@@ -68,12 +64,6 @@ export function transformRequest<TParams extends XAILLMParams>(
   }
   if (params.reasoning !== undefined) {
     xaiRequest.reasoning = { ...params.reasoning };
-  }
-  if (params.reasoning_effort !== undefined) {
-    xaiRequest.reasoning = {
-      ...(xaiRequest.reasoning ?? {}),
-      effort: params.reasoning_effort,
-    };
   }
   if (params.search_parameters !== undefined) {
     xaiRequest.search_parameters = params.search_parameters;

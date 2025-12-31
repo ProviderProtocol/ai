@@ -6,7 +6,10 @@ import type {
 } from '../../types/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
-import type { OpenAILLMParams, OpenAIConfig } from './types.ts';
+import type { OpenAICompletionsParams, OpenAIResponsesParams, OpenAIConfig } from './types.ts';
+
+/** Union type for modalities interface */
+type OpenAILLMParamsUnion = OpenAICompletionsParams | OpenAIResponsesParams;
 
 /**
  * OpenAI provider options
@@ -51,7 +54,7 @@ export interface OpenAIProvider extends Provider<OpenAIProviderOptions> {
 
   /** Supported modalities */
   readonly modalities: {
-    llm: LLMHandler<OpenAILLMParams>;
+    llm: LLMHandler<OpenAILLMParamsUnion>;
   };
 }
 
@@ -77,10 +80,10 @@ function createOpenAIProvider(): OpenAIProvider {
 
   // Create a dynamic modalities object that returns the correct handler
   const modalities = {
-    get llm(): LLMHandler<OpenAILLMParams> {
+    get llm(): LLMHandler<OpenAILLMParamsUnion> {
       return currentApiMode === 'completions'
-        ? completionsHandler
-        : responsesHandler;
+        ? (completionsHandler as unknown as LLMHandler<OpenAILLMParamsUnion>)
+        : (responsesHandler as unknown as LLMHandler<OpenAILLMParamsUnion>);
     },
   };
 
@@ -106,8 +109,8 @@ function createOpenAIProvider(): OpenAIProvider {
   const provider = fn as OpenAIProvider;
 
   // Inject provider reference into both handlers (spec compliance)
-  responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenAILLMParams>);
-  completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenAILLMParams>);
+  responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenAIResponsesParams>);
+  completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenAICompletionsParams>);
 
   return provider;
 }
@@ -143,7 +146,8 @@ export const openai = createOpenAIProvider();
 
 // Re-export types
 export type {
-  OpenAILLMParams,
+  OpenAICompletionsParams,
+  OpenAIResponsesParams,
   OpenAIConfig,
   OpenAIAPIMode,
   OpenAIModelOptions,
