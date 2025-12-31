@@ -3,8 +3,8 @@
  * These are passed through to the Anthropic Messages API
  */
 export interface AnthropicLLMParams {
-  /** Maximum number of tokens to generate (required by Anthropic) */
-  max_tokens: number;
+  /** Maximum number of tokens to generate (required by Anthropic API) */
+  max_tokens?: number;
 
   /** Temperature for randomness (0.0 - 1.0) */
   temperature?: number;
@@ -42,7 +42,7 @@ export interface AnthropicLLMParams {
  */
 export interface AnthropicRequest {
   model: string;
-  max_tokens: number;
+  max_tokens?: number;
   messages: AnthropicMessage[];
   system?: string;
   temperature?: number;

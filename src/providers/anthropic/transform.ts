@@ -30,13 +30,17 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   request: LLMRequest<TParams>,
   modelId: string
 ): AnthropicRequest {
-  const params = (request.params ?? { max_tokens: 4096 }) as AnthropicLLMParams;
+  const params = (request.params ?? {}) as AnthropicLLMParams;
 
   const anthropicRequest: AnthropicRequest = {
     model: modelId,
-    max_tokens: params.max_tokens ?? 4096,
     messages: request.messages.map(transformMessage),
   };
+
+  // Only include max_tokens if provided - let Anthropic API enforce its requirement
+  if (params.max_tokens !== undefined) {
+    anthropicRequest.max_tokens = params.max_tokens;
+  }
 
   // System prompt (top-level in Anthropic)
   if (request.system) {
