@@ -1,6 +1,6 @@
 {
   "name": "@providerprotocol/ai",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "UPP: Unified Provider Protocol for AI inference",
   "license": "MIT",
   "author": {
@@ -47,6 +47,12 @@
       "import": "./dist/openrouter/index.js",
       "default": "./dist/openrouter/index.js"
     },
+    "./xai": {
+      "types": "./dist/xai/index.d.ts",
+      "bun": "./src/xai/index.ts",
+      "import": "./dist/xai/index.js",
+      "default": "./dist/xai/index.js"
+    },
     "./http": {
       "types": "./dist/http/index.d.ts",
       "bun": "./src/http/index.ts",
@@ -89,6 +95,8 @@
     "ollama",
     "llama",
     "openrouter",
+    "xai",
+    "grok",
     "provider",
     "protocol",
     "unified"

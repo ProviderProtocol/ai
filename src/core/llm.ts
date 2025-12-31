@@ -179,7 +179,12 @@ function parseInputs(
   }
 
   // Check if first arg is Message[] (history)
-  if (Array.isArray(historyOrInput) && historyOrInput.length > 0) {
+  if (Array.isArray(historyOrInput)) {
+    // Empty array is empty history
+    if (historyOrInput.length === 0) {
+      const newMessages = inputs.map(inputToMessage);
+      return { history: [], messages: newMessages };
+    }
     const first = historyOrInput[0];
     if (isMessageInstance(first)) {
       // It's history (Message[])

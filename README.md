@@ -17,6 +17,7 @@ import { openai } from '@providerprotocol/ai/openai';
 import { google } from '@providerprotocol/ai/google';
 import { ollama } from '@providerprotocol/ai/ollama';
 import { openrouter } from '@providerprotocol/ai/openrouter';
+import { xai } from '@providerprotocol/ai/xai';
 
 // Simple generation
 const claude = llm({ model: anthropic('claude-sonnet-4-20250514') });
@@ -65,6 +66,24 @@ console.log(turn.data); // { name: 'John', age: 30 }
 | Google | `@providerprotocol/ai/google` |
 | Ollama | `@providerprotocol/ai/ollama` |
 | OpenRouter | `@providerprotocol/ai/openrouter` |
+| xAI (Grok) | `@providerprotocol/ai/xai` |
+
+### xAI API Modes
+
+xAI supports three API modes:
+
+```typescript
+import { xai } from '@providerprotocol/ai/xai';
+
+// Chat Completions API (OpenAI-compatible, default)
+const grok = llm({ model: xai('grok-3-fast') });
+
+// Responses API (stateful, OpenAI Responses-compatible)
+const grok = llm({ model: xai('grok-3-fast', { api: 'responses' }) });
+
+// Messages API (Anthropic-compatible)
+const grok = llm({ model: xai('grok-3-fast', { api: 'messages' }) });
+```
 
 ## Configuration
 

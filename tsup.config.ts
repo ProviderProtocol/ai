@@ -8,6 +8,7 @@ export default defineConfig({
     "google/index": "src/google/index.ts",
     "ollama/index": "src/ollama/index.ts",
     "openrouter/index": "src/openrouter/index.ts",
+    "xai/index": "src/xai/index.ts",
     "http/index": "src/http/index.ts",
   },
   format: ["esm"],
