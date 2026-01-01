@@ -152,4 +152,34 @@ export type {
   OpenAIAPIMode,
   OpenAIModelOptions,
   OpenAIModelReference,
+  // Audio and web search types
+  OpenAIAudioConfig,
+  OpenAIWebSearchOptions,
+  OpenAIWebSearchUserLocation,
+  // Built-in tool types
+  OpenAIBuiltInTool,
+  OpenAIWebSearchTool,
+  OpenAIFileSearchTool,
+  OpenAICodeInterpreterTool,
+  OpenAICodeInterpreterContainer,
+  OpenAIComputerTool,
+  OpenAIComputerEnvironment,
+  OpenAIImageGenerationTool,
+  OpenAIMcpTool,
+  OpenAIMcpServerConfig,
+  OpenAIResponsesToolUnion,
+  // Conversation and prompt types
+  OpenAIConversation,
+  OpenAIPromptTemplate,
+} from './types.ts';
+
+// Re-export tool helper constructors
+export {
+  tools,
+  webSearchTool,
+  fileSearchTool,
+  codeInterpreterTool,
+  computerTool,
+  imageGenerationTool,
+  mcpTool,
 } from './types.ts';

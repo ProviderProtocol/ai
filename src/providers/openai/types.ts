@@ -1,3 +1,62 @@
+// ============================================
+// Audio Configuration Types
+// ============================================
+
+/**
+ * Audio output configuration for Chat Completions
+ */
+export interface OpenAIAudioConfig {
+  /** Audio format */
+  format: 'wav' | 'aac' | 'mp3' | 'flac' | 'opus' | 'pcm16';
+  /** Voice to use for audio generation */
+  voice:
+    | 'alloy'
+    | 'ash'
+    | 'ballad'
+    | 'coral'
+    | 'echo'
+    | 'sage'
+    | 'shimmer'
+    | 'verse'
+    | 'marin'
+    | 'cedar';
+}
+
+// ============================================
+// Web Search Configuration Types
+// ============================================
+
+/**
+ * User location for web search context
+ */
+export interface OpenAIWebSearchUserLocation {
+  /** Approximate location parameters */
+  type: 'approximate';
+  approximate?: {
+    /** City name */
+    city?: string;
+    /** ISO 3166-1 country code (e.g., "US") */
+    country?: string;
+    /** Region/state name */
+    region?: string;
+    /** IANA timezone (e.g., "America/New_York") */
+    timezone?: string;
+  };
+}
+
+/**
+ * Web search options for Chat Completions API
+ */
+export interface OpenAIWebSearchOptions {
+  /**
+   * Context size for search results
+   * Controls how much context from web results to include
+   */
+  search_context_size?: 'low' | 'medium' | 'high';
+  /** User location for localizing search results */
+  user_location?: OpenAIWebSearchUserLocation | null;
+}
+
 /**
  * OpenAI Chat Completions API parameters
  * These are passed through to the /v1/chat/completions endpoint
@@ -33,10 +92,10 @@ export interface OpenAICompletionsParams {
   /** Number of top logprobs to return (0-20) */
   top_logprobs?: number;
 
-  /** Seed for deterministic sampling (beta) */
+  /** Seed for deterministic sampling (beta, deprecated) */
   seed?: number;
 
-  /** User identifier for abuse detection */
+  /** User identifier (deprecated, use safety_identifier or prompt_cache_key) */
   user?: string;
 
   /** Logit bias map */
@@ -52,12 +111,12 @@ export interface OpenAICompletionsParams {
   reasoning_effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
   /** Service tier */
-  service_tier?: 'auto' | 'default' | 'flex' | 'priority';
+  service_tier?: 'auto' | 'default' | 'flex' | 'scale' | 'priority';
 
   /** Store completion for distillation */
   store?: boolean;
 
-  /** Metadata key-value pairs */
+  /** Metadata key-value pairs (max 16, keys max 64 chars, values max 512 chars) */
   metadata?: Record<string, string>;
 
   /** Response format for structured output */
@@ -74,7 +133,7 @@ export interface OpenAICompletionsParams {
 
   /**
    * Stable identifier for caching similar requests
-   * Used to optimize cache hit rates
+   * Used to optimize cache hit rates (replaces user field)
    */
   prompt_cache_key?: string;
 
@@ -82,13 +141,50 @@ export interface OpenAICompletionsParams {
    * Retention policy for prompt cache
    * Set to "24h" to enable extended prompt caching up to 24 hours
    */
-  prompt_cache_retention?: '24h';
+  prompt_cache_retention?: 'in-memory' | '24h';
 
   /**
    * Stable identifier for abuse detection
    * Recommend hashing username or email address
    */
   safety_identifier?: string;
+
+  /**
+   * Output modalities to generate
+   * Default: ["text"]. Use ["text", "audio"] for audio-capable models
+   */
+  modalities?: Array<'text' | 'audio'>;
+
+  /**
+   * Audio output configuration
+   * Required when modalities includes "audio"
+   */
+  audio?: OpenAIAudioConfig | null;
+
+  /**
+   * Web search configuration
+   * Enables the model to search the web for up-to-date information
+   */
+  web_search_options?: OpenAIWebSearchOptions;
+}
+
+/**
+ * Prompt template reference for Responses API
+ */
+export interface OpenAIPromptTemplate {
+  /** Prompt template ID */
+  id: string;
+  /** Variables to fill into the template */
+  variables?: Record<string, string>;
+}
+
+/**
+ * Conversation reference for Responses API
+ * Items from this conversation are prepended to input_items
+ */
+export interface OpenAIConversation {
+  /** Conversation ID */
+  id: string;
 }
 
 /**
@@ -105,35 +201,87 @@ export interface OpenAIResponsesParams {
   /** Top-p (nucleus) sampling (0.0 - 1.0) */
   top_p?: number;
 
+  /** Number of top logprobs to return (0-20) */
+  top_logprobs?: number;
+
   /** Whether to enable parallel tool calls */
   parallel_tool_calls?: boolean;
 
-  /** Reasoning configuration */
+  /** Reasoning configuration (for gpt-5 and o-series models) */
   reasoning?: {
     effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    summary?: string;
+    /** Include summary of reasoning */
+    summary?: 'auto' | 'concise' | 'detailed';
   };
 
   /** Service tier */
-  service_tier?: 'auto' | 'default' | 'flex' | 'priority';
+  service_tier?: 'auto' | 'default' | 'flex' | 'scale' | 'priority';
 
   /** Truncation strategy */
   truncation?: 'auto' | 'disabled';
 
-  /** Fields to include in output */
+  /**
+   * Fields to include in output
+   * Supported values:
+   * - 'web_search_call.action.sources': Include web search sources
+   * - 'code_interpreter_call.outputs': Include code execution outputs
+   * - 'computer_call_output.output.image_url': Include computer call images
+   * - 'file_search_call.results': Include file search results
+   * - 'message.input_image.image_url': Include input image URLs
+   * - 'message.output_text.logprobs': Include logprobs with messages
+   * - 'reasoning.encrypted_content': Include encrypted reasoning tokens
+   */
   include?: string[];
 
-  /** Background processing */
+  /** Background processing - run response asynchronously */
   background?: boolean;
 
-  /** Continue from a previous response */
+  /** Continue from a previous response (cannot use with conversation) */
   previous_response_id?: string;
+
+  /**
+   * Conversation context - items prepended to input_items
+   * Cannot be used with previous_response_id
+   */
+  conversation?: string | OpenAIConversation;
 
   /** Store response for continuation */
   store?: boolean;
 
-  /** Metadata key-value pairs */
+  /** Metadata key-value pairs (max 16, keys max 64 chars, values max 512 chars) */
   metadata?: Record<string, string>;
+
+  /**
+   * Maximum total calls to built-in tools in a response
+   * Applies across all built-in tool calls, not per tool
+   */
+  max_tool_calls?: number;
+
+  /**
+   * Reference to a prompt template and its variables
+   */
+  prompt?: OpenAIPromptTemplate;
+
+  /**
+   * Stable identifier for caching similar requests
+   * Used to optimize cache hit rates (replaces user field)
+   */
+  prompt_cache_key?: string;
+
+  /**
+   * Retention policy for prompt cache
+   * Set to "24h" to enable extended prompt caching up to 24 hours
+   */
+  prompt_cache_retention?: 'in-memory' | '24h';
+
+  /**
+   * Stable identifier for abuse detection
+   * Recommend hashing username or email address
+   */
+  safety_identifier?: string;
+
+  /** User identifier (deprecated, use safety_identifier or prompt_cache_key) */
+  user?: string;
 }
 
 /**
@@ -210,6 +358,12 @@ export interface OpenAICompletionsRequest {
   prompt_cache_retention?: string;
   /** Stable identifier for abuse detection */
   safety_identifier?: string;
+  /** Output modalities (text, audio) */
+  modalities?: Array<'text' | 'audio'>;
+  /** Audio output configuration */
+  audio?: OpenAIAudioConfig | null;
+  /** Web search configuration */
+  web_search_options?: OpenAIWebSearchOptions;
 }
 
 /**
@@ -422,8 +576,9 @@ export interface OpenAIResponsesRequest {
   max_output_tokens?: number;
   temperature?: number;
   top_p?: number;
+  top_logprobs?: number;
   stream?: boolean;
-  tools?: OpenAIResponsesTool[];
+  tools?: OpenAIResponsesToolUnion[];
   tool_choice?: OpenAIResponsesToolChoice;
   parallel_tool_calls?: boolean;
   text?: OpenAIResponsesTextConfig;
@@ -432,12 +587,26 @@ export interface OpenAIResponsesRequest {
   metadata?: Record<string, string>;
   reasoning?: {
     effort?: 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    summary?: string;
+    summary?: 'auto' | 'concise' | 'detailed';
   };
   service_tier?: string;
   include?: string[];
   background?: boolean;
   previous_response_id?: string;
+  /** Conversation context (cannot use with previous_response_id) */
+  conversation?: string | OpenAIConversation;
+  /** Maximum total calls to built-in tools */
+  max_tool_calls?: number;
+  /** Prompt template reference */
+  prompt?: OpenAIPromptTemplate;
+  /** Stable identifier for caching (replaces user) */
+  prompt_cache_key?: string;
+  /** Retention policy for prompt cache */
+  prompt_cache_retention?: 'in-memory' | '24h';
+  /** Stable identifier for abuse detection */
+  safety_identifier?: string;
+  /** User identifier (deprecated) */
+  user?: string;
 }
 
 /**
@@ -732,3 +901,291 @@ export interface OpenAIResponseErrorEvent {
     message: string;
   };
 }
+
+// ============================================
+// Built-in Tools for Responses API
+// ============================================
+
+/**
+ * Web search tool for Responses API
+ * Enables the model to search the web for up-to-date information
+ */
+export interface OpenAIWebSearchTool {
+  type: 'web_search';
+  /** Web search configuration */
+  web_search?: {
+    /**
+     * Context size for search results
+     * Controls how much context from web results to include
+     */
+    search_context_size?: 'low' | 'medium' | 'high';
+    /** User location for localizing search results */
+    user_location?: OpenAIWebSearchUserLocation | null;
+  };
+}
+
+/**
+ * File search tool for Responses API
+ * Enables the model to search through uploaded files
+ */
+export interface OpenAIFileSearchTool {
+  type: 'file_search';
+  /** File search configuration */
+  file_search?: {
+    /** Vector store IDs to search */
+    vector_store_ids: string[];
+    /** Maximum number of results to return */
+    max_num_results?: number;
+    /** Ranking options for search results */
+    ranking_options?: {
+      /** Ranker to use */
+      ranker?: 'auto' | 'default_2024_08_21';
+      /** Score threshold (0-1) */
+      score_threshold?: number;
+    };
+    /** Filters to apply */
+    filters?: Record<string, unknown>;
+  };
+}
+
+/**
+ * Code interpreter container configuration
+ */
+export interface OpenAICodeInterpreterContainer {
+  /** Container type - 'auto' creates a new container */
+  type: 'auto';
+  /** Memory limit for the container (e.g., '1g', '4g') */
+  memory_limit?: string;
+  /** File IDs to make available in the container */
+  file_ids?: string[];
+}
+
+/**
+ * Code interpreter tool for Responses API
+ * Allows the model to write and run Python code
+ */
+export interface OpenAICodeInterpreterTool {
+  type: 'code_interpreter';
+  /** Code interpreter configuration */
+  code_interpreter?: {
+    /** Container configuration */
+    container: string | OpenAICodeInterpreterContainer;
+  };
+}
+
+/**
+ * Computer tool environment configuration
+ */
+export interface OpenAIComputerEnvironment {
+  /** Environment type */
+  type: 'browser' | 'mac' | 'windows' | 'linux' | 'ubuntu';
+}
+
+/**
+ * Computer tool for Responses API
+ * Enables the model to interact with computer interfaces
+ */
+export interface OpenAIComputerTool {
+  type: 'computer';
+  /** Computer tool configuration */
+  computer?: {
+    /** Display width in pixels */
+    display_width: number;
+    /** Display height in pixels */
+    display_height: number;
+    /** Environment configuration */
+    environment?: OpenAIComputerEnvironment;
+  };
+}
+
+/**
+ * Image generation tool for Responses API
+ */
+export interface OpenAIImageGenerationTool {
+  type: 'image_generation';
+  /** Image generation configuration */
+  image_generation?: {
+    /** Background transparency */
+    background?: 'transparent' | 'opaque' | 'auto';
+    /** Input image formats supported */
+    input_image_mask?: boolean;
+    /** Model to use for generation */
+    model?: string;
+    /** Moderation level */
+    moderation?: 'auto' | 'low';
+    /** Output compression */
+    output_compression?: number;
+    /** Output format */
+    output_format?: 'png' | 'jpeg' | 'webp';
+    /** Partial images during streaming */
+    partial_images?: number;
+    /** Image quality */
+    quality?: 'auto' | 'high' | 'medium' | 'low';
+    /** Image size */
+    size?: 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
+  };
+}
+
+/**
+ * MCP (Model Context Protocol) server configuration
+ */
+export interface OpenAIMcpServerConfig {
+  /** Server URL */
+  url: string;
+  /** Server name for identification */
+  name?: string;
+  /** Tool configuration for the server */
+  tool_configuration?: {
+    /** Allowed tools from this server */
+    allowed_tools?: string[] | { type: 'all' };
+  };
+  /** Headers to send with requests */
+  headers?: Record<string, string>;
+  /** Allowed resources */
+  allowed_resources?: string[];
+  /** Require approval for tool calls */
+  require_approval?: 'always' | 'never' | { type: 'except'; tools: string[] };
+}
+
+/**
+ * MCP tool for Responses API
+ * Enables connections to MCP servers
+ */
+export interface OpenAIMcpTool {
+  type: 'mcp';
+  /** MCP server configurations */
+  mcp?: {
+    /** Server configuration */
+    server: OpenAIMcpServerConfig;
+  };
+}
+
+/**
+ * Union type for all Responses API built-in tools
+ */
+export type OpenAIBuiltInTool =
+  | OpenAIWebSearchTool
+  | OpenAIFileSearchTool
+  | OpenAICodeInterpreterTool
+  | OpenAIComputerTool
+  | OpenAIImageGenerationTool
+  | OpenAIMcpTool;
+
+/**
+ * Combined tool type for Responses API (built-in or function)
+ */
+export type OpenAIResponsesToolUnion = OpenAIResponsesTool | OpenAIBuiltInTool;
+
+// ============================================
+// Tool Helper Constructors
+// ============================================
+
+/**
+ * Helper to create a web search tool
+ */
+export function webSearchTool(options?: {
+  search_context_size?: 'low' | 'medium' | 'high';
+  user_location?: OpenAIWebSearchUserLocation | null;
+}): OpenAIWebSearchTool {
+  return {
+    type: 'web_search',
+    ...(options && { web_search: options }),
+  };
+}
+
+/**
+ * Helper to create a file search tool
+ */
+export function fileSearchTool(options: {
+  vector_store_ids: string[];
+  max_num_results?: number;
+  ranking_options?: {
+    ranker?: 'auto' | 'default_2024_08_21';
+    score_threshold?: number;
+  };
+  filters?: Record<string, unknown>;
+}): OpenAIFileSearchTool {
+  return {
+    type: 'file_search',
+    file_search: options,
+  };
+}
+
+/**
+ * Helper to create a code interpreter tool
+ */
+export function codeInterpreterTool(options?: {
+  container?: string | OpenAICodeInterpreterContainer;
+}): OpenAICodeInterpreterTool {
+  return {
+    type: 'code_interpreter',
+    ...(options?.container && { code_interpreter: { container: options.container } }),
+  };
+}
+
+/**
+ * Helper to create a computer tool
+ */
+export function computerTool(options: {
+  display_width: number;
+  display_height: number;
+  environment?: OpenAIComputerEnvironment;
+}): OpenAIComputerTool {
+  return {
+    type: 'computer',
+    computer: options,
+  };
+}
+
+/**
+ * Helper to create an image generation tool
+ */
+export function imageGenerationTool(options?: {
+  background?: 'transparent' | 'opaque' | 'auto';
+  model?: string;
+  quality?: 'auto' | 'high' | 'medium' | 'low';
+  size?: 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
+  output_format?: 'png' | 'jpeg' | 'webp';
+}): OpenAIImageGenerationTool {
+  return {
+    type: 'image_generation',
+    ...(options && { image_generation: options }),
+  };
+}
+
+/**
+ * Helper to create an MCP tool
+ */
+export function mcpTool(options: {
+  url: string;
+  name?: string;
+  allowed_tools?: string[] | { type: 'all' };
+  headers?: Record<string, string>;
+  require_approval?: 'always' | 'never' | { type: 'except'; tools: string[] };
+}): OpenAIMcpTool {
+  const { url, name, allowed_tools, headers, require_approval } = options;
+  return {
+    type: 'mcp',
+    mcp: {
+      server: {
+        url,
+        name,
+        ...(allowed_tools && { tool_configuration: { allowed_tools } }),
+        headers,
+        require_approval,
+      },
+    },
+  };
+}
+
+/**
+ * Namespace for tool helper constructors
+ */
+export const tools = {
+  webSearch: webSearchTool,
+  fileSearch: fileSearchTool,
+  codeInterpreter: codeInterpreterTool,
+  computer: computerTool,
+  imageGeneration: imageGenerationTool,
+  mcp: mcpTool,
+};
