@@ -167,7 +167,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
     // Should identify the duck
     expect(turn.response.text.toLowerCase()).toMatch(/duck|bird|waterfowl/);
     expect(turn.usage.totalTokens).toBeGreaterThan(0);
-  });
+  }, 30000);
 
   test('streaming with tool execution', async () => {
     const calculator = {

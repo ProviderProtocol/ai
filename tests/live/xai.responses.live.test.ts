@@ -119,7 +119,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Responses API Live', () => {
 
     expect(turn.toolExecutions.length).toBeGreaterThan(0);
     expect(turn.response.text).toContain('42');
-  });
+  }, 30000);
 
   test('vision/multimodal with base64 image', async () => {
     const grok = llm<XAIResponsesParams>({
@@ -248,7 +248,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Responses API Live', () => {
     const turn = await grok.generate('Say hello.');
 
     expect(turn.response.text.length).toBeGreaterThan(0);
-  });
+  }, 30000);
 });
 
 /**

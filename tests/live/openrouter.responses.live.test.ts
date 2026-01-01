@@ -166,7 +166,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
     // Should identify the duck
     expect(turn.response.text.toLowerCase()).toMatch(/duck|bird|waterfowl/);
     expect(turn.usage.totalTokens).toBeGreaterThan(0);
-  });
+  }, 30000);
 
   // NOTE: This test works around an OpenRouter bug where streaming tool call
   // arguments are empty. Arguments are extracted from response.completed instead.
@@ -235,7 +235,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
     expect(turn.data).toBeDefined();
     expect((turn.data as any).city).toContain('London');
     expect(typeof (turn.data as any).population).toBe('number');
-  });
+  }, 30000);
 
   test('parallel tool execution', async () => {
     const getWeather = {

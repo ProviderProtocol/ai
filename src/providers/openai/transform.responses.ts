@@ -404,6 +404,7 @@ export interface ResponsesStreamState {
     number,
     { itemId?: string; callId?: string; name?: string; arguments: string }
   >;
+  images: string[]; // Base64 image data from image_generation_call outputs
   status: string;
   inputTokens: number;
   outputTokens: number;
@@ -419,6 +420,7 @@ export function createStreamState(): ResponsesStreamState {
     model: '',
     textByIndex: new Map(),
     toolCalls: new Map(),
+    images: [],
     status: 'in_progress',
     inputTokens: 0,
     outputTokens: 0,
@@ -495,6 +497,11 @@ export function transformStreamEvent(
           existing.arguments = functionCall.arguments;
         }
         state.toolCalls.set(event.output_index, existing);
+      } else if (event.item.type === 'image_generation_call') {
+        const imageGen = event.item as OpenAIResponsesImageGenerationOutput;
+        if (imageGen.result) {
+          state.images.push(imageGen.result);
+        }
       }
       events.push({
         type: 'content_block_stop',
@@ -595,13 +602,13 @@ export function transformStreamEvent(
  * Build LLMResponse from accumulated stream state
  */
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   let structuredData: unknown;
 
   // Combine all text content
   for (const [, text] of state.textByIndex) {
     if (text) {
-      textContent.push({ type: 'text', text });
+      content.push({ type: 'text', text });
       // Try to parse as JSON for structured output (native JSON mode)
       if (structuredData === undefined) {
         try {
@@ -611,6 +618,15 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
         }
       }
     }
+  }
+
+  // Add any generated images
+  for (const imageData of state.images) {
+    content.push({
+      type: 'image',
+      mimeType: 'image/png',
+      source: { type: 'base64', data: imageData },
+    } as ImageBlock);
   }
 
   const toolCalls: ToolCall[] = [];
@@ -649,7 +665,7 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: state.id,

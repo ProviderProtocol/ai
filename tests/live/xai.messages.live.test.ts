@@ -71,7 +71,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Messages API Live', () => {
     const turn2 = await grok.generate(history, 'What is my name?');
 
     expect(turn2.response.text.toLowerCase()).toContain('charlie');
-  });
+  }, 30000);
 
   test('with system prompt', async () => {
     const grok = llm<XAIMessagesParams>({
@@ -249,7 +249,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Messages API Live', () => {
     // Both should contain 4
     expect(turn1.response.text).toContain('4');
     expect(turn2.response.text).toContain('4');
-  });
+  }, 30000);
 
   test('top_p sampling', async () => {
     const grok = llm<XAIMessagesParams>({

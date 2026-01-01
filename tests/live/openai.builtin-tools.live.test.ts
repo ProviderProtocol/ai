@@ -80,6 +80,89 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Built-in Tools Live', () =>
 });
 
 /**
+ * Streaming tests for OpenAI Built-in Tools
+ */
+describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Built-in Tools Streaming', () => {
+
+  test('web search tool with streaming', async () => {
+    const gpt = llm<OpenAIResponsesParams>({
+      model: openai('gpt-4o'),
+      params: {
+        max_output_tokens: 500,
+        tools: [tools.webSearch()],
+      },
+    });
+
+    const stream = gpt.stream(
+      'What is the current weather in New York City? Use web search to find out.'
+    );
+
+    const events: string[] = [];
+    let textContent = '';
+
+    for await (const event of stream) {
+      events.push(event.type);
+      if (event.type === 'text_delta' && event.delta.text) {
+        textContent += event.delta.text;
+      }
+    }
+
+    const turn = await stream.turn;
+
+    // Should have received streaming events
+    expect(events.length).toBeGreaterThan(0);
+    // Should have text deltas
+    expect(events.filter(e => e === 'text_delta').length).toBeGreaterThan(0);
+    // Accumulated text should match final response
+    expect(textContent.length).toBeGreaterThan(0);
+    expect(turn.response.text.length).toBeGreaterThan(0);
+  }, 60000);
+
+  test('image generation tool with streaming', async () => {
+    const imageGen = llm<OpenAIResponsesParams>({
+      model: openai('gpt-4o'),
+      params: {
+        max_output_tokens: 1000,
+        tools: [tools.imageGeneration({ quality: 'low', size: '1024x1024' })],
+      },
+    });
+
+    const stream = imageGen.stream(
+      'Generate an image of a green tree on a white background.'
+    );
+
+    const events: string[] = [];
+    let textContent = '';
+
+    for await (const event of stream) {
+      events.push(event.type);
+      if (event.type === 'text_delta' && event.delta.text) {
+        textContent += event.delta.text;
+      }
+    }
+
+    const turn = await stream.turn;
+
+    // Should have received streaming events
+    expect(events.length).toBeGreaterThan(0);
+
+    // Should have text response
+    expect(turn.response.text.length).toBeGreaterThan(0);
+
+    // Should have generated image in response content
+    expect(turn.response.images.length).toBeGreaterThan(0);
+
+    // Image should be base64 PNG
+    const image = turn.response.images[0]!;
+    expect(image.source.type).toBe('base64');
+    if (image.source.type === 'base64') {
+      expect(image.source.data).toMatch(/^iVBORw0KGgo/);
+    }
+  }, 120000);
+
+});
+
+/**
  * E2E test: Generate image then verify with vision model
  */
 describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Image Generation E2E', () => {
