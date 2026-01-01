@@ -307,9 +307,9 @@ openai_provider = createProvider({
 
 1. Developer calls `llm()` with a provider-bound model
 2. Developer calls `generate()` or `stream()` with message history and new input
-3. Provider transforms input to vendor-specific format
-4. Provider handles tool execution loop (if tools configured)
-5. Provider returns a `Turn` containing all messages from this inference
+3. `llm()` core transforms input and manages tool execution loop (if tools configured)
+4. Provider handles single request/response cycles, transforming to vendor-specific format
+5. `llm()` core returns a `Turn` containing all messages from this inference
 6. Developer appends turn messages to their history for future calls
 
 #### Embedding Data Flow
