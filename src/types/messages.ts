@@ -2,9 +2,11 @@ import { generateId } from '../utils/id.ts';
 import type {
   ContentBlock,
   TextBlock,
+  ImageBlock,
+  AudioBlock,
+  VideoBlock,
   UserContent,
   AssistantContent,
-  isTextBlock,
 } from './content.ts';
 import type { ToolCall, ToolResult } from './tool.ts';
 
@@ -64,6 +66,27 @@ export abstract class Message {
       .filter((block): block is TextBlock => block.type === 'text')
       .map((block) => block.text)
       .join('\n\n');
+  }
+
+  /**
+   * Convenience accessor for image content blocks
+   */
+  get images(): ImageBlock[] {
+    return this.getContent().filter((block): block is ImageBlock => block.type === 'image');
+  }
+
+  /**
+   * Convenience accessor for audio content blocks
+   */
+  get audio(): AudioBlock[] {
+    return this.getContent().filter((block): block is AudioBlock => block.type === 'audio');
+  }
+
+  /**
+   * Convenience accessor for video content blocks
+   */
+  get video(): VideoBlock[] {
+    return this.getContent().filter((block): block is VideoBlock => block.type === 'video');
   }
 }
 

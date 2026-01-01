@@ -28,20 +28,19 @@ export interface OpenAIAudioConfig {
 
 /**
  * User location for web search context
+ * Requires type: 'approximate' with location fields at the same level
  */
 export interface OpenAIWebSearchUserLocation {
-  /** Approximate location parameters */
+  /** Location type - must be 'approximate' */
   type: 'approximate';
-  approximate?: {
-    /** City name */
-    city?: string;
-    /** ISO 3166-1 country code (e.g., "US") */
-    country?: string;
-    /** Region/state name */
-    region?: string;
-    /** IANA timezone (e.g., "America/New_York") */
-    timezone?: string;
-  };
+  /** City name */
+  city?: string;
+  /** ISO 3166-1 country code (e.g., "US") */
+  country?: string;
+  /** Region/state name */
+  region?: string;
+  /** IANA timezone (e.g., "America/New_York") */
+  timezone?: string;
 }
 
 /**
@@ -282,6 +281,27 @@ export interface OpenAIResponsesParams {
 
   /** User identifier (deprecated, use safety_identifier or prompt_cache_key) */
   user?: string;
+
+  /**
+   * Built-in tools for the Responses API
+   * Use the tool helper constructors: tools.webSearch(), tools.imageGeneration(), etc.
+   *
+   * @example
+   * ```ts
+   * import { tools } from 'provider-protocol/openai';
+   *
+   * const model = llm({
+   *   model: openai('gpt-4o'),
+   *   params: {
+   *     tools: [
+   *       tools.webSearch(),
+   *       tools.imageGeneration({ quality: 'high' }),
+   *     ],
+   *   },
+   * });
+   * ```
+   */
+  tools?: OpenAIBuiltInTool[];
 }
 
 /**
@@ -742,7 +762,9 @@ export interface OpenAIResponsesResponse {
 
 export type OpenAIResponsesOutputItem =
   | OpenAIResponsesMessageOutput
-  | OpenAIResponsesFunctionCallOutput;
+  | OpenAIResponsesFunctionCallOutput
+  | OpenAIResponsesImageGenerationOutput
+  | OpenAIResponsesWebSearchOutput;
 
 export interface OpenAIResponsesMessageOutput {
   type: 'message';
@@ -758,6 +780,19 @@ export interface OpenAIResponsesFunctionCallOutput {
   call_id: string;
   name: string;
   arguments: string;
+  status: 'completed' | 'in_progress';
+}
+
+export interface OpenAIResponsesImageGenerationOutput {
+  type: 'image_generation_call';
+  id: string;
+  result?: string;
+  status: 'completed' | 'in_progress';
+}
+
+export interface OpenAIResponsesWebSearchOutput {
+  type: 'web_search_call';
+  id: string;
   status: 'completed' | 'in_progress';
 }
 
@@ -912,16 +947,13 @@ export interface OpenAIResponseErrorEvent {
  */
 export interface OpenAIWebSearchTool {
   type: 'web_search';
-  /** Web search configuration */
-  web_search?: {
-    /**
-     * Context size for search results
-     * Controls how much context from web results to include
-     */
-    search_context_size?: 'low' | 'medium' | 'high';
-    /** User location for localizing search results */
-    user_location?: OpenAIWebSearchUserLocation | null;
-  };
+  /**
+   * Context size for search results
+   * Controls how much context from web results to include
+   */
+  search_context_size?: 'low' | 'medium' | 'high';
+  /** User location for localizing search results */
+  user_location?: OpenAIWebSearchUserLocation | null;
 }
 
 /**
@@ -1003,27 +1035,24 @@ export interface OpenAIComputerTool {
  */
 export interface OpenAIImageGenerationTool {
   type: 'image_generation';
-  /** Image generation configuration */
-  image_generation?: {
-    /** Background transparency */
-    background?: 'transparent' | 'opaque' | 'auto';
-    /** Input image formats supported */
-    input_image_mask?: boolean;
-    /** Model to use for generation */
-    model?: string;
-    /** Moderation level */
-    moderation?: 'auto' | 'low';
-    /** Output compression */
-    output_compression?: number;
-    /** Output format */
-    output_format?: 'png' | 'jpeg' | 'webp';
-    /** Partial images during streaming */
-    partial_images?: number;
-    /** Image quality */
-    quality?: 'auto' | 'high' | 'medium' | 'low';
-    /** Image size */
-    size?: 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
-  };
+  /** Background transparency */
+  background?: 'transparent' | 'opaque' | 'auto';
+  /** Input image formats supported */
+  input_image_mask?: boolean;
+  /** Model to use for generation */
+  model?: string;
+  /** Moderation level */
+  moderation?: 'auto' | 'low';
+  /** Output compression */
+  output_compression?: number;
+  /** Output format */
+  output_format?: 'png' | 'jpeg' | 'webp';
+  /** Partial images during streaming */
+  partial_images?: number;
+  /** Image quality */
+  quality?: 'auto' | 'high' | 'medium' | 'low';
+  /** Image size */
+  size?: 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
 }
 
 /**
@@ -1082,15 +1111,19 @@ export type OpenAIResponsesToolUnion = OpenAIResponsesTool | OpenAIBuiltInTool;
 
 /**
  * Helper to create a web search tool
+ * Note: Configuration options are passed at the top level, not nested
  */
 export function webSearchTool(options?: {
   search_context_size?: 'low' | 'medium' | 'high';
   user_location?: OpenAIWebSearchUserLocation | null;
 }): OpenAIWebSearchTool {
-  return {
-    type: 'web_search',
-    ...(options && { web_search: options }),
-  };
+  if (options) {
+    return {
+      type: 'web_search',
+      ...options,
+    } as OpenAIWebSearchTool;
+  }
+  return { type: 'web_search' };
 }
 
 /**
@@ -1139,6 +1172,7 @@ export function computerTool(options: {
 
 /**
  * Helper to create an image generation tool
+ * Note: Configuration options are passed at the top level, not nested
  */
 export function imageGenerationTool(options?: {
   background?: 'transparent' | 'opaque' | 'auto';
@@ -1147,10 +1181,13 @@ export function imageGenerationTool(options?: {
   size?: 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
   output_format?: 'png' | 'jpeg' | 'webp';
 }): OpenAIImageGenerationTool {
-  return {
-    type: 'image_generation',
-    ...(options && { image_generation: options }),
-  };
+  if (options) {
+    return {
+      type: 'image_generation',
+      ...options,
+    };
+  }
+  return { type: 'image_generation' };
 }
 
 /**

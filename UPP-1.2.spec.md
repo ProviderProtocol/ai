@@ -1064,6 +1064,9 @@ Messages are represented as a type hierarchy, allowing type-safe handling and pr
 | `metadata` | Map? | Provider-specific metadata, namespaced by provider |
 | `type` | MessageType | Message type discriminator |
 | `text` | String | Convenience accessor - concatenates all text blocks with "\n\n" |
+| `images` | List<ImageBlock> | Convenience accessor - returns all image blocks |
+| `audio` | List<AudioBlock> | Convenience accessor - returns all audio blocks |
+| `video` | List<VideoBlock> | Convenience accessor - returns all video blocks |
 
 **MessageType Values:**
 
@@ -1904,6 +1907,108 @@ turn = await claude.generate(
 // turn.toolExecutions might contain 4 executions
 // (weather + time for each city)
 ```
+
+### 10.9 Provider-Native Tools
+
+Some providers offer **provider-native tools**—built-in capabilities that execute server-side rather than client-side. These differ fundamentally from UPP function tools:
+
+| Aspect | UPP Function Tools | Provider-Native Tools |
+|--------|-------------------|----------------------|
+| Passed via | `tools` parameter in `llm()` | `params.tools` (pass-through) |
+| Execution | Client-side via `run` function | Server-side by provider |
+| Output | Returned by `run()`, sent back as `ToolResultMessage` | Incorporated into response content |
+| Definition | Requires `name`, `description`, `parameters`, `run` | Provider-specific structure |
+
+**Examples of provider-native tools:**
+
+- **Web Search** - Search the web for current information
+- **Code Interpreter** - Execute code in a sandboxed environment
+- **Image Generation** - Generate images from text prompts
+- **File Search** - Search through uploaded documents
+- **Computer Use** - Interact with computer interfaces
+
+#### 10.9.1 Usage Pattern
+
+Provider-native tools are passed through the `params` object, not the `tools` array:
+
+```pseudocode
+import openai from "upp/openai"
+
+// Provider-native tools go in params.tools
+gpt = llm({
+  model: openai("gpt-4o"),
+  params: {
+    tools: [
+      { type: "web_search" },
+      { type: "image_generation", quality: "high" }
+    ]
+  },
+  // UPP function tools go here (can be used together)
+  tools: [myCustomTool]
+})
+```
+
+#### 10.9.2 Output Handling
+
+Provider-native tool outputs SHOULD be transformed into standard UPP content blocks:
+
+- Image generation results → `ImageBlock` in `AssistantMessage.content`
+- Audio generation results → `AudioBlock` in `AssistantMessage.content`
+- Text-based results (web search, code output) → Incorporated into text response
+
+This ensures outputs are accessible via standard message accessors:
+
+```pseudocode
+turn = await gpt.generate("Generate an image of a sunset")
+
+// Generated images are standard content blocks
+images = turn.response.images  // List<ImageBlock>
+firstImage = images[0]
+```
+
+#### 10.9.3 Provider Implementation
+
+Providers offering native tools SHOULD:
+
+1. **Document available tools** - List supported native tools and their configuration options
+2. **Export helper constructors** - Provide ergonomic functions for creating tool configurations
+3. **Transform outputs to content** - Convert tool outputs to standard `ContentBlock` types
+4. **Preserve tool metadata** - Store provider-specific execution details in `metadata.{providerName}` if needed for multi-turn or debugging
+
+```pseudocode
+// Example: Provider exports tool helpers
+import { tools } from "upp/openai"
+
+gpt = llm({
+  model: openai("gpt-4o"),
+  params: {
+    tools: [
+      tools.webSearch({ search_context_size: "medium" }),
+      tools.imageGeneration({ quality: "high", size: "1024x1024" })
+    ]
+  }
+})
+```
+
+#### 10.9.4 Combining Tool Types
+
+UPP function tools and provider-native tools can be used together. The provider is responsible for merging them correctly when sending requests:
+
+```pseudocode
+// Both tool types in one configuration
+gpt = llm({
+  model: openai("gpt-4o"),
+  params: {
+    tools: [tools.webSearch()]  // Provider-native
+  },
+  tools: [getWeather, saveNote]  // UPP function tools
+})
+
+// The model can use any available tool
+turn = await gpt.generate("What's the weather in Paris and save it to my notes")
+```
+
+The `llm()` core handles UPP function tool execution automatically. Provider-native tools execute server-side and their results appear in the response.
 
 ---
 
@@ -3667,6 +3772,8 @@ Returns a scalar value. For normalized vectors, equivalent to cosine similarity.
 
 ### 1.2.0-draft
 
+- **Added** Section 10.9 Provider-Native Tools documenting server-side built-in tools (web search, image generation, code interpreter, etc.)
+- **Added** `images`, `audio`, `video` convenience accessors to base Message structure (Section 6.1) to match existing `text` accessor pattern
 - **Reformatted** specification to be language-agnostic
 - **Replaced** language-specific syntax with pseudocode notation
 - **Added** JSON Schema definitions in appendices

@@ -3,7 +3,7 @@ import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -16,11 +16,13 @@ import type {
   OpenAIResponsesInputItem,
   OpenAIResponsesContentPart,
   OpenAIResponsesTool,
+  OpenAIResponsesToolUnion,
   OpenAIResponsesResponse,
   OpenAIResponsesStreamEvent,
   OpenAIResponsesOutputItem,
   OpenAIResponsesMessageOutput,
   OpenAIResponsesFunctionCallOutput,
+  OpenAIResponsesImageGenerationOutput,
 } from './types.ts';
 
 /**
@@ -36,16 +38,23 @@ export function transformRequest(
 ): OpenAIResponsesRequest {
   const params = request.params ?? ({} as OpenAIResponsesParams);
 
+  // Extract built-in tools from params before spreading
+  const builtInTools = params.tools as OpenAIResponsesToolUnion[] | undefined;
+  const { tools: _paramsTools, ...restParams } = params;
+
   // Spread params to pass through all fields, then set required fields
   const openaiRequest: OpenAIResponsesRequest = {
-    ...params,
+    ...restParams,
     model: modelId,
     input: transformInputItems(request.messages, request.system),
   };
 
-  // Tools come from request, not params
-  if (request.tools && request.tools.length > 0) {
-    openaiRequest.tools = request.tools.map(transformTool);
+  // Merge tools: UPP function tools from request + built-in tools from params
+  const functionTools: OpenAIResponsesToolUnion[] = request.tools?.map(transformTool) ?? [];
+  const allTools: OpenAIResponsesToolUnion[] = [...functionTools, ...(builtInTools ?? [])];
+
+  if (allTools.length > 0) {
+    openaiRequest.tools = allTools;
   }
 
   // Structured output via text.format (overrides params.text if set)
@@ -276,8 +285,8 @@ function transformTool(tool: Tool): OpenAIResponsesTool {
  * Transform OpenAI Responses API response to UPP LLMResponse
  */
 export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
-  // Extract text content and tool calls from output items
-  const textContent: TextBlock[] = [];
+  // Extract content and tool calls from output items
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   const functionCallItems: Array<{
     id: string;
@@ -291,20 +300,19 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
   for (const item of data.output) {
     if (item.type === 'message') {
       const messageItem = item as OpenAIResponsesMessageOutput;
-      for (const content of messageItem.content) {
-        if (content.type === 'output_text') {
-          textContent.push({ type: 'text', text: content.text });
+      for (const part of messageItem.content) {
+        if (part.type === 'output_text') {
+          content.push({ type: 'text', text: part.text });
           // Try to parse as JSON for structured output (native JSON mode)
-          // Only set data if text is valid JSON
           if (structuredData === undefined) {
             try {
-              structuredData = JSON.parse(content.text);
+              structuredData = JSON.parse(part.text);
             } catch {
               // Not valid JSON - that's fine, might not be structured output
             }
           }
-        } else if (content.type === 'refusal') {
-          textContent.push({ type: 'text', text: content.refusal });
+        } else if (part.type === 'refusal') {
+          content.push({ type: 'text', text: part.refusal });
           hadRefusal = true;
         }
       }
@@ -327,11 +335,20 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
         name: functionCall.name,
         arguments: functionCall.arguments,
       });
+    } else if (item.type === 'image_generation_call') {
+      const imageGen = item as OpenAIResponsesImageGenerationOutput;
+      if (imageGen.result) {
+        content.push({
+          type: 'image',
+          mimeType: 'image/png',
+          source: { type: 'base64', data: imageGen.result },
+        } as ImageBlock);
+      }
     }
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: data.id,
@@ -339,7 +356,6 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
         openai: {
           model: data.model,
           status: data.status,
-          // Store response_id for multi-turn tool calling
           response_id: data.id,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
