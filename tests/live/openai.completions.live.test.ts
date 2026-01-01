@@ -359,3 +359,86 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Error Handl
     }
   });
 });
+
+/**
+ * Web Search tests for Chat Completions API
+ * Uses the gpt-5-search-api model with web_search_options
+ */
+describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Web Search', () => {
+
+  test('web search with search model', async () => {
+    const gpt = llm<OpenAICompletionsParams>({
+      model: openai('gpt-5-search-api-2025-10-14', { api: 'completions' }),
+      params: {
+        max_completion_tokens: 500,
+        web_search_options: {},
+      },
+    });
+
+    const turn = await gpt.generate(
+      'What is the current weather in San Francisco?'
+    );
+
+    expect(turn.response.text.length).toBeGreaterThan(0);
+  }, 60000);
+
+  test('web search with user location', async () => {
+    const gpt = llm<OpenAICompletionsParams>({
+      model: openai('gpt-5-search-api-2025-10-14', { api: 'completions' }),
+      params: {
+        max_completion_tokens: 500,
+        web_search_options: {
+          search_context_size: 'medium',
+          user_location: {
+            type: 'approximate',
+            approximate: {
+              country: 'JP',
+              city: 'Tokyo',
+              timezone: 'Asia/Tokyo',
+            },
+          },
+        },
+      },
+    });
+
+    const turn = await gpt.generate(
+      'What are some good restaurants nearby?'
+    );
+
+    expect(turn.response.text.length).toBeGreaterThan(0);
+  }, 60000);
+
+  test('web search streaming', async () => {
+    const gpt = llm<OpenAICompletionsParams>({
+      model: openai('gpt-5-search-api-2025-10-14', { api: 'completions' }),
+      params: {
+        max_completion_tokens: 500,
+        web_search_options: {},
+      },
+    });
+
+    const stream = gpt.stream(
+      'What is the current temperature in New York City?'
+    );
+
+    const events: string[] = [];
+    let textContent = '';
+
+    for await (const event of stream) {
+      events.push(event.type);
+      if (event.type === 'text_delta' && event.delta.text) {
+        textContent += event.delta.text;
+      }
+    }
+
+    const turn = await stream.turn;
+
+    // Should have received streaming events
+    expect(events.length).toBeGreaterThan(0);
+    // Should have text deltas
+    expect(events.filter(e => e === 'text_delta').length).toBeGreaterThan(0);
+    // Should have final response
+    expect(turn.response.text.length).toBeGreaterThan(0);
+  }, 60000);
+
+});

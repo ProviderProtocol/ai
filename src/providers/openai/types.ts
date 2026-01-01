@@ -27,8 +27,8 @@ export interface OpenAIAudioConfig {
 // ============================================
 
 /**
- * User location for web search context
- * Requires type: 'approximate' with location fields at the same level
+ * User location for web search context (Responses API format)
+ * Fields are at the same level as type
  */
 export interface OpenAIWebSearchUserLocation {
   /** Location type - must be 'approximate' */
@@ -44,7 +44,28 @@ export interface OpenAIWebSearchUserLocation {
 }
 
 /**
+ * User location for web search context (Chat Completions API format)
+ * Fields are nested under 'approximate' object
+ */
+export interface OpenAICompletionsWebSearchUserLocation {
+  /** Location type - must be 'approximate' */
+  type: 'approximate';
+  /** Approximate location details */
+  approximate: {
+    /** City name */
+    city?: string;
+    /** ISO 3166-1 country code (e.g., "US") */
+    country?: string;
+    /** Region/state name */
+    region?: string;
+    /** IANA timezone (e.g., "America/New_York") */
+    timezone?: string;
+  };
+}
+
+/**
  * Web search options for Chat Completions API
+ * Use with gpt-5-search-api-* models
  */
 export interface OpenAIWebSearchOptions {
   /**
@@ -53,7 +74,7 @@ export interface OpenAIWebSearchOptions {
    */
   search_context_size?: 'low' | 'medium' | 'high';
   /** User location for localizing search results */
-  user_location?: OpenAIWebSearchUserLocation | null;
+  user_location?: OpenAICompletionsWebSearchUserLocation | null;
 }
 
 /**

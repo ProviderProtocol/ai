@@ -304,7 +304,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
 
     // Verify streamed matches final
     expect(streamedData.city).toBe((turn.data as any).city);
-  });
+  }, 30000);
 });
 
 /**

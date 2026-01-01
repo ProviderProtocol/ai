@@ -156,6 +156,7 @@ export type {
   OpenAIAudioConfig,
   OpenAIWebSearchOptions,
   OpenAIWebSearchUserLocation,
+  OpenAICompletionsWebSearchUserLocation,
   // Built-in tool types
   OpenAIBuiltInTool,
   OpenAIWebSearchTool,
