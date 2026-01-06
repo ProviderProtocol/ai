@@ -23,7 +23,11 @@ import {
   isAssistantMessage,
 } from '../types/messages.ts';
 import { createTurn, aggregateUsage, emptyUsage } from '../types/turn.ts';
-import { createStreamResult } from '../types/stream.ts';
+import {
+  createStreamResult,
+  toolExecutionStart,
+  toolExecutionEnd,
+} from '../types/stream.ts';
 import { generateShortId } from '../utils/id.ts';
 
 /**
@@ -413,13 +417,20 @@ function executeStream<TParams>(
             );
           }
 
-          // Execute tools
+          // Execute tools with event emission
+          const toolEvents: StreamEvent[] = [];
           const results = await executeTools(
             response.message,
             tools,
             toolStrategy,
-            toolExecutions
+            toolExecutions,
+            (event) => toolEvents.push(event)
           );
+
+          // Yield tool execution events
+          for (const event of toolEvents) {
+            yield event;
+          }
 
           // Add tool results
           allMessages.push(new ToolResultMessage(results));
@@ -467,7 +478,8 @@ async function executeTools(
   message: AssistantMessage,
   tools: Tool[],
   toolStrategy: LLMOptions<unknown>['toolStrategy'],
-  executions: ToolExecution[]
+  executions: ToolExecution[],
+  onEvent?: (event: StreamEvent) => void
 ): Promise<ToolResult[]> {
   const toolCalls = message.toolCalls ?? [];
   const results: ToolResult[] = [];
@@ -476,7 +488,7 @@ async function executeTools(
   const toolMap = new Map(tools.map((t) => [t.name, t]));
 
   // Execute tools (in parallel)
-  const promises = toolCalls.map(async (call) => {
+  const promises = toolCalls.map(async (call, index) => {
     const tool = toolMap.get(call.toolName);
     if (!tool) {
       return {
@@ -488,6 +500,9 @@ async function executeTools(
 
     const startTime = Date.now();
 
+    // Emit start event
+    onEvent?.(toolExecutionStart(call.toolCallId, tool.name, startTime, index));
+
     // Notify strategy
     await toolStrategy?.onToolCall?.(tool, call.arguments);
 
@@ -495,6 +510,8 @@ async function executeTools(
     if (toolStrategy?.onBeforeCall) {
       const shouldRun = await toolStrategy.onBeforeCall(tool, call.arguments);
       if (!shouldRun) {
+        const endTime = Date.now();
+        onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, 'Tool execution skipped', true, endTime, index));
         return {
           toolCallId: call.toolCallId,
           result: 'Tool execution skipped',
@@ -515,16 +532,19 @@ async function executeTools(
     }
 
     if (!approved) {
+      const endTime = Date.now();
       const execution: ToolExecution = {
         toolName: tool.name,
         toolCallId: call.toolCallId,
         arguments: call.arguments,
         result: 'Tool execution denied',
         isError: true,
-        duration: Date.now() - startTime,
+        duration: endTime - startTime,
         approved: false,
       };
       executions.push(execution);
+
+      onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, 'Tool execution denied by approval handler', true, endTime, index));
 
       return {
         toolCallId: call.toolCallId,
@@ -536,6 +556,7 @@ async function executeTools(
     // Execute tool
     try {
       const result = await tool.run(call.arguments);
+      const endTime = Date.now();
 
       await toolStrategy?.onAfterCall?.(tool, call.arguments, result);
 
@@ -545,10 +566,12 @@ async function executeTools(
         arguments: call.arguments,
         result,
         isError: false,
-        duration: Date.now() - startTime,
+        duration: endTime - startTime,
         approved,
       };
       executions.push(execution);
+
+      onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, result, false, endTime, index));
 
       return {
         toolCallId: call.toolCallId,
@@ -556,6 +579,7 @@ async function executeTools(
         isError: false,
       };
     } catch (error) {
+      const endTime = Date.now();
       await toolStrategy?.onError?.(tool, call.arguments, error as Error);
 
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -566,10 +590,12 @@ async function executeTools(
         arguments: call.arguments,
         result: errorMessage,
         isError: true,
-        duration: Date.now() - startTime,
+        duration: endTime - startTime,
         approved,
       };
       executions.push(execution);
+
+      onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, errorMessage, true, endTime, index));
 
       return {
         toolCallId: call.toolCallId,

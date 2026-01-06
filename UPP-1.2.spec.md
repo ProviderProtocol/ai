@@ -1576,6 +1576,8 @@ During streaming, providers emit `StreamEvent` objects:
 | `audio_delta` | Partial audio data |
 | `video_delta` | Partial video data |
 | `tool_call_delta` | Partial tool call |
+| `tool_execution_start` | Tool execution started |
+| `tool_execution_end` | Tool execution completed |
 | `message_start` | Stream started |
 | `message_stop` | Stream complete |
 | `content_block_start` | New content block started |
@@ -1590,6 +1592,9 @@ During streaming, providers emit `StreamEvent` objects:
 | `toolCallId` | String? | Tool call ID |
 | `toolName` | String? | Tool name |
 | `argumentsJson` | String? | Partial JSON arguments |
+| `result` | Any? | Tool execution result (for `tool_execution_end`) |
+| `isError` | Boolean? | Whether tool execution errored (for `tool_execution_end`) |
+| `timestamp` | Integer? | Timestamp in ms (for `tool_execution_start`/`tool_execution_end`) |
 
 ### 9.3 Streaming Usage
 
@@ -1692,7 +1697,8 @@ message_start
     tool_call_delta { argumentsJson: 'ation":"Paris"}' }
   content_block_stop (index: 1)
 message_stop
-[tool execution happens here]
+tool_execution_start { toolCallId: "call_123", toolName: "getWeather", timestamp: 1704067200000 }
+tool_execution_end { toolCallId: "call_123", toolName: "getWeather", result: "Paris: 72°F", isError: false, timestamp: 1704067200050 }
 message_start
   content_block_start (index: 0)
     text_delta "The weather is..."

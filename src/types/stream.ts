@@ -10,6 +10,8 @@ export type StreamEventType =
   | 'audio_delta'
   | 'video_delta'
   | 'tool_call_delta'
+  | 'tool_execution_start'
+  | 'tool_execution_end'
   | 'message_start'
   | 'message_stop'
   | 'content_block_start'
@@ -24,6 +26,12 @@ export interface EventDelta {
   toolCallId?: string;
   toolName?: string;
   argumentsJson?: string;
+  /** Tool execution result (for tool_execution_end) */
+  result?: unknown;
+  /** Whether tool execution errored (for tool_execution_end) */
+  isError?: boolean;
+  /** Timestamp in ms (for tool_execution_start/end) */
+  timestamp?: number;
 }
 
 /**
@@ -142,5 +150,39 @@ export function contentBlockStop(index: number): StreamEvent {
     type: 'content_block_stop',
     index,
     delta: {},
+  };
+}
+
+/**
+ * Create a tool execution start event
+ */
+export function toolExecutionStart(
+  toolCallId: string,
+  toolName: string,
+  timestamp: number,
+  index = 0
+): StreamEvent {
+  return {
+    type: 'tool_execution_start',
+    index,
+    delta: { toolCallId, toolName, timestamp },
+  };
+}
+
+/**
+ * Create a tool execution end event
+ */
+export function toolExecutionEnd(
+  toolCallId: string,
+  toolName: string,
+  result: unknown,
+  isError: boolean,
+  timestamp: number,
+  index = 0
+): StreamEvent {
+  return {
+    type: 'tool_execution_end',
+    index,
+    delta: { toolCallId, toolName, result, isError, timestamp },
   };
 }
