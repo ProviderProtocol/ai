@@ -1,6 +1,6 @@
 {
   "name": "@providerprotocol/ai",
-  "version": "0.0.11",
+  "version": "0.0.12",
   "description": "UPP: Unified Provider Protocol for AI inference",
   "license": "MIT",
   "homepage": "https://providerprotocol.org",
@@ -14,56 +14,47 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "bun": "./src/index.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
     },
     "./anthropic": {
       "types": "./dist/anthropic/index.d.ts",
-      "bun": "./src/anthropic/index.ts",
       "import": "./dist/anthropic/index.js",
       "default": "./dist/anthropic/index.js"
     },
     "./openai": {
       "types": "./dist/openai/index.d.ts",
-      "bun": "./src/openai/index.ts",
       "import": "./dist/openai/index.js",
       "default": "./dist/openai/index.js"
     },
     "./google": {
       "types": "./dist/google/index.d.ts",
-      "bun": "./src/google/index.ts",
       "import": "./dist/google/index.js",
       "default": "./dist/google/index.js"
     },
     "./ollama": {
       "types": "./dist/ollama/index.d.ts",
-      "bun": "./src/ollama/index.ts",
       "import": "./dist/ollama/index.js",
       "default": "./dist/ollama/index.js"
     },
     "./openrouter": {
       "types": "./dist/openrouter/index.d.ts",
-      "bun": "./src/openrouter/index.ts",
       "import": "./dist/openrouter/index.js",
       "default": "./dist/openrouter/index.js"
     },
     "./xai": {
       "types": "./dist/xai/index.d.ts",
-      "bun": "./src/xai/index.ts",
       "import": "./dist/xai/index.js",
       "default": "./dist/xai/index.js"
     },
     "./http": {
       "types": "./dist/http/index.d.ts",
-      "bun": "./src/http/index.ts",
       "import": "./dist/http/index.js",
       "default": "./dist/http/index.js"
     }
   },
   "files": [
     "dist",
-    "src",
     "README.md"
   ],
   "scripts": {

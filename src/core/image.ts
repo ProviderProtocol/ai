@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import type { ImageSource, ImageBlock } from '../types/content.ts';
 
 /**
@@ -103,9 +104,8 @@ export class Image {
    * Create from file path (reads file into memory)
    */
   static async fromPath(path: string): Promise<Image> {
-    const file = Bun.file(path);
-    const data = await file.arrayBuffer();
-    const mimeType = file.type || detectMimeType(path);
+    const data = await readFile(path);
+    const mimeType = detectMimeType(path);
 
     return new Image(
       { type: 'bytes', data: new Uint8Array(data) },
