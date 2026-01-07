@@ -1,14 +1,34 @@
+/**
+ * @fileoverview OpenAI Provider Type Definitions
+ *
+ * This module contains all TypeScript type definitions for the OpenAI provider,
+ * including types for both the Chat Completions API and the Responses API.
+ *
+ * The types are organized into sections:
+ * - Audio Configuration Types
+ * - Web Search Configuration Types
+ * - Chat Completions API Parameters and Types
+ * - Responses API Parameters and Types
+ * - Built-in Tools for Responses API
+ * - Tool Helper Constructors
+ *
+ * @module providers/openai/types
+ */
+
 // ============================================
 // Audio Configuration Types
 // ============================================
 
 /**
- * Audio output configuration for Chat Completions
+ * Audio output configuration for Chat Completions API.
+ *
+ * Enables audio output generation when using models that support
+ * the audio modality. Requires `modalities: ['text', 'audio']`.
  */
 export interface OpenAIAudioConfig {
-  /** Audio format */
+  /** Audio format for the generated output */
   format: 'wav' | 'aac' | 'mp3' | 'flac' | 'opus' | 'pcm16';
-  /** Voice to use for audio generation */
+  /** Voice model to use for audio generation */
   voice:
     | 'alloy'
     | 'ash'
@@ -27,8 +47,12 @@ export interface OpenAIAudioConfig {
 // ============================================
 
 /**
- * User location for web search context (Responses API format)
- * Fields are at the same level as type
+ * User location for web search context in the Responses API.
+ *
+ * Used to localize web search results based on the user's approximate location.
+ * In the Responses API, location fields are at the same level as the type field.
+ *
+ * @see {@link OpenAICompletionsWebSearchUserLocation} for the Chat Completions API version
  */
 export interface OpenAIWebSearchUserLocation {
   /** Location type - must be 'approximate' */
@@ -44,8 +68,12 @@ export interface OpenAIWebSearchUserLocation {
 }
 
 /**
- * User location for web search context (Chat Completions API format)
- * Fields are nested under 'approximate' object
+ * User location for web search context in the Chat Completions API.
+ *
+ * Used to localize web search results based on the user's approximate location.
+ * In the Completions API, location fields are nested under an `approximate` object.
+ *
+ * @see {@link OpenAIWebSearchUserLocation} for the Responses API version
  */
 export interface OpenAICompletionsWebSearchUserLocation {
   /** Location type - must be 'approximate' */
@@ -64,8 +92,10 @@ export interface OpenAICompletionsWebSearchUserLocation {
 }
 
 /**
- * Web search options for Chat Completions API
- * Use with gpt-5-search-api-* models
+ * Web search configuration options for the Chat Completions API.
+ *
+ * Enables web search capabilities when using search-enabled models.
+ * Use with models that support web search (e.g., gpt-4o-search-preview).
  */
 export interface OpenAIWebSearchOptions {
   /**
@@ -78,8 +108,22 @@ export interface OpenAIWebSearchOptions {
 }
 
 /**
- * OpenAI Chat Completions API parameters
- * These are passed through to the /v1/chat/completions endpoint
+ * Parameters for the OpenAI Chat Completions API.
+ *
+ * These parameters are passed directly to the `/v1/chat/completions` endpoint.
+ * The Chat Completions API is the legacy API for chat interactions with
+ * OpenAI models. For the modern API with built-in tools, see {@link OpenAIResponsesParams}.
+ *
+ * @example
+ * ```typescript
+ * const params: OpenAICompletionsParams = {
+ *   temperature: 0.7,
+ *   max_tokens: 1000,
+ *   reasoning_effort: 'medium'
+ * };
+ * ```
+ *
+ * @see {@link OpenAIResponsesParams} for the modern Responses API parameters
  */
 export interface OpenAICompletionsParams {
   /** Maximum number of tokens to generate (legacy, prefer max_completion_tokens) */
@@ -189,7 +233,9 @@ export interface OpenAICompletionsParams {
 }
 
 /**
- * Prompt template reference for Responses API
+ * Reference to a prompt template stored in OpenAI's system.
+ *
+ * Allows using pre-defined prompt templates with variable substitution.
  */
 export interface OpenAIPromptTemplate {
   /** Prompt template ID */
@@ -199,8 +245,11 @@ export interface OpenAIPromptTemplate {
 }
 
 /**
- * Conversation reference for Responses API
- * Items from this conversation are prepended to input_items
+ * Reference to an existing conversation for the Responses API.
+ *
+ * Items from this conversation are prepended to the input items,
+ * enabling multi-turn conversations without resending full history.
+ * Cannot be used together with `previous_response_id`.
  */
 export interface OpenAIConversation {
   /** Conversation ID */
@@ -208,8 +257,32 @@ export interface OpenAIConversation {
 }
 
 /**
- * OpenAI Responses API parameters
- * These are passed through to the /v1/responses endpoint
+ * Parameters for the OpenAI Responses API.
+ *
+ * These parameters are passed directly to the `/v1/responses` endpoint.
+ * The Responses API is the modern, recommended API that supports built-in
+ * tools like web search, image generation, file search, and code interpreter.
+ *
+ * @example Basic usage
+ * ```typescript
+ * const params: OpenAIResponsesParams = {
+ *   max_output_tokens: 1000,
+ *   temperature: 0.7,
+ *   reasoning: { effort: 'medium' }
+ * };
+ * ```
+ *
+ * @example With built-in tools
+ * ```typescript
+ * import { tools } from './types';
+ *
+ * const params: OpenAIResponsesParams = {
+ *   max_output_tokens: 2000,
+ *   tools: [tools.webSearch(), tools.imageGeneration()]
+ * };
+ * ```
+ *
+ * @see {@link OpenAICompletionsParams} for the legacy Chat Completions API parameters
  */
 export interface OpenAIResponsesParams {
   /** Maximum output tokens */
@@ -326,12 +399,15 @@ export interface OpenAIResponsesParams {
 }
 
 /**
- * API mode for OpenAI provider
+ * The API mode for the OpenAI provider.
+ *
+ * - `'responses'` - Modern Responses API (recommended)
+ * - `'completions'` - Legacy Chat Completions API
  */
 export type OpenAIAPIMode = 'responses' | 'completions';
 
 /**
- * Model options when creating a model reference
+ * Options when creating an OpenAI model reference.
  */
 export interface OpenAIModelOptions {
   /** Which API to use */
@@ -339,15 +415,18 @@ export interface OpenAIModelOptions {
 }
 
 /**
- * Model reference with OpenAI-specific options
+ * Model reference with OpenAI-specific options.
+ * Used internally to track the selected model and API mode.
  */
 export interface OpenAIModelReference {
+  /** The OpenAI model identifier (e.g., 'gpt-4o', 'o1-preview') */
   modelId: string;
+  /** Optional model-specific options */
   options?: OpenAIModelOptions;
 }
 
 /**
- * OpenAI provider configuration
+ * Configuration options for the OpenAI provider.
  */
 export interface OpenAIConfig {
   /** Which API to use: 'responses' (modern) or 'completions' (legacy) */
@@ -359,7 +438,11 @@ export interface OpenAIConfig {
 // ============================================
 
 /**
- * Chat Completions API request body
+ * Request body for the OpenAI Chat Completions API.
+ *
+ * This interface represents the full request structure sent to
+ * `/v1/chat/completions`. Most fields are optional and passed through
+ * from {@link OpenAICompletionsParams}.
  */
 export interface OpenAICompletionsRequest {
   model: string;
@@ -408,7 +491,7 @@ export interface OpenAICompletionsRequest {
 }
 
 /**
- * Chat Completions message format
+ * Union type for all message types in the Chat Completions API.
  */
 export type OpenAICompletionsMessage =
   | OpenAISystemMessage
@@ -416,18 +499,21 @@ export type OpenAICompletionsMessage =
   | OpenAIAssistantMessage
   | OpenAIToolMessage;
 
+/** System or developer message for setting context and instructions */
 export interface OpenAISystemMessage {
   role: 'system' | 'developer';
   content: string;
   name?: string;
 }
 
+/** User message with text or multimodal content */
 export interface OpenAIUserMessage {
   role: 'user';
   content: string | OpenAIUserContent[];
   name?: string;
 }
 
+/** Assistant message containing the model's response */
 export interface OpenAIAssistantMessage {
   role: 'assistant';
   content?: string | null;
@@ -436,6 +522,7 @@ export interface OpenAIAssistantMessage {
   refusal?: string | null;
 }
 
+/** Tool result message providing output from a function call */
 export interface OpenAIToolMessage {
   role: 'tool';
   content: string;
@@ -443,15 +530,17 @@ export interface OpenAIToolMessage {
 }
 
 /**
- * User content types
+ * Union type for user content parts (text or image).
  */
 export type OpenAIUserContent = OpenAITextContent | OpenAIImageContent;
 
+/** Text content part */
 export interface OpenAITextContent {
   type: 'text';
   text: string;
 }
 
+/** Image content part with URL reference */
 export interface OpenAIImageContent {
   type: 'image_url';
   image_url: {
@@ -461,7 +550,8 @@ export interface OpenAIImageContent {
 }
 
 /**
- * Tool call format
+ * Tool call structure in assistant messages.
+ * Represents a function call requested by the model.
  */
 export interface OpenAIToolCall {
   id: string;
@@ -473,7 +563,8 @@ export interface OpenAIToolCall {
 }
 
 /**
- * Tool definition for Chat Completions
+ * Tool definition for the Chat Completions API.
+ * Functions are defined with JSON Schema parameters.
  */
 export interface OpenAICompletionsTool {
   type: 'function';
@@ -491,7 +582,7 @@ export interface OpenAICompletionsTool {
 }
 
 /**
- * Tool choice options
+ * Tool choice options for controlling function calling behavior.
  */
 export type OpenAIToolChoice =
   | 'none'
@@ -500,7 +591,7 @@ export type OpenAIToolChoice =
   | { type: 'function'; function: { name: string } };
 
 /**
- * Response format
+ * Response format options for structured output.
  */
 export type OpenAIResponseFormat =
   | { type: 'text' }
@@ -516,7 +607,7 @@ export type OpenAIResponseFormat =
     };
 
 /**
- * Chat Completions response format
+ * Response structure from the Chat Completions API.
  */
 export interface OpenAICompletionsResponse {
   id: string;
@@ -529,6 +620,7 @@ export interface OpenAICompletionsResponse {
   service_tier?: string;
 }
 
+/** A single choice from a completion response */
 export interface OpenAICompletionsChoice {
   index: number;
   message: OpenAIAssistantMessage;
@@ -536,6 +628,7 @@ export interface OpenAICompletionsChoice {
   logprobs?: OpenAILogprobs | null;
 }
 
+/** Log probability information for tokens */
 export interface OpenAILogprobs {
   content?: Array<{
     token: string;
@@ -549,6 +642,7 @@ export interface OpenAILogprobs {
   }>;
 }
 
+/** Token usage statistics from the API response */
 export interface OpenAIUsage {
   prompt_tokens: number;
   completion_tokens: number;
@@ -566,7 +660,8 @@ export interface OpenAIUsage {
 }
 
 /**
- * Chat Completions streaming event types
+ * Streaming chunk structure from the Chat Completions API.
+ * Sent via SSE during streaming responses.
  */
 export interface OpenAICompletionsStreamChunk {
   id: string;
@@ -579,6 +674,7 @@ export interface OpenAICompletionsStreamChunk {
   service_tier?: string;
 }
 
+/** A streaming choice containing incremental content */
 export interface OpenAICompletionsStreamChoice {
   index: number;
   delta: OpenAICompletionsStreamDelta;
@@ -586,6 +682,7 @@ export interface OpenAICompletionsStreamChoice {
   logprobs?: OpenAILogprobs | null;
 }
 
+/** Incremental content delta in a streaming chunk */
 export interface OpenAICompletionsStreamDelta {
   role?: 'assistant';
   content?: string | null;
@@ -593,6 +690,7 @@ export interface OpenAICompletionsStreamDelta {
   refusal?: string | null;
 }
 
+/** Incremental tool call data in a streaming chunk */
 export interface OpenAIStreamToolCall {
   index: number;
   id?: string;
@@ -608,7 +706,10 @@ export interface OpenAIStreamToolCall {
 // ============================================
 
 /**
- * Responses API request body
+ * Request body for the OpenAI Responses API.
+ *
+ * This interface represents the full request structure sent to
+ * `/v1/responses`. Supports both function tools and built-in tools.
  */
 export interface OpenAIResponsesRequest {
   model: string;
@@ -651,7 +752,7 @@ export interface OpenAIResponsesRequest {
 }
 
 /**
- * Responses API input item
+ * Union type for all input item types in the Responses API.
  */
 export type OpenAIResponsesInputItem =
   | OpenAIResponsesSystemItem
@@ -660,24 +761,28 @@ export type OpenAIResponsesInputItem =
   | OpenAIResponsesFunctionCallInputItem
   | OpenAIResponsesToolResultItem;
 
+/** System or developer message input item */
 export interface OpenAIResponsesSystemItem {
   type: 'message';
   role: 'system' | 'developer';
   content: string | OpenAIResponsesContentPart[];
 }
 
+/** User message input item */
 export interface OpenAIResponsesUserItem {
   type: 'message';
   role: 'user';
   content: string | OpenAIResponsesContentPart[];
 }
 
+/** Assistant message input item (for conversation history) */
 export interface OpenAIResponsesAssistantItem {
   type: 'message';
   role: 'assistant';
   content: string | OpenAIResponsesContentPart[];
 }
 
+/** Function call input item (precedes function_call_output) */
 export interface OpenAIResponsesFunctionCallInputItem {
   type: 'function_call';
   id: string;
@@ -686,6 +791,7 @@ export interface OpenAIResponsesFunctionCallInputItem {
   arguments: string;
 }
 
+/** Function call output (tool result) input item */
 export interface OpenAIResponsesToolResultItem {
   type: 'function_call_output';
   call_id: string;
@@ -693,25 +799,28 @@ export interface OpenAIResponsesToolResultItem {
 }
 
 /**
- * Content parts for Responses API
+ * Union type for content parts in the Responses API.
  */
 export type OpenAIResponsesContentPart =
   | OpenAIResponsesTextPart
   | OpenAIResponsesImagePart
   | OpenAIResponsesFunctionCallPart;
 
+/** Text content part (input or output) */
 export interface OpenAIResponsesTextPart {
   type: 'input_text' | 'output_text';
   text: string;
 }
 
+/** Image content part */
 export interface OpenAIResponsesImagePart {
   type: 'input_image';
   image_url?: string;
-  image?: string; // base64
+  image?: string;
   detail?: 'auto' | 'low' | 'high';
 }
 
+/** Function call content part (embedded in messages) */
 export interface OpenAIResponsesFunctionCallPart {
   type: 'function_call';
   id: string;
@@ -721,7 +830,8 @@ export interface OpenAIResponsesFunctionCallPart {
 }
 
 /**
- * Tool definition for Responses API
+ * Function tool definition for the Responses API.
+ * Uses a flatter structure than Chat Completions.
  */
 export interface OpenAIResponsesTool {
   type: 'function';
@@ -737,7 +847,7 @@ export interface OpenAIResponsesTool {
 }
 
 /**
- * Tool choice for Responses API
+ * Tool choice options for the Responses API.
  */
 export type OpenAIResponsesToolChoice =
   | 'none'
@@ -746,7 +856,7 @@ export type OpenAIResponsesToolChoice =
   | { type: 'function'; name: string };
 
 /**
- * Text configuration for structured output
+ * Text output configuration for structured output in the Responses API.
  */
 export interface OpenAIResponsesTextConfig {
   format?:
@@ -762,7 +872,7 @@ export interface OpenAIResponsesTextConfig {
 }
 
 /**
- * Responses API response format
+ * Response structure from the Responses API.
  */
 export interface OpenAIResponsesResponse {
   id: string;
@@ -781,12 +891,16 @@ export interface OpenAIResponsesResponse {
   };
 }
 
+/**
+ * Union type for all output item types in Responses API responses.
+ */
 export type OpenAIResponsesOutputItem =
   | OpenAIResponsesMessageOutput
   | OpenAIResponsesFunctionCallOutput
   | OpenAIResponsesImageGenerationOutput
   | OpenAIResponsesWebSearchOutput;
 
+/** Assistant message output item */
 export interface OpenAIResponsesMessageOutput {
   type: 'message';
   id: string;
@@ -795,6 +909,7 @@ export interface OpenAIResponsesMessageOutput {
   status: 'completed' | 'in_progress';
 }
 
+/** Function call output item (tool call requested by model) */
 export interface OpenAIResponsesFunctionCallOutput {
   type: 'function_call';
   id: string;
@@ -804,6 +919,7 @@ export interface OpenAIResponsesFunctionCallOutput {
   status: 'completed' | 'in_progress';
 }
 
+/** Image generation output item (from built-in image generation tool) */
 export interface OpenAIResponsesImageGenerationOutput {
   type: 'image_generation_call';
   id: string;
@@ -811,16 +927,19 @@ export interface OpenAIResponsesImageGenerationOutput {
   status: 'completed' | 'in_progress';
 }
 
+/** Web search output item (from built-in web search tool) */
 export interface OpenAIResponsesWebSearchOutput {
   type: 'web_search_call';
   id: string;
   status: 'completed' | 'in_progress';
 }
 
+/** Output content types (text or refusal) */
 export type OpenAIResponsesOutputContent =
   | { type: 'output_text'; text: string; annotations?: unknown[] }
   | { type: 'refusal'; refusal: string };
 
+/** Token usage statistics for Responses API */
 export interface OpenAIResponsesUsage {
   input_tokens: number;
   output_tokens: number;
@@ -839,7 +958,8 @@ export interface OpenAIResponsesUsage {
 }
 
 /**
- * Responses API streaming event types
+ * Union type for all streaming events from the Responses API.
+ * The Responses API uses granular events for different stages of response generation.
  */
 export type OpenAIResponsesStreamEvent =
   | OpenAIResponseCreatedEvent
@@ -1131,8 +1251,28 @@ export type OpenAIResponsesToolUnion = OpenAIResponsesTool | OpenAIBuiltInTool;
 // ============================================
 
 /**
- * Helper to create a web search tool
- * Note: Configuration options are passed at the top level, not nested
+ * Creates a web search tool configuration for the Responses API.
+ *
+ * The web search tool enables the model to search the web for up-to-date information.
+ *
+ * @param options - Optional configuration for search behavior and user location
+ * @returns A web search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Basic web search
+ * const search = webSearchTool();
+ *
+ * // With configuration
+ * const searchWithLocation = webSearchTool({
+ *   search_context_size: 'high',
+ *   user_location: {
+ *     type: 'approximate',
+ *     city: 'San Francisco',
+ *     country: 'US'
+ *   }
+ * });
+ * ```
  */
 export function webSearchTool(options?: {
   search_context_size?: 'low' | 'medium' | 'high';
@@ -1148,7 +1288,20 @@ export function webSearchTool(options?: {
 }
 
 /**
- * Helper to create a file search tool
+ * Creates a file search tool configuration for the Responses API.
+ *
+ * The file search tool enables the model to search through files in vector stores.
+ *
+ * @param options - Configuration including vector store IDs and search options
+ * @returns A file search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const fileSearch = fileSearchTool({
+ *   vector_store_ids: ['vs_abc123'],
+ *   max_num_results: 10
+ * });
+ * ```
  */
 export function fileSearchTool(options: {
   vector_store_ids: string[];
@@ -1166,7 +1319,28 @@ export function fileSearchTool(options: {
 }
 
 /**
- * Helper to create a code interpreter tool
+ * Creates a code interpreter tool configuration for the Responses API.
+ *
+ * The code interpreter tool allows the model to write and execute Python code
+ * in a sandboxed environment.
+ *
+ * @param options - Optional container configuration
+ * @returns A code interpreter tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Default configuration
+ * const interpreter = codeInterpreterTool();
+ *
+ * // With custom container settings
+ * const customInterpreter = codeInterpreterTool({
+ *   container: {
+ *     type: 'auto',
+ *     memory_limit: '4g',
+ *     file_ids: ['file_abc123']
+ *   }
+ * });
+ * ```
  */
 export function codeInterpreterTool(options?: {
   container?: string | OpenAICodeInterpreterContainer;
@@ -1178,7 +1352,22 @@ export function codeInterpreterTool(options?: {
 }
 
 /**
- * Helper to create a computer tool
+ * Creates a computer tool configuration for the Responses API.
+ *
+ * The computer tool enables the model to interact with computer interfaces
+ * through mouse and keyboard actions.
+ *
+ * @param options - Display configuration and environment settings
+ * @returns A computer tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const computer = computerTool({
+ *   display_width: 1920,
+ *   display_height: 1080,
+ *   environment: { type: 'browser' }
+ * });
+ * ```
  */
 export function computerTool(options: {
   display_width: number;
@@ -1192,8 +1381,25 @@ export function computerTool(options: {
 }
 
 /**
- * Helper to create an image generation tool
- * Note: Configuration options are passed at the top level, not nested
+ * Creates an image generation tool configuration for the Responses API.
+ *
+ * The image generation tool allows the model to generate images based on prompts.
+ *
+ * @param options - Optional image generation settings
+ * @returns An image generation tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Default configuration
+ * const imageGen = imageGenerationTool();
+ *
+ * // With custom settings
+ * const customImageGen = imageGenerationTool({
+ *   quality: 'high',
+ *   size: '1024x1024',
+ *   background: 'transparent'
+ * });
+ * ```
  */
 export function imageGenerationTool(options?: {
   background?: 'transparent' | 'opaque' | 'auto';
@@ -1212,7 +1418,22 @@ export function imageGenerationTool(options?: {
 }
 
 /**
- * Helper to create an MCP tool
+ * Creates an MCP (Model Context Protocol) tool configuration for the Responses API.
+ *
+ * The MCP tool enables connections to external MCP servers, allowing the model
+ * to use tools and resources provided by those servers.
+ *
+ * @param options - MCP server configuration
+ * @returns An MCP tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const mcp = mcpTool({
+ *   url: 'https://mcp-server.example.com',
+ *   name: 'my-mcp-server',
+ *   allowed_tools: ['tool1', 'tool2']
+ * });
+ * ```
  */
 export function mcpTool(options: {
   url: string;
@@ -1237,13 +1458,35 @@ export function mcpTool(options: {
 }
 
 /**
- * Namespace for tool helper constructors
+ * Namespace object containing all tool helper constructors.
+ *
+ * Provides a convenient way to create built-in tool configurations
+ * for the Responses API.
+ *
+ * @example
+ * ```typescript
+ * import { tools } from './types';
+ *
+ * const params = {
+ *   tools: [
+ *     tools.webSearch(),
+ *     tools.imageGeneration({ quality: 'high' }),
+ *     tools.codeInterpreter()
+ *   ]
+ * };
+ * ```
  */
 export const tools = {
+  /** Creates a web search tool configuration */
   webSearch: webSearchTool,
+  /** Creates a file search tool configuration */
   fileSearch: fileSearchTool,
+  /** Creates a code interpreter tool configuration */
   codeInterpreter: codeInterpreterTool,
+  /** Creates a computer tool configuration */
   computer: computerTool,
+  /** Creates an image generation tool configuration */
   imageGeneration: imageGenerationTool,
+  /** Creates an MCP tool configuration */
   mcp: mcpTool,
 };

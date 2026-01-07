@@ -1,3 +1,16 @@
+/**
+ * @fileoverview OpenAI Chat Completions API Handler
+ *
+ * This module implements the LLM handler for OpenAI's Chat Completions API
+ * (`/v1/chat/completions`). This is the legacy API that provides standard
+ * chat completion functionality with function calling support.
+ *
+ * For the modern Responses API with built-in tools support, see `llm.responses.ts`.
+ *
+ * @see {@link https://platform.openai.com/docs/api-reference/chat OpenAI Chat Completions API Reference}
+ * @module providers/openai/llm.completions
+ */
+
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
@@ -15,10 +28,17 @@ import {
   buildResponseFromState,
 } from './transform.completions.ts';
 
+/** Base URL for OpenAI's Chat Completions API endpoint */
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
 
 /**
- * OpenAI API capabilities
+ * Capability declaration for the OpenAI Chat Completions API.
+ *
+ * Defines what features are supported by this handler:
+ * - Streaming: Real-time token-by-token response streaming via SSE
+ * - Tools: Function calling for structured interactions
+ * - Structured Output: JSON schema-based response formatting
+ * - Image Input: Vision capabilities for image understanding
  */
 const OPENAI_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,10 +50,41 @@ const OPENAI_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create OpenAI Chat Completions LLM handler
+ * Creates an LLM handler for OpenAI's Chat Completions API.
+ *
+ * This factory function creates a handler that communicates with the
+ * `/v1/chat/completions` endpoint. The handler supports both synchronous
+ * completion requests and streaming responses.
+ *
+ * @returns An LLM handler configured for the Chat Completions API
+ *
+ * @example
+ * ```typescript
+ * const handler = createCompletionsLLMHandler();
+ * const model = handler.bind('gpt-4o');
+ *
+ * // Synchronous completion
+ * const response = await model.complete({
+ *   messages: [{ role: 'user', content: 'Hello!' }],
+ *   config: { apiKey: 'sk-...' }
+ * });
+ *
+ * // Streaming completion
+ * const stream = model.stream({
+ *   messages: [{ role: 'user', content: 'Tell me a story' }],
+ *   config: { apiKey: 'sk-...' }
+ * });
+ *
+ * for await (const event of stream) {
+ *   if (event.type === 'text_delta') {
+ *     process.stdout.write(event.delta.text);
+ *   }
+ * }
+ * ```
+ *
+ * @see {@link createResponsesLLMHandler} for the modern Responses API handler
  */
 export function createCompletionsLLMHandler(): LLMHandler<OpenAICompletionsParams> {
-  // Provider reference injected by createProvider() or OpenAI's custom factory
   let providerRef: LLMProvider<OpenAICompletionsParams> | null = null;
 
   return {

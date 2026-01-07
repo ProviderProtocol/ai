@@ -1,3 +1,17 @@
+/**
+ * @fileoverview Transformation functions between UPP format and Google Gemini API format.
+ *
+ * This module handles the bidirectional conversion of requests, responses, and
+ * streaming chunks between the Unified Provider Protocol (UPP) format and
+ * Google's Generative Language API format.
+ *
+ * Key transformations:
+ * - UPP messages with content blocks to Google's parts-based content structure
+ * - UPP tools to Google's functionDeclarations format
+ * - Google responses back to UPP LLMResponse with proper message types
+ * - Streaming chunks to UPP StreamEvents
+ */
+
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
@@ -22,11 +36,27 @@ import type {
 } from './types.ts';
 
 /**
- * Transform UPP request to Google format
+ * Transforms a UPP LLM request into Google Gemini API format.
  *
- * Params are spread into generationConfig to allow pass-through of any Google API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * Converts the UPP message structure, system prompt, tools, and generation
+ * parameters into Google's expected request body format. Provider-specific
+ * parameters are passed through to `generationConfig` to support new API
+ * features without library updates.
+ *
+ * @typeParam TParams - Type extending GoogleLLMParams for provider-specific options
+ * @param request - The UPP-formatted LLM request
+ * @param modelId - The target Gemini model identifier
+ * @returns Google API request body ready for submission
+ *
+ * @example
+ * ```typescript
+ * const googleRequest = transformRequest({
+ *   messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+ *   system: 'You are a helpful assistant',
+ *   params: { temperature: 0.7 },
+ *   config: { apiKey: '...' },
+ * }, 'gemini-1.5-pro');
+ * ```
  */
 export function transformRequest<TParams extends GoogleLLMParams>(
   request: LLMRequest<TParams>,
@@ -38,19 +68,16 @@ export function transformRequest<TParams extends GoogleLLMParams>(
     contents: transformMessages(request.messages),
   };
 
-  // System instruction (separate from contents in Google)
   if (request.system) {
     googleRequest.systemInstruction = {
       parts: [{ text: request.system }],
     };
   }
 
-  // Spread params into generationConfig to pass through all fields
   const generationConfig: NonNullable<GoogleRequest['generationConfig']> = {
     ...params,
   };
 
-  // Protocol-level structured output (overrides provider-specific settings)
   if (request.structure) {
     generationConfig.responseMimeType = 'application/json';
     generationConfig.responseSchema = request.structure as unknown as Record<string, unknown>;
@@ -60,7 +87,6 @@ export function transformRequest<TParams extends GoogleLLMParams>(
     googleRequest.generationConfig = generationConfig;
   }
 
-  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     googleRequest.tools = [
       {
@@ -73,14 +99,25 @@ export function transformRequest<TParams extends GoogleLLMParams>(
 }
 
 /**
- * Filter to only valid content blocks with a type property
+ * Filters content blocks to only those with a valid type property.
+ *
+ * @typeParam T - Content block type with optional type property
+ * @param content - Array of content blocks to filter
+ * @returns Filtered array containing only blocks with string type property
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
 }
 
 /**
- * Transform UPP Messages to Google contents
+ * Transforms UPP message array to Google's content format.
+ *
+ * Handles the conversion of user messages, assistant messages (including
+ * tool calls), and tool result messages to Google's role-based content
+ * structure with parts arrays.
+ *
+ * @param messages - Array of UPP-formatted messages
+ * @returns Array of Google content objects with role and parts
  */
 function transformMessages(messages: Message[]): GoogleContent[] {
   const contents: GoogleContent[] = [];
@@ -89,7 +126,6 @@ function transformMessages(messages: Message[]): GoogleContent[] {
     if (isUserMessage(msg)) {
       const validContent = filterValidContent(msg.content);
       const parts = validContent.map(transformContentBlock);
-      // Google requires at least one part - add placeholder if empty
       if (parts.length === 0) {
         parts.push({ text: '' });
       }
@@ -101,7 +137,6 @@ function transformMessages(messages: Message[]): GoogleContent[] {
       const validContent = filterValidContent(msg.content);
       const parts: GooglePart[] = validContent.map(transformContentBlock);
 
-      // Add function calls - use stored parts with thought signatures if available
       const googleMeta = msg.metadata?.google as {
         functionCallParts?: Array<{
           name: string;
@@ -111,7 +146,6 @@ function transformMessages(messages: Message[]): GoogleContent[] {
       } | undefined;
 
       if (googleMeta?.functionCallParts && googleMeta.functionCallParts.length > 0) {
-        // Use stored function call parts with thought signatures
         for (const fc of googleMeta.functionCallParts) {
           const part: GoogleFunctionCallPart = {
             functionCall: {
@@ -125,7 +159,6 @@ function transformMessages(messages: Message[]): GoogleContent[] {
           parts.push(part);
         }
       } else if (msg.toolCalls) {
-        // Fallback: reconstruct from tool calls (no thought signatures)
         for (const call of msg.toolCalls) {
           parts.push({
             functionCall: {
@@ -136,7 +169,6 @@ function transformMessages(messages: Message[]): GoogleContent[] {
         }
       }
 
-      // Google requires at least one part - add placeholder if empty
       if (parts.length === 0) {
         parts.push({ text: '' });
       }
@@ -146,12 +178,11 @@ function transformMessages(messages: Message[]): GoogleContent[] {
         parts,
       });
     } else if (isToolResultMessage(msg)) {
-      // Function results are sent as user messages in Google
       contents.push({
         role: 'user',
         parts: msg.results.map((result) => ({
           functionResponse: {
-            name: result.toolCallId, // Google uses the function name, but we store it in toolCallId
+            name: result.toolCallId,
             response:
               typeof result.result === 'object'
                 ? (result.result as Record<string, unknown>)
@@ -166,7 +197,14 @@ function transformMessages(messages: Message[]): GoogleContent[] {
 }
 
 /**
- * Transform a content block to Google format
+ * Transforms a UPP content block to a Google part.
+ *
+ * Supports text and image content types. Images must be base64 or bytes
+ * encoded; URL sources are not supported by Google's API directly.
+ *
+ * @param block - The UPP content block to transform
+ * @returns Google-formatted part object
+ * @throws Error if the content type is unsupported or if an image uses URL source
  */
 function transformContentBlock(block: ContentBlock): GooglePart {
   switch (block.type) {
@@ -203,7 +241,10 @@ function transformContentBlock(block: ContentBlock): GooglePart {
 }
 
 /**
- * Transform a UPP Tool to Google format
+ * Transforms a UPP tool definition to Google's function declaration format.
+ *
+ * @param tool - The UPP tool definition with name, description, and parameters
+ * @returns Google function declaration object
  */
 function transformTool(tool: Tool): GoogleTool['functionDeclarations'][0] {
   return {
@@ -218,7 +259,24 @@ function transformTool(tool: Tool): GoogleTool['functionDeclarations'][0] {
 }
 
 /**
- * Transform Google response to UPP LLMResponse
+ * Transforms a Google API response to UPP LLMResponse format.
+ *
+ * Extracts text content, tool calls, structured data, and usage metadata
+ * from Google's response format. Preserves Google-specific metadata like
+ * finish reason, safety ratings, and thought signatures for multi-turn
+ * tool call conversations.
+ *
+ * @param data - The raw Google API response
+ * @returns Normalized UPP LLMResponse with message, usage, and stop reason
+ * @throws Error if response contains no candidates
+ *
+ * @example
+ * ```typescript
+ * const response = await fetch(googleApiUrl, options);
+ * const data = await response.json();
+ * const uppResponse = transformResponse(data);
+ * console.log(uppResponse.message.content);
+ * ```
  */
 export function transformResponse(data: GoogleResponse): LLMResponse {
   const candidate = data.candidates?.[0];
@@ -229,7 +287,6 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
-  // Store original function call parts with thought signatures for echoing back
   const functionCallParts: Array<{
     name: string;
     args: Record<string, unknown>;
@@ -239,22 +296,20 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
   for (const part of candidate.content.parts) {
     if ('text' in part) {
       textContent.push({ type: 'text', text: part.text });
-      // Try to parse as JSON for structured output (native JSON mode)
       if (structuredData === undefined) {
         try {
           structuredData = JSON.parse(part.text);
         } catch {
-          // Not valid JSON - that's fine, might not be structured output
+          // Not JSON - may not be structured output
         }
       }
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
       toolCalls.push({
-        toolCallId: fc.functionCall.name, // Google doesn't have call IDs, use name
+        toolCallId: fc.functionCall.name,
         toolName: fc.functionCall.name,
         arguments: fc.functionCall.args,
       });
-      // Store the full part including thought signature
       functionCallParts.push({
         name: fc.functionCall.name,
         args: fc.functionCall.args,
@@ -271,7 +326,6 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
         google: {
           finishReason: candidate.finishReason,
           safetyRatings: candidate.safetyRatings,
-          // Store function call parts with thought signatures for multi-turn
           functionCallParts: functionCallParts.length > 0 ? functionCallParts : undefined,
         },
       },
@@ -293,19 +347,30 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
 }
 
 /**
- * State for accumulating streaming response
+ * Accumulator state for streaming responses.
+ *
+ * Tracks partial content, tool calls, token counts, and stream lifecycle
+ * as chunks arrive from the Google streaming API.
  */
 export interface StreamState {
+  /** Accumulated text content from all chunks. */
   content: string;
+  /** Accumulated tool calls with their arguments and optional thought signatures. */
   toolCalls: Array<{ name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
+  /** The finish reason from the final chunk, if received. */
   finishReason: string | null;
+  /** Total input tokens reported by the API. */
   inputTokens: number;
+  /** Total output tokens reported by the API. */
   outputTokens: number;
+  /** Flag indicating whether this is the first chunk (for message_start event). */
   isFirstChunk: boolean;
 }
 
 /**
- * Create initial stream state
+ * Creates a fresh stream state for accumulating streaming responses.
+ *
+ * @returns Initialized StreamState with empty content and default values
  */
 export function createStreamState(): StreamState {
   return {
@@ -319,7 +384,15 @@ export function createStreamState(): StreamState {
 }
 
 /**
- * Transform Google stream chunk to UPP StreamEvents
+ * Transforms a Google streaming chunk to UPP StreamEvent array.
+ *
+ * Processes each streaming chunk, updating the accumulator state and
+ * generating appropriate stream events for text deltas, tool calls,
+ * and message lifecycle (start/stop).
+ *
+ * @param chunk - The Google streaming response chunk
+ * @param state - Mutable accumulator state updated by this function
+ * @returns Array of UPP StreamEvents generated from this chunk
  */
 export function transformStreamChunk(
   chunk: GoogleStreamChunk,
@@ -327,13 +400,11 @@ export function transformStreamChunk(
 ): StreamEvent[] {
   const events: StreamEvent[] = [];
 
-  // First chunk - emit message start
   if (state.isFirstChunk) {
     events.push({ type: 'message_start', index: 0, delta: {} });
     state.isFirstChunk = false;
   }
 
-  // Usage metadata
   if (chunk.usageMetadata) {
     state.inputTokens = chunk.usageMetadata.promptTokenCount;
     state.outputTokens = chunk.usageMetadata.candidatesTokenCount;
@@ -344,7 +415,6 @@ export function transformStreamChunk(
     return events;
   }
 
-  // Process parts
   for (const part of candidate.content?.parts ?? []) {
     if ('text' in part) {
       state.content += part.text;
@@ -355,7 +425,6 @@ export function transformStreamChunk(
       });
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
-      // Store with thought signature for echoing back
       state.toolCalls.push({
         name: fc.functionCall.name,
         args: fc.functionCall.args,
@@ -373,7 +442,6 @@ export function transformStreamChunk(
     }
   }
 
-  // Finish reason
   if (candidate.finishReason) {
     state.finishReason = candidate.finishReason;
     events.push({ type: 'message_stop', index: 0, delta: {} });
@@ -383,7 +451,13 @@ export function transformStreamChunk(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Constructs a complete LLMResponse from accumulated stream state.
+ *
+ * Called after streaming completes to build the final response object
+ * with all accumulated content, tool calls, usage statistics, and metadata.
+ *
+ * @param state - The final accumulated stream state
+ * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: StreamState): LLMResponse {
   const textContent: TextBlock[] = [];
@@ -397,11 +471,10 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
 
   if (state.content) {
     textContent.push({ type: 'text', text: state.content });
-    // Try to parse as JSON for structured output (native JSON mode)
     try {
       structuredData = JSON.parse(state.content);
     } catch {
-      // Not valid JSON - that's fine, might not be structured output
+      // Not JSON - may not be structured output
     }
   }
 
@@ -425,7 +498,6 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
       metadata: {
         google: {
           finishReason: state.finishReason,
-          // Store function call parts with thought signatures for multi-turn
           functionCallParts: functionCallParts.length > 0 ? functionCallParts : undefined,
         },
       },

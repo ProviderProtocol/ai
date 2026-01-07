@@ -1,3 +1,13 @@
+/**
+ * @fileoverview Ollama LLM handler implementation.
+ *
+ * This module provides the core LLM functionality for the Ollama provider,
+ * including both synchronous completion and streaming capabilities. It
+ * communicates with Ollama's native `/api/chat` endpoint.
+ *
+ * @module providers/ollama/llm
+ */
+
 import type {
   LLMHandler,
   BoundLLMModel,
@@ -21,13 +31,16 @@ import {
   buildResponseFromState,
 } from './transform.ts';
 
+/** Default Ollama server URL for local installations. */
 const OLLAMA_DEFAULT_URL = 'http://localhost:11434';
 
 /**
- * Ollama API capabilities
- * Note: Tool calling is disabled - Ollama recommends using their
- * OpenAI-compatible API (/v1/chat/completions) for tool calling.
- * Use the OpenAI provider with baseUrl pointed to Ollama for tools.
+ * Capability flags for the Ollama provider.
+ *
+ * **Important:** Tool calling is intentionally disabled. Ollama recommends
+ * using their OpenAI-compatible API (`/v1/chat/completions`) for function
+ * calling. To use tools with Ollama, configure the OpenAI provider with
+ * `baseUrl` pointed to your Ollama instance.
  */
 const OLLAMA_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -39,7 +52,14 @@ const OLLAMA_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Parse Ollama's newline-delimited JSON stream
+ * Parses Ollama's newline-delimited JSON (NDJSON) stream format.
+ *
+ * Ollama uses NDJSON where each line is a complete JSON object representing
+ * a streaming chunk. This generator reads the stream incrementally, buffering
+ * incomplete lines and yielding parsed chunks as they become available.
+ *
+ * @param body - The raw ReadableStream from the fetch response
+ * @yields Parsed Ollama stream chunks
  */
 async function* parseOllamaStream(
   body: ReadableStream<Uint8Array>
@@ -87,10 +107,28 @@ async function* parseOllamaStream(
 }
 
 /**
- * Create Ollama LLM handler
+ * Creates the Ollama LLM handler for chat completions.
+ *
+ * This factory function creates an LLM handler that communicates with
+ * Ollama's `/api/chat` endpoint. The handler supports both synchronous
+ * completions and streaming responses.
+ *
+ * The handler is designed to be used with `createProvider()` which injects
+ * the provider reference after construction.
+ *
+ * @returns An LLM handler configured for Ollama
+ *
+ * @example
+ * ```typescript
+ * const handler = createLLMHandler();
+ * const provider = createProvider({
+ *   name: 'ollama',
+ *   version: '1.0.0',
+ *   modalities: { llm: handler }
+ * });
+ * ```
  */
 export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
-  // Provider reference injected by createProvider() after construction
   let providerRef: LLMProvider<OllamaLLMParams> | null = null;
 
   return {

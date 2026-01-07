@@ -1,3 +1,30 @@
+/**
+ * @fileoverview OpenAI Provider Factory
+ *
+ * This module provides the main OpenAI provider implementation that supports both
+ * the modern Responses API (default) and the legacy Chat Completions API.
+ *
+ * @example
+ * ```typescript
+ * import { openai } from './providers/openai';
+ * import { llm } from './core/llm';
+ *
+ * // Using the modern Responses API (default)
+ * const model = llm({
+ *   model: openai('gpt-4o'),
+ *   params: { max_output_tokens: 1000 }
+ * });
+ *
+ * // Using the legacy Chat Completions API
+ * const legacyModel = llm({
+ *   model: openai('gpt-4o', { api: 'completions' }),
+ *   params: { max_tokens: 1000 }
+ * });
+ * ```
+ *
+ * @module providers/openai
+ */
+
 import type {
   Provider,
   ModelReference,
@@ -6,66 +33,107 @@ import type {
 } from '../../types/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
-import type { OpenAICompletionsParams, OpenAIResponsesParams, OpenAIConfig } from './types.ts';
+import type { OpenAICompletionsParams, OpenAIResponsesParams } from './types.ts';
 
-/** Union type for modalities interface */
+/**
+ * Union type for the LLM handler that supports both API modes.
+ * Used internally for the dynamic handler selection based on API mode.
+ */
 type OpenAILLMParamsUnion = OpenAICompletionsParams | OpenAIResponsesParams;
 
 /**
- * OpenAI provider options
+ * Configuration options for the OpenAI provider.
+ *
+ * Controls which underlying OpenAI API endpoint is used when making requests.
+ * The Responses API is the modern, recommended approach while the Chat Completions
+ * API provides backward compatibility with existing integrations.
  */
 export interface OpenAIProviderOptions {
   /**
-   * Which API to use:
-   * - 'responses': Modern Responses API (default, recommended)
-   * - 'completions': Legacy Chat Completions API
+   * Which API endpoint to use for requests.
+   *
+   * - `'responses'` - Modern Responses API (default, recommended). Supports built-in
+   *   tools like web search, image generation, file search, and code interpreter.
+   * - `'completions'` - Legacy Chat Completions API. Standard chat completion endpoint
+   *   with function calling support.
+   *
+   * @default 'responses'
    */
   api?: 'responses' | 'completions';
 }
 
 /**
- * OpenAI provider with configurable API mode
+ * OpenAI provider interface with configurable API mode.
  *
- * @example
- * // Using the modern Responses API (default)
+ * The provider is callable as a function to create model references, and also
+ * exposes metadata about the provider and its supported modalities.
+ *
+ * @example Creating model references
+ * ```typescript
+ * // Using the modern Responses API (default, recommended)
  * const model = openai('gpt-4o');
  *
- * @example
  * // Using the legacy Chat Completions API
- * const model = openai('gpt-4o', { api: 'completions' });
+ * const legacyModel = openai('gpt-4o', { api: 'completions' });
  *
- * @example
- * // Explicit Responses API
- * const model = openai('gpt-4o', { api: 'responses' });
+ * // Explicit Responses API selection
+ * const responsesModel = openai('gpt-4o', { api: 'responses' });
+ * ```
+ *
+ * @see {@link OpenAIProviderOptions} for available configuration options
+ * @see {@link OpenAIResponsesParams} for Responses API parameters
+ * @see {@link OpenAICompletionsParams} for Chat Completions API parameters
  */
 export interface OpenAIProvider extends Provider<OpenAIProviderOptions> {
   /**
-   * Create a model reference
-   * @param modelId - The model identifier (e.g., 'gpt-4o', 'gpt-4-turbo', 'o1-preview')
-   * @param options - Provider options including API selection
+   * Creates a model reference for the specified OpenAI model.
+   *
+   * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o', 'gpt-4-turbo', 'o1-preview', 'gpt-4o-mini')
+   * @param options - Optional provider configuration including API mode selection
+   * @returns A model reference that can be used with the LLM core functions
+   *
+   * @example
+   * ```typescript
+   * const gpt4o = openai('gpt-4o');
+   * const gpt4turbo = openai('gpt-4-turbo', { api: 'completions' });
+   * ```
    */
   (modelId: string, options?: OpenAIProviderOptions): ModelReference<OpenAIProviderOptions>;
 
-  /** Provider name */
+  /**
+   * The provider identifier.
+   * Always returns `'openai'` for this provider.
+   */
   readonly name: 'openai';
 
-  /** Provider version */
+  /**
+   * The provider version following semantic versioning.
+   */
   readonly version: string;
 
-  /** Supported modalities */
+  /**
+   * Supported modalities and their handlers.
+   * Currently supports LLM modality with both Responses and Completions API handlers.
+   */
   readonly modalities: {
+    /** The LLM handler for text generation and chat completion */
     llm: LLMHandler<OpenAILLMParamsUnion>;
   };
 }
 
 /**
- * Create the OpenAI provider
+ * Factory function that creates and configures the OpenAI provider instance.
+ *
+ * This function initializes both the Responses API and Chat Completions API handlers,
+ * sets up dynamic handler selection based on the API mode, and injects provider
+ * references for spec compliance.
+ *
+ * @returns A fully configured OpenAI provider instance
+ * @internal
  */
 function createOpenAIProvider(): OpenAIProvider {
-  // Track which API mode is currently active for the modalities
   let currentApiMode: 'responses' | 'completions' = 'responses';
 
-  // Create handlers eagerly so we can inject provider reference
   const responsesHandler = createResponsesLLMHandler();
   const completionsHandler = createCompletionsLLMHandler();
 
@@ -78,7 +146,6 @@ function createOpenAIProvider(): OpenAIProvider {
     return { modelId, provider };
   };
 
-  // Create a dynamic modalities object that returns the correct handler
   const modalities = {
     get llm(): LLMHandler<OpenAILLMParamsUnion> {
       return currentApiMode === 'completions'
@@ -87,7 +154,6 @@ function createOpenAIProvider(): OpenAIProvider {
     },
   };
 
-  // Define properties
   Object.defineProperties(fn, {
     name: {
       value: 'openai',
@@ -108,7 +174,6 @@ function createOpenAIProvider(): OpenAIProvider {
 
   const provider = fn as OpenAIProvider;
 
-  // Inject provider reference into both handlers (spec compliance)
   responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenAIResponsesParams>);
   completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenAICompletionsParams>);
 
@@ -116,30 +181,44 @@ function createOpenAIProvider(): OpenAIProvider {
 }
 
 /**
- * OpenAI provider
+ * The OpenAI provider instance.
  *
- * Supports both the modern Responses API (default) and legacy Chat Completions API.
+ * Supports both the modern Responses API (default) and the legacy Chat Completions API.
+ * Use this provider to create model references for OpenAI models like GPT-4o, GPT-4 Turbo,
+ * and the o1 series.
  *
- * @example
- * ```ts
+ * @example Basic usage with Responses API (recommended)
+ * ```typescript
  * import { openai } from './providers/openai';
  * import { llm } from './core/llm';
  *
- * // Using Responses API (default, modern, recommended)
  * const model = llm({
  *   model: openai('gpt-4o'),
- *   params: { max_tokens: 1000 }
+ *   params: { max_output_tokens: 1000 }
  * });
  *
- * // Using Chat Completions API (legacy)
+ * const turn = await model.generate('Hello!');
+ * console.log(turn.response.text);
+ * ```
+ *
+ * @example Using Chat Completions API
+ * ```typescript
  * const legacyModel = llm({
  *   model: openai('gpt-4o', { api: 'completions' }),
  *   params: { max_tokens: 1000 }
  * });
+ * ```
  *
- * // Generate
- * const turn = await model.generate('Hello!');
- * console.log(turn.response.text);
+ * @example With built-in tools (Responses API only)
+ * ```typescript
+ * import { openai, tools } from './providers/openai';
+ *
+ * const model = llm({
+ *   model: openai('gpt-4o'),
+ *   params: {
+ *     tools: [tools.webSearch(), tools.imageGeneration()]
+ *   }
+ * });
  * ```
  */
 export const openai = createOpenAIProvider();

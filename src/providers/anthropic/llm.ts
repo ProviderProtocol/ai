@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Anthropic LLM handler implementation.
+ *
+ * This module provides the core LLM handler for Anthropic's Claude models,
+ * implementing both synchronous completion and streaming capabilities.
+ */
+
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
@@ -15,11 +22,20 @@ import {
   buildResponseFromState,
 } from './transform.ts';
 
+/** Base URL for the Anthropic Messages API. */
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+
+/** Default Anthropic API version header value. */
 const ANTHROPIC_VERSION = '2023-06-01';
 
 /**
- * Anthropic API capabilities
+ * Capability flags for Anthropic Claude models.
+ *
+ * Defines what features are supported by the Anthropic provider:
+ * - streaming: Real-time token generation via SSE
+ * - tools: Function calling / tool use
+ * - structuredOutput: JSON schema-constrained responses (via tool forcing)
+ * - imageInput: Vision capabilities for image analysis
  */
 const ANTHROPIC_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -31,10 +47,26 @@ const ANTHROPIC_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create Anthropic LLM handler
+ * Creates an Anthropic LLM handler for the Universal Provider Protocol.
+ *
+ * The handler provides methods to bind specific Claude models and make
+ * completion requests. It handles API authentication, request transformation,
+ * and response parsing.
+ *
+ * @returns An LLMHandler configured for Anthropic's Messages API
+ *
+ * @example
+ * ```typescript
+ * const handler = createLLMHandler();
+ * const model = handler.bind('claude-sonnet-4-20250514');
+ *
+ * const response = await model.complete({
+ *   messages: [new UserMessage([{ type: 'text', text: 'Hello!' }])],
+ *   config: { apiKey: process.env.ANTHROPIC_API_KEY },
+ * });
+ * ```
  */
 export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
-  // Provider reference injected by createProvider() after construction
   let providerRef: LLMProvider<AnthropicLLMParams> | null = null;
 
   return {
@@ -43,7 +75,6 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
     },
 
     bind(modelId: string): BoundLLMModel<AnthropicLLMParams> {
-      // Use the injected provider reference (set by createProvider)
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
@@ -151,7 +182,6 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
               }
 
               for await (const data of parseSSEStream(response.body)) {
-                // Check for Anthropic error event
                 if (typeof data === 'object' && data !== null && 'type' in data) {
                   const event = data as AnthropicStreamEvent;
 
@@ -173,7 +203,6 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
                 }
               }
 
-              // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
               responseReject(error as Error);

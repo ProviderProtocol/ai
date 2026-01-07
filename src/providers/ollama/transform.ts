@@ -1,3 +1,17 @@
+/**
+ * @fileoverview Transformation utilities for Ollama provider.
+ *
+ * This module handles bidirectional transformation between the Unified Provider
+ * Protocol (UPP) format and Ollama's native API format. It includes:
+ *
+ * - Request transformation (UPP to Ollama)
+ * - Response transformation (Ollama to UPP)
+ * - Stream chunk processing
+ * - Message format conversion
+ *
+ * @module providers/ollama/transform
+ */
+
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
@@ -22,15 +36,36 @@ import type {
 } from './types.ts';
 
 /**
- * Transform UPP request to Ollama format
+ * Transforms a UPP LLM request into Ollama's native API format.
  *
- * Params are spread to allow pass-through of any Ollama API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * This function handles the mapping between UPP's unified request structure
+ * and Ollama's specific requirements, including:
  *
- * Note: Ollama uses nested 'options' for model parameters. Params that belong
- * in options (like temperature, top_p, etc.) are spread into options, while
- * top-level params (like keep_alive, think) are spread at the request level.
+ * - Converting messages to Ollama's message format
+ * - Mapping model parameters to Ollama's nested `options` structure
+ * - Handling top-level parameters like `keep_alive` and `think`
+ * - Converting tools to Ollama's function format
+ * - Setting up structured output via the `format` field
+ *
+ * Parameters are spread to allow pass-through of any Ollama API fields,
+ * enabling developers to use new API features without library updates.
+ *
+ * @typeParam TParams - The parameter type extending OllamaLLMParams
+ * @param request - The UPP-format LLM request
+ * @param modelId - The Ollama model identifier (e.g., 'llama3.2', 'mistral')
+ * @returns The transformed Ollama API request body
+ *
+ * @example
+ * ```typescript
+ * const ollamaRequest = transformRequest(
+ *   {
+ *     messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+ *     config: {},
+ *     params: { temperature: 0.7 }
+ *   },
+ *   'llama3.2'
+ * );
+ * ```
  */
 export function transformRequest<TParams extends OllamaLLMParams>(
   request: LLMRequest<TParams>,
@@ -78,7 +113,22 @@ export function transformRequest<TParams extends OllamaLLMParams>(
 }
 
 /**
- * Transform UPP Messages to Ollama messages
+ * Transforms UPP messages to Ollama's message format.
+ *
+ * Handles conversion of:
+ * - User messages with text and image content
+ * - Assistant messages with text and tool calls
+ * - Tool result messages
+ * - System prompts (prepended as first message)
+ *
+ * Image handling:
+ * - Base64 images are passed directly
+ * - Byte arrays are converted to base64
+ * - URL images are converted to text placeholders (Ollama limitation)
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt to prepend
+ * @returns Array of Ollama-formatted messages
  */
 function transformMessages(messages: Message[], system?: string): OllamaMessage[] {
   const ollamaMessages: OllamaMessage[] = [];
@@ -170,7 +220,13 @@ function transformMessages(messages: Message[], system?: string): OllamaMessage[
 }
 
 /**
- * Transform a UPP Tool to Ollama format
+ * Transforms a UPP tool definition to Ollama's function format.
+ *
+ * Ollama uses the OpenAI-style function calling format with a
+ * `type: 'function'` wrapper around the function definition.
+ *
+ * @param tool - The UPP tool definition
+ * @returns The Ollama-formatted tool definition
  */
 function transformTool(tool: Tool): OllamaTool {
   return {
@@ -188,7 +244,20 @@ function transformTool(tool: Tool): OllamaTool {
 }
 
 /**
- * Transform Ollama response to UPP LLMResponse
+ * Transforms an Ollama API response to the UPP LLMResponse format.
+ *
+ * This function extracts and normalizes:
+ * - Text content from the assistant message
+ * - Tool calls with their arguments
+ * - Token usage statistics (prompt + completion tokens)
+ * - Stop reason mapping (stop -> end_turn, length -> max_tokens)
+ * - Ollama-specific metadata (timings, model info, thinking content)
+ *
+ * For structured output requests, the response content is automatically
+ * parsed as JSON and stored in the `data` field.
+ *
+ * @param data - The raw Ollama API response
+ * @returns The normalized UPP LLM response
  */
 export function transformResponse(data: OllamaResponse): LLMResponse {
   const textContent: TextBlock[] = [];
@@ -264,23 +333,39 @@ export function transformResponse(data: OllamaResponse): LLMResponse {
 }
 
 /**
- * State for accumulating streaming response
+ * Mutable state object for accumulating data during stream processing.
+ *
+ * As streaming chunks arrive, this state object accumulates content,
+ * tool calls, and metadata. Once the stream completes (indicated by
+ * `done: true`), this state is used to build the final LLMResponse.
  */
 export interface StreamState {
+  /** The model name from the stream. */
   model: string;
+  /** Accumulated text content from all chunks. */
   content: string;
+  /** Accumulated thinking/reasoning content (for models with think mode). */
   thinking: string;
+  /** Tool calls extracted from the stream. */
   toolCalls: Array<{ name: string; args: Record<string, unknown> }>;
+  /** The reason the generation stopped (stop, length, etc.). */
   doneReason: string | null;
+  /** Number of tokens in the prompt evaluation. */
   promptEvalCount: number;
+  /** Number of tokens generated in the response. */
   evalCount: number;
+  /** Total generation duration in nanoseconds. */
   totalDuration: number;
+  /** Whether we're still waiting for the first chunk. */
   isFirstChunk: boolean;
+  /** ISO timestamp when the response was created. */
   createdAt: string;
 }
 
 /**
- * Create initial stream state
+ * Creates an initial empty stream state for accumulating streaming responses.
+ *
+ * @returns A fresh StreamState object with default values
  */
 export function createStreamState(): StreamState {
   return {
@@ -298,7 +383,21 @@ export function createStreamState(): StreamState {
 }
 
 /**
- * Transform Ollama stream chunk to UPP StreamEvents
+ * Transforms an Ollama stream chunk into UPP StreamEvents.
+ *
+ * Each Ollama chunk may produce zero or more UPP events:
+ * - First chunk: `message_start` event
+ * - Content chunks: `text_delta` events
+ * - Thinking chunks: `reasoning_delta` events
+ * - Tool call chunks: `tool_call_delta` events
+ * - Final chunk (done=true): `message_stop` event
+ *
+ * The function also updates the provided state object with accumulated
+ * content and metadata for building the final response.
+ *
+ * @param chunk - The raw Ollama stream chunk
+ * @param state - Mutable state object to accumulate data
+ * @returns Array of UPP stream events (may be empty)
  */
 export function transformStreamChunk(
   chunk: OllamaStreamChunk,
@@ -369,7 +468,16 @@ export function transformStreamChunk(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Builds a complete LLMResponse from accumulated stream state.
+ *
+ * Called after the stream completes to construct the final response object
+ * with all accumulated content, tool calls, usage statistics, and metadata.
+ *
+ * For structured output, attempts to parse the accumulated content as JSON
+ * and stores it in the `data` field if successful.
+ *
+ * @param state - The accumulated stream state
+ * @returns The complete UPP LLM response
  */
 export function buildResponseFromState(state: StreamState): LLMResponse {
   const textContent: TextBlock[] = [];

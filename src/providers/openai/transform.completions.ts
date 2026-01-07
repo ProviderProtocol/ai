@@ -1,3 +1,21 @@
+/**
+ * @fileoverview Chat Completions API Message Transformers
+ *
+ * This module provides transformation functions for converting between the
+ * Universal Provider Protocol (UPP) message format and OpenAI's Chat Completions
+ * API format. It handles both request transformation (UPP -> OpenAI) and response
+ * transformation (OpenAI -> UPP), including streaming event transformation.
+ *
+ * Key transformations handled:
+ * - Message format conversion (user, assistant, system, tool messages)
+ * - Content block handling (text, images)
+ * - Tool/function definition and call transformation
+ * - Structured output (JSON schema) configuration
+ * - Streaming state accumulation and event mapping
+ *
+ * @module providers/openai/transform.completions
+ */
+
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
@@ -22,11 +40,24 @@ import type {
 } from './types.ts';
 
 /**
- * Transform UPP request to OpenAI Chat Completions format
+ * Transforms a UPP LLM request into OpenAI Chat Completions API format.
  *
- * Params are spread directly to allow pass-through of any OpenAI API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * This function converts the universal request format to OpenAI's specific
+ * structure. Parameters are spread directly to support pass-through of any
+ * OpenAI API fields, enabling use of new API features without library updates.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and configuration
+ * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o', 'gpt-4-turbo')
+ * @returns An OpenAI Chat Completions API request body
+ *
+ * @example
+ * ```typescript
+ * const openaiRequest = transformRequest({
+ *   messages: [userMessage('Hello!')],
+ *   params: { temperature: 0.7, max_tokens: 1000 },
+ *   config: { apiKey: 'sk-...' }
+ * }, 'gpt-4o');
+ * ```
  */
 export function transformRequest(
   request: LLMRequest<OpenAICompletionsParams>,
@@ -34,19 +65,16 @@ export function transformRequest(
 ): OpenAICompletionsRequest {
   const params = request.params ?? ({} as OpenAICompletionsParams);
 
-  // Spread params to pass through all fields, then set required fields
   const openaiRequest: OpenAICompletionsRequest = {
     ...params,
     model: modelId,
     messages: transformMessages(request.messages, request.system),
   };
 
-  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     openaiRequest.tools = request.tools.map(transformTool);
   }
 
-  // Structured output via response_format (overrides params.response_format if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',
@@ -75,7 +103,15 @@ export function transformRequest(
 }
 
 /**
- * Transform messages including system prompt
+ * Transforms UPP messages to OpenAI Chat Completions message format.
+ *
+ * Handles system prompt injection as the first message and processes
+ * all message types including tool result messages which may expand
+ * into multiple OpenAI messages.
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt to prepend
+ * @returns Array of OpenAI-formatted messages
  */
 function transformMessages(
   messages: Message[],
@@ -83,7 +119,6 @@ function transformMessages(
 ): OpenAICompletionsMessage[] {
   const result: OpenAICompletionsMessage[] = [];
 
-  // Add system message first if present
   if (system) {
     result.push({
       role: 'system',
@@ -91,9 +126,7 @@ function transformMessages(
     });
   }
 
-  // Transform each message
   for (const message of messages) {
-    // Handle tool result messages specially - they need to produce multiple messages
     if (isToolResultMessage(message)) {
       const toolMessages = transformToolResults(message);
       result.push(...toolMessages);
@@ -109,19 +142,28 @@ function transformMessages(
 }
 
 /**
- * Filter to only valid content blocks with a type property
+ * Filters content blocks to only include those with a valid type property.
+ *
+ * @param content - Array of content blocks to filter
+ * @returns Filtered array containing only valid content blocks
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
 }
 
 /**
- * Transform a UPP Message to OpenAI format
+ * Transforms a single UPP message to OpenAI Chat Completions format.
+ *
+ * Handles user, assistant, and tool result messages. For user messages,
+ * optimizes to use simple string content when possible. For assistant
+ * messages, extracts text and tool calls.
+ *
+ * @param message - The UPP message to transform
+ * @returns The transformed OpenAI message, or null if transformation fails
  */
 function transformMessage(message: Message): OpenAICompletionsMessage | null {
   if (isUserMessage(message)) {
     const validContent = filterValidContent(message.content);
-    // Check if we can use simple string content
     if (validContent.length === 1 && validContent[0]?.type === 'text') {
       return {
         role: 'user',
@@ -136,7 +178,6 @@ function transformMessage(message: Message): OpenAICompletionsMessage | null {
 
   if (isAssistantMessage(message)) {
     const validContent = filterValidContent(message.content);
-    // Extract text content
     const textContent = validContent
       .filter((c): c is TextBlock => c.type === 'text')
       .map((c) => c.text)
@@ -147,7 +188,6 @@ function transformMessage(message: Message): OpenAICompletionsMessage | null {
       content: textContent || null,
     };
 
-    // Add tool calls if present
     if (message.toolCalls && message.toolCalls.length > 0) {
       (assistantMessage as { tool_calls?: OpenAIToolCall[] }).tool_calls =
         message.toolCalls.map((call) => ({
@@ -164,10 +204,6 @@ function transformMessage(message: Message): OpenAICompletionsMessage | null {
   }
 
   if (isToolResultMessage(message)) {
-    // Tool results are sent as individual tool messages
-    // Return the first one and handle multiple in a different way
-    // Actually, we need to return multiple messages for multiple tool results
-    // This is handled by the caller - transform each result to a message
     const results = message.results.map((result) => ({
       role: 'tool' as const,
       tool_call_id: result.toolCallId,
@@ -177,7 +213,6 @@ function transformMessage(message: Message): OpenAICompletionsMessage | null {
           : JSON.stringify(result.result),
     }));
 
-    // For now, return the first result - caller should handle multiple
     return results[0] ?? null;
   }
 
@@ -185,7 +220,14 @@ function transformMessage(message: Message): OpenAICompletionsMessage | null {
 }
 
 /**
- * Transform multiple tool results to messages
+ * Transforms tool result messages into multiple OpenAI tool messages.
+ *
+ * OpenAI requires each tool result to be sent as a separate message with
+ * a `tool` role. This function expands a single UPP tool result message
+ * containing multiple results into the corresponding OpenAI messages.
+ *
+ * @param message - The UPP message to transform (should be a tool result message)
+ * @returns Array of OpenAI tool messages
  */
 export function transformToolResults(
   message: Message
@@ -206,7 +248,14 @@ export function transformToolResults(
 }
 
 /**
- * Transform a content block to OpenAI format
+ * Transforms a UPP content block to OpenAI user content format.
+ *
+ * Handles text and image content blocks. Images are converted to
+ * data URLs for base64 and bytes sources, or passed through for URL sources.
+ *
+ * @param block - The content block to transform
+ * @returns The transformed OpenAI content part
+ * @throws Error if the content type is unsupported or image source type is unknown
  */
 function transformContentBlock(block: ContentBlock): OpenAIUserContent {
   switch (block.type) {
@@ -222,7 +271,6 @@ function transformContentBlock(block: ContentBlock): OpenAIUserContent {
       } else if (imageBlock.source.type === 'url') {
         url = imageBlock.source.url;
       } else if (imageBlock.source.type === 'bytes') {
-        // Convert bytes to base64
         const base64 = btoa(
           Array.from(imageBlock.source.data)
             .map((b) => String.fromCharCode(b))
@@ -245,7 +293,13 @@ function transformContentBlock(block: ContentBlock): OpenAIUserContent {
 }
 
 /**
- * Transform a UPP Tool to OpenAI format
+ * Transforms a UPP tool definition to OpenAI function tool format.
+ *
+ * OpenAI's Chat Completions API expects tools as function definitions
+ * with JSON Schema parameters.
+ *
+ * @param tool - The UPP tool definition
+ * @returns The transformed OpenAI function tool
  */
 function transformTool(tool: Tool): OpenAICompletionsTool {
   return {
@@ -266,7 +320,15 @@ function transformTool(tool: Tool): OpenAICompletionsTool {
 }
 
 /**
- * Transform OpenAI response to UPP LLMResponse
+ * Transforms an OpenAI Chat Completions response to UPP LLMResponse format.
+ *
+ * Extracts the first choice from the response and converts it to the universal
+ * format, including text content, tool calls, usage statistics, and stop reason.
+ * Also attempts to parse JSON content for structured output responses.
+ *
+ * @param data - The raw OpenAI Chat Completions API response
+ * @returns The transformed UPP LLM response
+ * @throws Error if the response contains no choices
  */
 export function transformResponse(data: OpenAICompletionsResponse): LLMResponse {
   const choice = data.choices[0];
@@ -274,16 +336,14 @@ export function transformResponse(data: OpenAICompletionsResponse): LLMResponse 
     throw new Error('No choices in OpenAI response');
   }
 
-  // Extract text content
   const textContent: TextBlock[] = [];
   let structuredData: unknown;
   if (choice.message.content) {
     textContent.push({ type: 'text', text: choice.message.content });
-    // Try to parse as JSON for structured output (native JSON mode)
     try {
       structuredData = JSON.parse(choice.message.content);
     } catch {
-      // Not valid JSON - that's fine, might not be structured output
+      // Not JSON - expected for non-structured responses
     }
   }
   let hadRefusal = false;
@@ -292,7 +352,6 @@ export function transformResponse(data: OpenAICompletionsResponse): LLMResponse 
     hadRefusal = true;
   }
 
-  // Extract tool calls
   const toolCalls: ToolCall[] = [];
   if (choice.message.tool_calls) {
     for (const call of choice.message.tool_calls) {
@@ -332,7 +391,6 @@ export function transformResponse(data: OpenAICompletionsResponse): LLMResponse 
     totalTokens: data.usage.total_tokens,
   };
 
-  // Map finish reason to stop reason
   let stopReason = 'end_turn';
   switch (choice.finish_reason) {
     case 'stop':
@@ -361,21 +419,35 @@ export function transformResponse(data: OpenAICompletionsResponse): LLMResponse 
 }
 
 /**
- * State for accumulating streaming response
+ * Mutable state object for accumulating data during streaming responses.
+ *
+ * As streaming chunks arrive, this state object is updated to build up
+ * the complete response. It tracks text content, tool calls, token usage,
+ * and other metadata needed to construct the final LLMResponse.
  */
 export interface CompletionsStreamState {
+  /** Response ID from the first chunk */
   id: string;
+  /** Model identifier */
   model: string;
+  /** Accumulated text content */
   text: string;
+  /** Map of tool call index to accumulated tool call data */
   toolCalls: Map<number, { id: string; name: string; arguments: string }>;
+  /** The finish reason when streaming completes */
   finishReason: string | null;
+  /** Input token count (from usage chunk) */
   inputTokens: number;
+  /** Output token count (from usage chunk) */
   outputTokens: number;
+  /** Whether a refusal was encountered */
   hadRefusal: boolean;
 }
 
 /**
- * Create initial stream state
+ * Creates a fresh stream state object for a new streaming session.
+ *
+ * @returns A new CompletionsStreamState with all fields initialized
  */
 export function createStreamState(): CompletionsStreamState {
   return {
@@ -391,8 +463,15 @@ export function createStreamState(): CompletionsStreamState {
 }
 
 /**
- * Transform OpenAI stream chunk to UPP StreamEvent
- * Returns array since one chunk may produce multiple events
+ * Transforms an OpenAI streaming chunk into UPP stream events.
+ *
+ * Processes each chunk from the SSE stream, updating the accumulated state
+ * and emitting corresponding UPP events. A single chunk may produce multiple
+ * events (e.g., both text and tool call deltas).
+ *
+ * @param chunk - The OpenAI streaming chunk to process
+ * @param state - The mutable state object to update
+ * @returns Array of UPP stream events generated from this chunk
  */
 export function transformStreamEvent(
   chunk: OpenAICompletionsStreamChunk,
@@ -400,7 +479,6 @@ export function transformStreamEvent(
 ): StreamEvent[] {
   const events: StreamEvent[] = [];
 
-  // Update state with basic info
   if (chunk.id && !state.id) {
     state.id = chunk.id;
     events.push({ type: 'message_start', index: 0, delta: {} });
@@ -409,10 +487,8 @@ export function transformStreamEvent(
     state.model = chunk.model;
   }
 
-  // Process choices
   const choice = chunk.choices[0];
   if (choice) {
-    // Text delta
     if (choice.delta.content) {
       state.text += choice.delta.content;
       events.push({
@@ -431,7 +507,6 @@ export function transformStreamEvent(
       });
     }
 
-    // Tool call deltas
     if (choice.delta.tool_calls) {
       for (const toolCallDelta of choice.delta.tool_calls) {
         const index = toolCallDelta.index;
@@ -463,14 +538,12 @@ export function transformStreamEvent(
       }
     }
 
-    // Finish reason
     if (choice.finish_reason) {
       state.finishReason = choice.finish_reason;
       events.push({ type: 'message_stop', index: 0, delta: {} });
     }
   }
 
-  // Usage info (usually comes at the end with stream_options.include_usage)
   if (chunk.usage) {
     state.inputTokens = chunk.usage.prompt_tokens;
     state.outputTokens = chunk.usage.completion_tokens;
@@ -480,18 +553,24 @@ export function transformStreamEvent(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Builds a complete LLMResponse from accumulated streaming state.
+ *
+ * Called after all streaming chunks have been processed to construct
+ * the final response object with all accumulated content, tool calls,
+ * and usage statistics.
+ *
+ * @param state - The accumulated stream state
+ * @returns A complete UPP LLMResponse
  */
 export function buildResponseFromState(state: CompletionsStreamState): LLMResponse {
   const textContent: TextBlock[] = [];
   let structuredData: unknown;
   if (state.text) {
     textContent.push({ type: 'text', text: state.text });
-    // Try to parse as JSON for structured output (native JSON mode)
     try {
       structuredData = JSON.parse(state.text);
     } catch {
-      // Not valid JSON - that's fine, might not be structured output
+      // Not JSON - expected for non-structured responses
     }
   }
 
@@ -532,7 +611,6 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     totalTokens: state.inputTokens + state.outputTokens,
   };
 
-  // Map finish reason to stop reason
   let stopReason = 'end_turn';
   switch (state.finishReason) {
     case 'stop':

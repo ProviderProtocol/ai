@@ -1,3 +1,21 @@
+/**
+ * @fileoverview Responses API Message Transformers
+ *
+ * This module provides transformation functions for converting between the
+ * Universal Provider Protocol (UPP) message format and OpenAI's Responses API
+ * format. The Responses API uses a different structure than Chat Completions,
+ * with input items instead of messages and support for built-in tools.
+ *
+ * Key differences from Chat Completions:
+ * - Uses `input` array instead of `messages`
+ * - Function calls are separate input items, not embedded in messages
+ * - Tool results use `function_call_output` items
+ * - Supports built-in tools (web search, image generation, etc.)
+ * - Different streaming event structure
+ *
+ * @module providers/openai/transform.responses
+ */
+
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
@@ -26,11 +44,27 @@ import type {
 } from './types.ts';
 
 /**
- * Transform UPP request to OpenAI Responses API format
+ * Transforms a UPP LLM request into OpenAI Responses API format.
  *
- * Params are spread directly to allow pass-through of any OpenAI API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * This function converts the universal request format to OpenAI's Responses API
+ * structure. It merges UPP function tools with any built-in tools specified in
+ * params, and handles structured output configuration.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and configuration
+ * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o')
+ * @returns An OpenAI Responses API request body
+ *
+ * @example
+ * ```typescript
+ * const openaiRequest = transformRequest({
+ *   messages: [userMessage('Search for recent news')],
+ *   params: {
+ *     max_output_tokens: 1000,
+ *     tools: [tools.webSearch()]
+ *   },
+ *   config: { apiKey: 'sk-...' }
+ * }, 'gpt-4o');
+ * ```
  */
 export function transformRequest(
   request: LLMRequest<OpenAIResponsesParams>,
@@ -38,18 +72,15 @@ export function transformRequest(
 ): OpenAIResponsesRequest {
   const params = request.params ?? ({} as OpenAIResponsesParams);
 
-  // Extract built-in tools from params before spreading
   const builtInTools = params.tools as OpenAIResponsesToolUnion[] | undefined;
   const { tools: _paramsTools, ...restParams } = params;
 
-  // Spread params to pass through all fields, then set required fields
   const openaiRequest: OpenAIResponsesRequest = {
     ...restParams,
     model: modelId,
     input: transformInputItems(request.messages, request.system),
   };
 
-  // Merge tools: UPP function tools from request + built-in tools from params
   const functionTools: OpenAIResponsesToolUnion[] = request.tools?.map(transformTool) ?? [];
   const allTools: OpenAIResponsesToolUnion[] = [...functionTools, ...(builtInTools ?? [])];
 
@@ -57,7 +88,6 @@ export function transformRequest(
     openaiRequest.tools = allTools;
   }
 
-  // Structured output via text.format (overrides params.text if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',
@@ -86,7 +116,15 @@ export function transformRequest(
 }
 
 /**
- * Transform messages to Responses API input items
+ * Transforms UPP messages to Responses API input items.
+ *
+ * The Responses API accepts either a string (for simple prompts) or an array
+ * of input items. This function optimizes by returning a string when the
+ * input is a single user message with text content.
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt to prepend
+ * @returns Either a string (for simple inputs) or array of input items
  */
 function transformInputItems(
   messages: Message[],
@@ -107,7 +145,6 @@ function transformInputItems(
     result.push(...items);
   }
 
-  // If there's only one user message with simple text, return as string
   if (result.length === 1 && result[0]?.type === 'message') {
     const item = result[0] as { role?: string; content?: string | unknown[] };
     if (item.role === 'user' && typeof item.content === 'string') {
@@ -119,19 +156,28 @@ function transformInputItems(
 }
 
 /**
- * Filter to only valid content blocks with a type property
+ * Filters content blocks to only include those with a valid type property.
+ *
+ * @param content - Array of content blocks to filter
+ * @returns Filtered array containing only valid content blocks
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
 }
 
 /**
- * Transform a UPP Message to OpenAI Responses API input items
+ * Transforms a single UPP message to Responses API input items.
+ *
+ * Unlike Chat Completions, the Responses API separates function calls from
+ * messages. An assistant message with tool calls becomes multiple input items:
+ * a message item for text content plus separate function_call items.
+ *
+ * @param message - The UPP message to transform
+ * @returns Array of Responses API input items (may be multiple per message)
  */
 function transformMessage(message: Message): OpenAIResponsesInputItem[] {
   if (isUserMessage(message)) {
     const validContent = filterValidContent(message.content);
-    // Check if we can use simple string content
     if (validContent.length === 1 && validContent[0]?.type === 'text') {
       return [
         {
@@ -154,7 +200,6 @@ function transformMessage(message: Message): OpenAIResponsesInputItem[] {
     const validContent = filterValidContent(message.content);
     const items: OpenAIResponsesInputItem[] = [];
 
-    // Add message content - only text parts for assistant messages
     const contentParts: OpenAIResponsesContentPart[] = validContent
       .filter((c): c is TextBlock => c.type === 'text')
       .map((c): OpenAIResponsesContentPart => ({
@@ -162,7 +207,6 @@ function transformMessage(message: Message): OpenAIResponsesInputItem[] {
         text: c.text,
       }));
 
-    // Add assistant message if we have text content
     if (contentParts.length > 0) {
       items.push({
         type: 'message',
@@ -171,7 +215,6 @@ function transformMessage(message: Message): OpenAIResponsesInputItem[] {
       });
     }
 
-    // Add function_call items for each tool call (must precede function_call_output)
     const openaiMeta = message.metadata?.openai as
       | { functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }> }
       | undefined;
@@ -203,7 +246,6 @@ function transformMessage(message: Message): OpenAIResponsesInputItem[] {
   }
 
   if (isToolResultMessage(message)) {
-    // Tool results are function_call_output items
     return message.results.map((result) => ({
       type: 'function_call_output' as const,
       call_id: result.toolCallId,
@@ -218,7 +260,14 @@ function transformMessage(message: Message): OpenAIResponsesInputItem[] {
 }
 
 /**
- * Transform a content block to Responses API format
+ * Transforms a UPP content block to Responses API content part format.
+ *
+ * Handles text and image content blocks. The Responses API uses different
+ * type names than Chat Completions (`input_text` vs `text`, `input_image` vs `image_url`).
+ *
+ * @param block - The content block to transform
+ * @returns The transformed Responses API content part
+ * @throws Error if the content type is unsupported or image source type is unknown
  */
 function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
   switch (block.type) {
@@ -242,7 +291,6 @@ function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
       }
 
       if (imageBlock.source.type === 'bytes') {
-        // Convert bytes to base64
         const base64 = btoa(
           Array.from(imageBlock.source.data)
             .map((b) => String.fromCharCode(b))
@@ -263,7 +311,13 @@ function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
 }
 
 /**
- * Transform a UPP Tool to Responses API format
+ * Transforms a UPP tool definition to Responses API function tool format.
+ *
+ * The Responses API uses a flatter structure for function tools compared to
+ * Chat Completions, with properties at the top level rather than nested.
+ *
+ * @param tool - The UPP tool definition
+ * @returns The transformed Responses API function tool
  */
 function transformTool(tool: Tool): OpenAIResponsesTool {
   return {
@@ -282,10 +336,16 @@ function transformTool(tool: Tool): OpenAIResponsesTool {
 }
 
 /**
- * Transform OpenAI Responses API response to UPP LLMResponse
+ * Transforms an OpenAI Responses API response to UPP LLMResponse format.
+ *
+ * Processes all output items from the response, extracting text content,
+ * tool calls, and generated images. Also handles built-in tool outputs
+ * like image generation results.
+ *
+ * @param data - The raw OpenAI Responses API response
+ * @returns The transformed UPP LLM response
  */
 export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
-  // Extract content and tool calls from output items
   const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   const functionCallItems: Array<{
@@ -303,12 +363,11 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
       for (const part of messageItem.content) {
         if (part.type === 'output_text') {
           content.push({ type: 'text', text: part.text });
-          // Try to parse as JSON for structured output (native JSON mode)
           if (structuredData === undefined) {
             try {
               structuredData = JSON.parse(part.text);
             } catch {
-              // Not valid JSON - that's fine, might not be structured output
+              // Not JSON - expected for non-structured responses
             }
           }
         } else if (part.type === 'refusal') {
@@ -370,7 +429,6 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
     totalTokens: data.usage.total_tokens,
   };
 
-  // Map status to stop reason
   let stopReason = 'end_turn';
   if (data.status === 'completed') {
     stopReason = toolCalls.length > 0 ? 'tool_use' : 'end_turn';
@@ -394,25 +452,40 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
 }
 
 /**
- * State for accumulating streaming response
+ * Mutable state object for accumulating data during Responses API streaming.
+ *
+ * The Responses API has a different streaming structure than Chat Completions,
+ * with events organized by output index. This state tracks content and tool
+ * calls by their output index for proper reconstruction.
  */
 export interface ResponsesStreamState {
+  /** Response ID */
   id: string;
+  /** Model identifier */
   model: string;
+  /** Map of output index to accumulated text content */
   textByIndex: Map<number, string>;
+  /** Map of output index to accumulated tool call data */
   toolCalls: Map<
     number,
     { itemId?: string; callId?: string; name?: string; arguments: string }
   >;
-  images: string[]; // Base64 image data from image_generation_call outputs
+  /** Base64 image data from image_generation_call outputs */
+  images: string[];
+  /** Current response status */
   status: string;
+  /** Input token count */
   inputTokens: number;
+  /** Output token count */
   outputTokens: number;
+  /** Whether a refusal was encountered */
   hadRefusal: boolean;
 }
 
 /**
- * Create initial stream state
+ * Creates a fresh stream state object for a new Responses API streaming session.
+ *
+ * @returns A new ResponsesStreamState with all fields initialized
  */
 export function createStreamState(): ResponsesStreamState {
   return {
@@ -429,8 +502,15 @@ export function createStreamState(): ResponsesStreamState {
 }
 
 /**
- * Transform OpenAI Responses API stream event to UPP StreamEvent
- * Returns array since one event may produce multiple UPP events
+ * Transforms an OpenAI Responses API streaming event into UPP stream events.
+ *
+ * The Responses API uses a granular event structure with separate events for
+ * response lifecycle, output items, and content deltas. This function maps
+ * these events to the UPP streaming format.
+ *
+ * @param event - The Responses API streaming event to process
+ * @param state - The mutable state object to update
+ * @returns Array of UPP stream events generated from this event
  */
 export function transformStreamEvent(
   event: OpenAIResponsesStreamEvent,
@@ -510,8 +590,7 @@ export function transformStreamEvent(
       });
       break;
 
-    case 'response.output_text.delta':
-      // Accumulate text
+    case 'response.output_text.delta': {
       const currentText = state.textByIndex.get(event.output_index) ?? '';
       state.textByIndex.set(event.output_index, currentText + event.delta);
       events.push({
@@ -520,6 +599,7 @@ export function transformStreamEvent(
         delta: { text: event.delta },
       });
       break;
+    }
 
     case 'response.output_text.done':
       state.textByIndex.set(event.output_index, event.text);
@@ -543,7 +623,6 @@ export function transformStreamEvent(
       break;
 
     case 'response.function_call_arguments.delta': {
-      // Accumulate function call arguments
       let toolCall = state.toolCalls.get(event.output_index);
       if (!toolCall) {
         toolCall = { arguments: '' };
@@ -569,7 +648,6 @@ export function transformStreamEvent(
     }
 
     case 'response.function_call_arguments.done': {
-      // Finalize function call
       let toolCall = state.toolCalls.get(event.output_index);
       if (!toolCall) {
         toolCall = { arguments: '' };
@@ -587,11 +665,9 @@ export function transformStreamEvent(
     }
 
     case 'error':
-      // Error events are handled at the handler level
       break;
 
     default:
-      // Ignore other events
       break;
   }
 
@@ -599,28 +675,32 @@ export function transformStreamEvent(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Builds a complete LLMResponse from accumulated Responses API streaming state.
+ *
+ * Called after all streaming events have been processed to construct the final
+ * response object with all accumulated content, tool calls, images, and usage
+ * statistics.
+ *
+ * @param state - The accumulated stream state
+ * @returns A complete UPP LLMResponse
  */
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
   const content: AssistantContent[] = [];
   let structuredData: unknown;
 
-  // Combine all text content
   for (const [, text] of state.textByIndex) {
     if (text) {
       content.push({ type: 'text', text });
-      // Try to parse as JSON for structured output (native JSON mode)
       if (structuredData === undefined) {
         try {
           structuredData = JSON.parse(text);
         } catch {
-          // Not valid JSON - that's fine, might not be structured output
+          // Not JSON - expected for non-structured responses
         }
       }
     }
   }
 
-  // Add any generated images
   for (const imageData of state.images) {
     content.push({
       type: 'image',
@@ -673,7 +753,6 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
         openai: {
           model: state.model,
           status: state.status,
-          // Store response_id for multi-turn tool calling
           response_id: state.id,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
@@ -688,7 +767,6 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     totalTokens: state.inputTokens + state.outputTokens,
   };
 
-  // Map status to stop reason
   let stopReason = 'end_turn';
   if (state.status === 'completed') {
     stopReason = toolCalls.length > 0 ? 'tool_use' : 'end_turn';

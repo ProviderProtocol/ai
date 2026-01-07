@@ -1,3 +1,12 @@
+/**
+ * OpenRouter Responses API LLM handler.
+ *
+ * This module implements the LLMHandler interface for OpenRouter's Responses API,
+ * which is currently in beta and provides additional features like reasoning support.
+ *
+ * @module llm.responses
+ */
+
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
@@ -15,10 +24,14 @@ import {
   buildResponseFromState,
 } from './transform.responses.ts';
 
+/** Base URL for OpenRouter's Responses API endpoint (beta). */
 const OPENROUTER_RESPONSES_API_URL = 'https://openrouter.ai/api/v1/responses';
 
 /**
- * OpenRouter API capabilities
+ * Capability flags for the OpenRouter Responses API.
+ *
+ * The Responses API shares the same capabilities as the Completions API,
+ * with additional support for reasoning models.
  */
 const OPENROUTER_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,10 +43,22 @@ const OPENROUTER_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create OpenRouter Responses API LLM handler
+ * Creates an LLM handler for OpenRouter's Responses API (beta).
+ *
+ * The Responses API provides a different interface than Chat Completions,
+ * with features like reasoning effort configuration and different output formats.
+ *
+ * @returns An LLMHandler configured for OpenRouter Responses API
+ *
+ * @example
+ * ```typescript
+ * const handler = createResponsesLLMHandler();
+ * handler._setProvider(provider);
+ * const model = handler.bind('openai/gpt-4o');
+ * const response = await model.complete(request);
+ * ```
  */
 export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParams> {
-  // Provider reference injected by createProvider() or OpenRouter's custom factory
   let providerRef: LLMProvider<OpenRouterResponsesParams> | null = null;
 
   return {
@@ -42,7 +67,6 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParam
     },
 
     bind(modelId: string): BoundLLMModel<OpenRouterResponsesParams> {
-      // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',

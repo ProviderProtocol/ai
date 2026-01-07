@@ -15,10 +15,12 @@ import {
   buildResponseFromState,
 } from './transform.completions.ts';
 
+/** Base URL for the xAI Chat Completions API endpoint. */
 const XAI_COMPLETIONS_API_URL = 'https://api.x.ai/v1/chat/completions';
 
 /**
- * xAI Chat Completions API capabilities
+ * Capability declarations for the xAI Chat Completions API.
+ * Indicates which features are supported by this API mode.
  */
 const XAI_COMPLETIONS_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,10 +32,35 @@ const XAI_COMPLETIONS_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create xAI Chat Completions LLM handler
+ * Creates an LLM handler for the xAI Chat Completions API (OpenAI-compatible).
+ *
+ * The Chat Completions API is the default and recommended API mode for xAI.
+ * It provides full compatibility with OpenAI's Chat Completions API, making
+ * it easy to migrate existing OpenAI-based applications.
+ *
+ * @returns An LLM handler configured for the Chat Completions API
+ *
+ * @example
+ * ```typescript
+ * import { xai } from './providers/xai';
+ * import { llm } from './core/llm';
+ *
+ * const model = llm({
+ *   model: xai('grok-4'),
+ *   params: {
+ *     max_tokens: 1000,
+ *     temperature: 0.7,
+ *   }
+ * });
+ *
+ * const turn = await model.generate('Hello!');
+ * console.log(turn.response.text);
+ * ```
+ *
+ * @see {@link createMessagesLLMHandler} for Anthropic-compatible mode
+ * @see {@link createResponsesLLMHandler} for stateful Responses API mode
  */
 export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> {
-  // Provider reference injected by createProvider() or xAI's custom factory
   let providerRef: LLMProvider<XAICompletionsParams> | null = null;
 
   return {
@@ -42,7 +69,6 @@ export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> 
     },
 
     bind(modelId: string): BoundLLMModel<XAICompletionsParams> {
-      // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',

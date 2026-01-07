@@ -1,4 +1,49 @@
-// Re-export from providers/openai
+/**
+ * OpenAI provider for UPP (Unified Provider Protocol)
+ *
+ * This module exports the OpenAI provider for use with GPT models.
+ * Supports both the modern Responses API (default) and the legacy
+ * Chat Completions API.
+ *
+ * @example Basic usage with Responses API (recommended)
+ * ```ts
+ * import { openai } from '@providerprotocol/ai/openai';
+ * import { llm } from '@providerprotocol/ai';
+ *
+ * // Create an LLM instance with GPT-4o
+ * const model = llm({
+ *   model: openai('gpt-4o'),
+ *   params: { max_output_tokens: 1000 }
+ * });
+ *
+ * // Generate a response
+ * const turn = await model.generate('Explain recursion.');
+ * console.log(turn.response.text);
+ * ```
+ *
+ * @example Using Chat Completions API
+ * ```ts
+ * const legacyModel = llm({
+ *   model: openai('gpt-4o', { api: 'completions' }),
+ *   params: { max_tokens: 1000 }
+ * });
+ * ```
+ *
+ * @example With built-in tools (Responses API only)
+ * ```ts
+ * import { openai, tools } from '@providerprotocol/ai/openai';
+ *
+ * const model = llm({
+ *   model: openai('gpt-4o'),
+ *   params: {
+ *     tools: [tools.webSearch(), tools.imageGeneration()]
+ *   }
+ * });
+ * ```
+ *
+ * @packageDocumentation
+ */
+
 export {
   openai,
   tools,
@@ -16,12 +61,10 @@ export type {
   OpenAIAPIMode,
   OpenAIModelOptions,
   OpenAIModelReference,
-  // Audio and web search types
   OpenAIAudioConfig,
   OpenAIWebSearchOptions,
   OpenAIWebSearchUserLocation,
   OpenAICompletionsWebSearchUserLocation,
-  // Built-in tool types
   OpenAIBuiltInTool,
   OpenAIWebSearchTool,
   OpenAIFileSearchTool,
@@ -33,7 +76,6 @@ export type {
   OpenAIMcpTool,
   OpenAIMcpServerConfig,
   OpenAIResponsesToolUnion,
-  // Conversation and prompt types
   OpenAIConversation,
   OpenAIPromptTemplate,
 } from '../providers/openai/index.ts';

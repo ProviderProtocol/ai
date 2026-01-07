@@ -22,11 +22,14 @@ import type {
 } from './types.ts';
 
 /**
- * Transform UPP request to xAI Messages API format (Anthropic-compatible)
+ * Transforms a UPP LLM request to the xAI Messages API format (Anthropic-compatible).
  *
- * Params are spread directly to allow pass-through of any xAI API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * All params are spread directly to enable pass-through of xAI API fields
+ * not explicitly defined in our types.
+ *
+ * @param request - The unified provider protocol request
+ * @param modelId - The xAI model identifier
+ * @returns The transformed xAI Messages API request body
  */
 export function transformRequest(
   request: LLMRequest<XAIMessagesParams>,
@@ -34,27 +37,21 @@ export function transformRequest(
 ): XAIMessagesRequest {
   const params = request.params ?? ({} as XAIMessagesParams);
 
-  // Spread params to pass through all fields, then set required fields
   const xaiRequest: XAIMessagesRequest = {
     ...params,
     model: modelId,
     messages: request.messages.map(transformMessage),
   };
 
-  // System prompt (top-level in Messages API)
   if (request.system) {
     xaiRequest.system = request.system;
   }
 
-  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     xaiRequest.tools = request.tools.map(transformTool);
     xaiRequest.tool_choice = { type: 'auto' };
   }
 
-  // Structured output via tool-based approach
-  // xAI Messages API (like Anthropic) doesn't have native structured output,
-  // so we use a tool to enforce the schema
   if (request.structure) {
     const structuredTool: XAIMessagesTool = {
       name: 'json_response',
@@ -66,9 +63,7 @@ export function transformRequest(
       },
     };
 
-    // Add the structured output tool (may coexist with user tools)
     xaiRequest.tools = [...(xaiRequest.tools ?? []), structuredTool];
-    // Force the model to use the json_response tool
     xaiRequest.tool_choice = { type: 'tool', name: 'json_response' };
   }
 
@@ -76,14 +71,21 @@ export function transformRequest(
 }
 
 /**
- * Filter to only valid content blocks with a type property
+ * Filters content blocks to only those with a valid type property.
+ *
+ * @param content - Array of content blocks
+ * @returns Filtered array with only valid content blocks
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
 }
 
 /**
- * Transform a UPP Message to xAI Messages API format
+ * Transforms a single UPP message to xAI Messages API format.
+ *
+ * @param message - The UPP message to transform
+ * @returns The xAI-formatted message
+ * @throws Error if the message type is unknown
  */
 function transformMessage(message: Message): XAIMessagesMessage {
   if (isUserMessage(message)) {
@@ -98,7 +100,6 @@ function transformMessage(message: Message): XAIMessagesMessage {
     const validContent = filterValidContent(message.content);
     const content: XAIMessagesContent[] = validContent.map(transformContentBlock);
 
-    // Add tool calls as tool_use content blocks
     if (message.toolCalls) {
       for (const call of message.toolCalls) {
         content.push({
@@ -110,7 +111,6 @@ function transformMessage(message: Message): XAIMessagesMessage {
       }
     }
 
-    // Ensure content is not empty (xAI Messages API requires at least one content block)
     if (content.length === 0) {
       content.push({ type: 'text', text: '' });
     }
@@ -122,7 +122,6 @@ function transformMessage(message: Message): XAIMessagesMessage {
   }
 
   if (isToolResultMessage(message)) {
-    // Tool results are sent as user messages with tool_result content
     return {
       role: 'user',
       content: message.results.map((result) => ({
@@ -141,7 +140,11 @@ function transformMessage(message: Message): XAIMessagesMessage {
 }
 
 /**
- * Transform a content block to xAI Messages API format
+ * Transforms a UPP content block to xAI Messages API format.
+ *
+ * @param block - The content block to transform
+ * @returns The xAI-formatted content block
+ * @throws Error if the content type is unsupported
  */
 function transformContentBlock(block: ContentBlock): XAIMessagesContent {
   switch (block.type) {
@@ -194,7 +197,10 @@ function transformContentBlock(block: ContentBlock): XAIMessagesContent {
 }
 
 /**
- * Transform a UPP Tool to xAI Messages API format
+ * Transforms a UPP tool definition to xAI Messages API format.
+ *
+ * @param tool - The UPP tool definition
+ * @returns The xAI-formatted tool definition
  */
 function transformTool(tool: Tool): XAIMessagesTool {
   return {
@@ -209,10 +215,12 @@ function transformTool(tool: Tool): XAIMessagesTool {
 }
 
 /**
- * Transform xAI Messages API response to UPP LLMResponse
+ * Transforms an xAI Messages API response to the UPP LLMResponse format.
+ *
+ * @param data - The xAI Messages API response
+ * @returns The unified provider protocol response
  */
 export function transformResponse(data: XAIMessagesResponse): LLMResponse {
-  // Extract text content
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
@@ -221,9 +229,7 @@ export function transformResponse(data: XAIMessagesResponse): LLMResponse {
     if (block.type === 'text') {
       textContent.push({ type: 'text', text: block.text });
     } else if (block.type === 'tool_use') {
-      // Check if this is the json_response tool (structured output)
       if (block.name === 'json_response') {
-        // Extract structured data from tool arguments
         structuredData = block.input;
       }
       toolCalls.push({
@@ -232,7 +238,6 @@ export function transformResponse(data: XAIMessagesResponse): LLMResponse {
         arguments: block.input,
       });
     }
-    // Skip thinking blocks for now
   }
 
   const message = new AssistantMessage(
@@ -265,21 +270,32 @@ export function transformResponse(data: XAIMessagesResponse): LLMResponse {
 }
 
 /**
- * State for accumulating streaming response
+ * State object for accumulating data during Messages API streaming.
+ *
+ * This state is progressively updated as stream events arrive and is used
+ * to build the final LLMResponse when streaming completes.
  */
 export interface MessagesStreamState {
+  /** Message identifier */
   messageId: string;
+  /** Model used for generation */
   model: string;
+  /** Accumulated content blocks */
   content: Array<{ type: string; text?: string; id?: string; name?: string; input?: string }>;
+  /** Final stop reason */
   stopReason: string | null;
+  /** Total input tokens */
   inputTokens: number;
+  /** Total output tokens */
   outputTokens: number;
-  /** Track current content block index for delta events that don't include index */
+  /** Current content block index (xAI may omit index in delta events) */
   currentIndex: number;
 }
 
 /**
- * Create initial stream state
+ * Creates a new initialized stream state for Messages API streaming.
+ *
+ * @returns A fresh MessagesStreamState with default values
  */
 export function createStreamState(): MessagesStreamState {
   return {
@@ -294,8 +310,13 @@ export function createStreamState(): MessagesStreamState {
 }
 
 /**
- * Transform xAI Messages API stream event to UPP StreamEvent
- * Returns null for events that don't produce UPP events
+ * Transforms an xAI Messages API stream event to a UPP StreamEvent.
+ *
+ * The state object is mutated to accumulate data for the final response.
+ *
+ * @param event - The xAI Messages API stream event
+ * @param state - The mutable stream state to update
+ * @returns A UPP stream event or null for events that don't map to UPP events
  */
 export function transformStreamEvent(
   event: XAIMessagesStreamEvent,
@@ -309,7 +330,6 @@ export function transformStreamEvent(
       return { type: 'message_start', index: 0, delta: {} };
 
     case 'content_block_start':
-      // Track current index and initialize content block
       state.currentIndex = event.index;
       if (event.content_block.type === 'text') {
         state.content[event.index] = { type: 'text', text: '' };
@@ -325,10 +345,8 @@ export function transformStreamEvent(
 
     case 'content_block_delta': {
       const delta = event.delta;
-      // xAI delta events may not include index, use tracked currentIndex
       const index = event.index ?? state.currentIndex;
       if (delta.type === 'text_delta') {
-        // Initialize content block if not already done (in case content_block_start was missed)
         if (!state.content[index]) {
           state.content[index] = { type: 'text', text: '' };
         }
@@ -341,7 +359,6 @@ export function transformStreamEvent(
         };
       }
       if (delta.type === 'input_json_delta') {
-        // Initialize content block if not already done
         if (!state.content[index]) {
           state.content[index] = { type: 'tool_use', id: '', name: '', input: '' };
         }
@@ -388,7 +405,13 @@ export function transformStreamEvent(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Builds the final LLMResponse from accumulated Messages API stream state.
+ *
+ * Called when streaming is complete to construct the unified response
+ * from all the data accumulated during streaming.
+ *
+ * @param state - The accumulated stream state
+ * @returns The complete LLMResponse
  */
 export function buildResponseFromState(state: MessagesStreamState): LLMResponse {
   const textContent: TextBlock[] = [];
@@ -404,10 +427,9 @@ export function buildResponseFromState(state: MessagesStreamState): LLMResponse 
         try {
           args = JSON.parse(block.input);
         } catch {
-          // Invalid JSON - use empty object
+          // Invalid JSON, use empty object
         }
       }
-      // Check if this is the json_response tool (structured output)
       if (block.name === 'json_response') {
         structuredData = args;
       }

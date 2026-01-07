@@ -1,3 +1,12 @@
+/**
+ * @fileoverview LLM instance factory and streaming logic for the Universal Provider Protocol.
+ *
+ * This module provides the core functionality for creating and managing LLM instances,
+ * including support for tool execution, streaming responses, and structured output.
+ *
+ * @module core/llm
+ */
+
 import type {
   LLMOptions,
   LLMInstance,
@@ -30,13 +39,37 @@ import {
 } from '../types/stream.ts';
 import { generateShortId } from '../utils/id.ts';
 
-/**
- * Default maximum iterations for tool execution
- */
+/** Default maximum iterations for the tool execution loop */
 const DEFAULT_MAX_ITERATIONS = 10;
 
 /**
- * Create an LLM instance
+ * Creates an LLM instance configured with the specified options.
+ *
+ * This is the primary factory function for creating LLM instances. It validates
+ * provider capabilities, binds the model, and returns an instance with `generate`
+ * and `stream` methods for inference.
+ *
+ * @typeParam TParams - Provider-specific parameter type for model configuration
+ * @param options - Configuration options for the LLM instance
+ * @returns A configured LLM instance ready for inference
+ * @throws {UPPError} When the provider does not support the LLM modality
+ * @throws {UPPError} When structured output is requested but not supported
+ * @throws {UPPError} When tools are provided but not supported
+ *
+ * @example
+ * ```typescript
+ * import { llm } from 'upp';
+ * import { anthropic } from 'upp/providers/anthropic';
+ *
+ * const assistant = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   system: 'You are a helpful assistant.',
+ *   tools: [myTool],
+ * });
+ *
+ * const turn = await assistant.generate('Hello, world!');
+ * console.log(turn.text);
+ * ```
  */
 export function llm<TParams = unknown>(
   options: LLMOptions<TParams>
@@ -138,15 +171,17 @@ export function llm<TParams = unknown>(
 
 /**
  * Type guard to check if a value is a Message instance.
- * Uses instanceof for class instances, with fallback to timestamp check
- * for deserialized/reconstructed Message objects.
+ *
+ * Uses `instanceof` for class instances, with a structural fallback for
+ * deserialized or reconstructed Message objects that have the expected shape.
+ *
+ * @param value - The value to check
+ * @returns `true` if the value is a Message instance
  */
 function isMessageInstance(value: unknown): value is Message {
   if (value instanceof Message) {
     return true;
   }
-  // Fallback for deserialized Messages that aren't class instances:
-  // Messages have 'timestamp' (Date), ContentBlocks don't
   if (
     typeof value === 'object' &&
     value !== null &&
@@ -155,8 +190,6 @@ function isMessageInstance(value: unknown): value is Message {
     'id' in value
   ) {
     const obj = value as Record<string, unknown>;
-    // Message types are 'user', 'assistant', 'tool_result'
-    // ContentBlock types are 'text', 'image', 'audio', 'video', 'binary'
     const messageTypes = ['user', 'assistant', 'tool_result'];
     return messageTypes.includes(obj.type as string);
   }
@@ -164,13 +197,21 @@ function isMessageInstance(value: unknown): value is Message {
 }
 
 /**
- * Parse inputs to determine history and new messages
+ * Parses flexible input arguments to separate conversation history from new messages.
+ *
+ * Supports multiple input patterns:
+ * - Thread object with existing messages
+ * - Message array as history
+ * - Direct input (string, Message, or ContentBlock) without history
+ *
+ * @param historyOrInput - Either conversation history or the first input
+ * @param inputs - Additional inputs to convert to messages
+ * @returns Object containing separated history and new messages arrays
  */
 function parseInputs(
   historyOrInput: Message[] | Thread | InferenceInput,
   inputs: InferenceInput[]
 ): { history: Message[]; messages: Message[] } {
-  // Check if it's a Thread first (has 'messages' array property)
   if (
     typeof historyOrInput === 'object' &&
     historyOrInput !== null &&
@@ -182,41 +223,41 @@ function parseInputs(
     return { history: [...thread.messages], messages: newMessages };
   }
 
-  // Check if first arg is Message[] (history)
   if (Array.isArray(historyOrInput)) {
-    // Empty array is empty history
     if (historyOrInput.length === 0) {
       const newMessages = inputs.map(inputToMessage);
       return { history: [], messages: newMessages };
     }
     const first = historyOrInput[0];
     if (isMessageInstance(first)) {
-      // It's history (Message[])
       const newMessages = inputs.map(inputToMessage);
       return { history: historyOrInput as Message[], messages: newMessages };
     }
   }
 
-  // It's input (no history) - could be string, single Message, or ContentBlock
   const allInputs = [historyOrInput as InferenceInput, ...inputs];
   const newMessages = allInputs.map(inputToMessage);
   return { history: [], messages: newMessages };
 }
 
 /**
- * Convert an InferenceInput to a Message
+ * Converts an inference input to a Message instance.
+ *
+ * Handles string inputs, existing Message objects, and ContentBlocks,
+ * wrapping non-Message inputs in a UserMessage.
+ *
+ * @param input - The input to convert (string, Message, or ContentBlock)
+ * @returns A Message instance
  */
 function inputToMessage(input: InferenceInput): Message {
   if (typeof input === 'string') {
     return new UserMessageClass(input);
   }
 
-  // It's already a Message
   if ('type' in input && 'id' in input && 'timestamp' in input) {
     return input as Message;
   }
 
-  // It's a ContentBlock - wrap in UserMessage
   const block = input as ContentBlock;
   if (block.type === 'text') {
     return new UserMessageClass((block as TextBlock).text);
@@ -226,7 +267,26 @@ function inputToMessage(input: InferenceInput): Message {
 }
 
 /**
- * Execute a non-streaming generate call with tool loop
+ * Executes a non-streaming generation request with automatic tool execution loop.
+ *
+ * Handles the complete lifecycle of a generation request including:
+ * - Media capability validation
+ * - Iterative tool execution until completion or max iterations
+ * - Token usage aggregation across iterations
+ * - Structured output extraction
+ *
+ * @typeParam TParams - Provider-specific parameter type
+ * @param model - The bound LLM model to use
+ * @param config - Provider configuration options
+ * @param system - Optional system prompt
+ * @param params - Provider-specific parameters
+ * @param tools - Available tools for the model to call
+ * @param toolStrategy - Strategy for tool execution behavior
+ * @param structure - Schema for structured output
+ * @param history - Previous conversation messages
+ * @param newMessages - New messages to send
+ * @returns A Turn containing all messages, tool executions, and usage
+ * @throws {UPPError} When max iterations exceeded or media not supported
  */
 async function executeGenerate<TParams>(
   model: BoundLLMModel<TParams>,
@@ -239,7 +299,6 @@ async function executeGenerate<TParams>(
   history: Message[],
   newMessages: Message[]
 ): Promise<Turn> {
-  // Validate media capabilities for all input messages
   validateMediaCapabilities(
     [...history, ...newMessages],
     model.capabilities,
@@ -251,10 +310,8 @@ async function executeGenerate<TParams>(
   const usages: TokenUsage[] = [];
   let cycles = 0;
 
-  // Track structured data from responses (providers handle extraction)
   let structuredData: unknown;
 
-  // Tool loop
   while (cycles < maxIterations + 1) {
     cycles++;
 
@@ -271,20 +328,15 @@ async function executeGenerate<TParams>(
     usages.push(response.usage);
     allMessages.push(response.message);
 
-    // Track structured data from provider (if present)
     if (response.data !== undefined) {
       structuredData = response.data;
     }
 
-    // Check for tool calls
     if (response.message.hasToolCalls && tools && tools.length > 0) {
-      // If provider already extracted structured data, don't try to execute tool calls
-      // (some providers use tool calls internally for structured output)
       if (response.data !== undefined) {
         break;
       }
 
-      // Check if we've hit max iterations (subtract 1 because we already incremented)
       if (cycles >= maxIterations) {
         await toolStrategy?.onMaxIterations?.(maxIterations);
         throw new UPPError(
@@ -295,7 +347,6 @@ async function executeGenerate<TParams>(
         );
       }
 
-      // Execute tools
       const results = await executeTools(
         response.message,
         tools,
@@ -303,21 +354,18 @@ async function executeGenerate<TParams>(
         toolExecutions
       );
 
-      // Add tool results
       allMessages.push(new ToolResultMessage(results));
 
       continue;
     }
 
-    // No tool calls - we're done
     break;
   }
 
-  // Use structured data from provider if structure was requested
   const data = structure ? structuredData : undefined;
 
   return createTurn(
-    allMessages.slice(history.length), // Only messages from this turn
+    allMessages.slice(history.length),
     toolExecutions,
     aggregateUsage(usages),
     cycles,
@@ -326,7 +374,24 @@ async function executeGenerate<TParams>(
 }
 
 /**
- * Execute a streaming generate call with tool loop
+ * Executes a streaming generation request with automatic tool execution loop.
+ *
+ * Creates an async generator that yields stream events while handling the complete
+ * lifecycle of a streaming request. The returned StreamResult provides both the
+ * event stream and a promise that resolves to the final Turn.
+ *
+ * @typeParam TParams - Provider-specific parameter type
+ * @param model - The bound LLM model to use
+ * @param config - Provider configuration options
+ * @param system - Optional system prompt
+ * @param params - Provider-specific parameters
+ * @param tools - Available tools for the model to call
+ * @param toolStrategy - Strategy for tool execution behavior
+ * @param structure - Schema for structured output
+ * @param history - Previous conversation messages
+ * @param newMessages - New messages to send
+ * @returns A StreamResult with event generator and turn promise
+ * @throws {UPPError} When max iterations exceeded or media not supported
  */
 function executeStream<TParams>(
   model: BoundLLMModel<TParams>,
@@ -339,7 +404,6 @@ function executeStream<TParams>(
   history: Message[],
   newMessages: Message[]
 ): StreamResult {
-  // Validate media capabilities for all input messages
   validateMediaCapabilities(
     [...history, ...newMessages],
     model.capabilities,
@@ -348,15 +412,13 @@ function executeStream<TParams>(
 
   const abortController = new AbortController();
 
-  // Shared state between generator and turn promise
   const allMessages: Message[] = [...history, ...newMessages];
   const toolExecutions: ToolExecution[] = [];
   const usages: TokenUsage[] = [];
   let cycles = 0;
   let generatorError: Error | null = null;
-  let structuredData: unknown; // Providers extract this
+  let structuredData: unknown;
 
-  // Deferred to signal when generator completes
   let resolveGenerator: () => void;
   let rejectGenerator: (error: Error) => void;
   const generatorDone = new Promise<void>((resolve, reject) => {
@@ -366,7 +428,6 @@ function executeStream<TParams>(
 
   const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
-  // Create the async generator - this is the ONLY place that calls the API
   async function* generateStream(): AsyncGenerator<StreamEvent, void, unknown> {
     try {
       while (cycles < maxIterations + 1) {
@@ -384,25 +445,19 @@ function executeStream<TParams>(
 
         const streamResult = model.stream(request);
 
-        // Forward stream events
         for await (const event of streamResult) {
           yield event;
         }
 
-        // Get the response
         const response = await streamResult.response;
         usages.push(response.usage);
         allMessages.push(response.message);
 
-        // Track structured data from provider (if present)
         if (response.data !== undefined) {
           structuredData = response.data;
         }
 
-        // Check for tool calls
         if (response.message.hasToolCalls && tools && tools.length > 0) {
-          // If provider already extracted structured data, don't try to execute tool calls
-          // (some providers use tool calls internally for structured output)
           if (response.data !== undefined) {
             break;
           }
@@ -417,7 +472,6 @@ function executeStream<TParams>(
             );
           }
 
-          // Execute tools with event emission
           const toolEvents: StreamEvent[] = [];
           const results = await executeTools(
             response.message,
@@ -427,12 +481,10 @@ function executeStream<TParams>(
             (event) => toolEvents.push(event)
           );
 
-          // Yield tool execution events
           for (const event of toolEvents) {
             yield event;
           }
 
-          // Add tool results
           allMessages.push(new ToolResultMessage(results));
 
           continue;
@@ -448,7 +500,6 @@ function executeStream<TParams>(
     }
   }
 
-  // Turn promise waits for the generator to complete, then builds the Turn
   const turnPromise = (async (): Promise<Turn> => {
     await generatorDone;
 
@@ -456,7 +507,6 @@ function executeStream<TParams>(
       throw generatorError;
     }
 
-    // Use structured data from provider if structure was requested
     const data = structure ? structuredData : undefined;
 
     return createTurn(
@@ -472,7 +522,21 @@ function executeStream<TParams>(
 }
 
 /**
- * Execute tools from an assistant message
+ * Executes tool calls from an assistant message in parallel.
+ *
+ * Handles the complete tool execution flow including:
+ * - Tool lookup and validation
+ * - Strategy callbacks (onToolCall, onBeforeCall, onAfterCall, onError)
+ * - Approval handlers
+ * - Execution tracking and timing
+ * - Stream event emission for real-time updates
+ *
+ * @param message - The assistant message containing tool calls
+ * @param tools - Available tools to execute
+ * @param toolStrategy - Strategy for controlling tool execution behavior
+ * @param executions - Array to collect execution records (mutated in place)
+ * @param onEvent - Optional callback for emitting stream events during execution
+ * @returns Array of tool results to send back to the model
  */
 async function executeTools(
   message: AssistantMessage,
@@ -484,10 +548,8 @@ async function executeTools(
   const toolCalls = message.toolCalls ?? [];
   const results: ToolResult[] = [];
 
-  // Build tool map
   const toolMap = new Map(tools.map((t) => [t.name, t]));
 
-  // Execute tools (in parallel)
   const promises = toolCalls.map(async (call, index) => {
     const tool = toolMap.get(call.toolName);
     if (!tool) {
@@ -500,13 +562,10 @@ async function executeTools(
 
     const startTime = Date.now();
 
-    // Emit start event
     onEvent?.(toolExecutionStart(call.toolCallId, tool.name, startTime, index));
 
-    // Notify strategy
     await toolStrategy?.onToolCall?.(tool, call.arguments);
 
-    // Check before call
     if (toolStrategy?.onBeforeCall) {
       const shouldRun = await toolStrategy.onBeforeCall(tool, call.arguments);
       if (!shouldRun) {
@@ -520,13 +579,11 @@ async function executeTools(
       }
     }
 
-    // Check approval
     let approved = true;
     if (tool.approval) {
       try {
         approved = await tool.approval(call.arguments);
       } catch (error) {
-        // Approval threw - propagate
         throw error;
       }
     }
@@ -553,7 +610,6 @@ async function executeTools(
       };
     }
 
-    // Execute tool
     try {
       const result = await tool.run(call.arguments);
       const endTime = Date.now();
@@ -610,7 +666,15 @@ async function executeTools(
 }
 
 /**
- * Check if messages contain media that requires specific capabilities
+ * Validates that message content is compatible with provider capabilities.
+ *
+ * Checks user messages for media types (image, video, audio) and throws
+ * if the provider does not support the required input modality.
+ *
+ * @param messages - Messages to validate
+ * @param capabilities - Provider's declared capabilities
+ * @param providerName - Provider name for error messages
+ * @throws {UPPError} When a message contains unsupported media type
  */
 function validateMediaCapabilities(
   messages: Message[],

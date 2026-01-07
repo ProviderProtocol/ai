@@ -1,3 +1,12 @@
+/**
+ * @fileoverview Thread class for managing conversation history.
+ *
+ * Provides a utility class for building and manipulating conversation
+ * message sequences, with support for serialization and deserialization.
+ *
+ * @module types/thread
+ */
+
 import { generateId } from '../utils/id.ts';
 import {
   Message,
@@ -11,31 +20,77 @@ import type { Turn } from './turn.ts';
 import type { ToolCall, ToolResult } from './tool.ts';
 
 /**
- * Serialized message format
+ * Serialized message format for JSON storage.
+ *
+ * Used when persisting messages to storage or transmitting over the network.
  */
 export interface MessageJSON {
+  /** Unique message identifier */
   id: string;
+
+  /** Message type discriminator */
   type: MessageType;
+
+  /** Content blocks in the message */
   content: ContentBlock[];
+
+  /** Tool calls (for assistant messages) */
   toolCalls?: ToolCall[];
+
+  /** Tool results (for tool result messages) */
   results?: ToolResult[];
+
+  /** Provider-specific metadata */
   metadata?: MessageMetadata;
+
+  /** ISO timestamp string */
   timestamp: string;
 }
 
 /**
- * Serialized thread format
+ * Serialized thread format for JSON storage.
+ *
+ * Contains all data needed to reconstruct a Thread instance.
  */
 export interface ThreadJSON {
+  /** Unique thread identifier */
   id: string;
+
+  /** Serialized messages */
   messages: MessageJSON[];
+
+  /** ISO timestamp of thread creation */
   createdAt: string;
+
+  /** ISO timestamp of last update */
   updatedAt: string;
 }
 
 /**
- * Thread - A utility class for managing conversation history
- * Users control their own history; Thread is optional
+ * Thread - A utility class for managing conversation history.
+ *
+ * Provides methods for building, manipulating, and persisting
+ * conversation message sequences. This class is optional; users
+ * can also manage their own `Message[]` arrays directly.
+ *
+ * @example
+ * ```typescript
+ * // Create a new thread and add messages
+ * const thread = new Thread();
+ * thread.user('Hello!');
+ * thread.assistant('Hi there! How can I help?');
+ *
+ * // Use with LLM inference
+ * const turn = await instance.generate(thread, 'What is 2+2?');
+ * thread.append(turn);
+ *
+ * // Serialize for storage
+ * const json = thread.toJSON();
+ * localStorage.setItem('chat', JSON.stringify(json));
+ *
+ * // Restore from storage
+ * const restored = Thread.fromJSON(JSON.parse(localStorage.getItem('chat')));
+ * ```
  */
 export class Thread {
   /** Unique thread identifier */
@@ -51,7 +106,9 @@ export class Thread {
   private _updatedAt: Date;
 
   /**
-   * Create a new thread, optionally with initial messages
+   * Creates a new thread instance.
+   *
+   * @param messages - Optional initial messages to populate the thread
    */
   constructor(messages?: Message[]) {
     this.id = generateId();
@@ -60,18 +117,25 @@ export class Thread {
     this._updatedAt = new Date();
   }
 
-  /** All messages in the thread (readonly) */
+  /**
+   * All messages in the thread (readonly).
+   */
   get messages(): readonly Message[] {
     return this._messages;
   }
 
-  /** Number of messages */
+  /**
+   * Number of messages in the thread.
+   */
   get length(): number {
     return this._messages.length;
   }
 
   /**
-   * Append messages from a turn
+   * Appends all messages from a Turn to the thread.
+   *
+   * @param turn - The Turn containing messages to append
+   * @returns This thread instance for chaining
    */
   append(turn: Turn): this {
     this._messages.push(...turn.messages);
@@ -80,7 +144,10 @@ export class Thread {
   }
 
   /**
-   * Add raw messages
+   * Adds raw messages to the thread.
+   *
+   * @param messages - Messages to add
+   * @returns This thread instance for chaining
    */
   push(...messages: Message[]): this {
     this._messages.push(...messages);
@@ -89,7 +156,19 @@ export class Thread {
   }
 
   /**
-   * Add a user message
+   * Adds a user message to the thread.
+   *
+   * @param content - String or array of content blocks
+   * @returns This thread instance for chaining
+   *
+   * @example
+   * ```typescript
+   * thread.user('Hello, world!');
+   * thread.user([
+   *   { type: 'text', text: 'Describe this image:' },
+   *   { type: 'image', source: { type: 'url', url: '...' }, mimeType: 'image/png' }
+   * ]);
+   * ```
    */
   user(content: string | UserContent[]): this {
     this._messages.push(new UserMessage(content));
@@ -98,7 +177,15 @@ export class Thread {
   }
 
   /**
-   * Add an assistant message
+   * Adds an assistant message to the thread.
+   *
+   * @param content - String or array of content blocks
+   * @returns This thread instance for chaining
+   *
+   * @example
+   * ```typescript
+   * thread.assistant('I can help with that!');
+   * ```
    */
   assistant(content: string | AssistantContent[]): this {
     this._messages.push(new AssistantMessage(content));
@@ -107,28 +194,56 @@ export class Thread {
   }
 
   /**
-   * Get messages by type
+   * Filters messages by type.
+   *
+   * @param type - The message type to filter by
+   * @returns Array of messages matching the type
+   *
+   * @example
+   * ```typescript
+   * const userMessages = thread.filter('user');
+   * const assistantMessages = thread.filter('assistant');
+   * ```
    */
   filter(type: MessageType): Message[] {
     return this._messages.filter((m) => m.type === type);
   }
 
   /**
-   * Get the last N messages
+   * Returns the last N messages from the thread.
+   *
+   * @param count - Number of messages to return
+   * @returns Array of the last N messages
+   *
+   * @example
+   * ```typescript
+   * const recent = thread.tail(5);
+   * ```
    */
   tail(count: number): Message[] {
     return this._messages.slice(-count);
   }
 
   /**
-   * Create a new thread with a subset of messages
+   * Creates a new thread with a subset of messages.
+   *
+   * @param start - Start index (inclusive)
+   * @param end - End index (exclusive)
+   * @returns New Thread containing the sliced messages
+   *
+   * @example
+   * ```typescript
+   * const subset = thread.slice(0, 10);
+   * ```
    */
   slice(start?: number, end?: number): Thread {
     return new Thread(this._messages.slice(start, end));
   }
 
   /**
-   * Clear all messages
+   * Removes all messages from the thread.
+   *
+   * @returns This thread instance for chaining
    */
   clear(): this {
     this._messages = [];
@@ -137,14 +252,24 @@ export class Thread {
   }
 
   /**
-   * Convert to plain message array
+   * Converts the thread to a plain message array.
+   *
+   * @returns Copy of the internal message array
    */
   toMessages(): Message[] {
     return [...this._messages];
   }
 
   /**
-   * Serialize to JSON
+   * Serializes the thread to JSON format.
+   *
+   * @returns JSON-serializable representation of the thread
+   *
+   * @example
+   * ```typescript
+   * const json = thread.toJSON();
+   * localStorage.setItem('thread', JSON.stringify(json));
+   * ```
    */
   toJSON(): ThreadJSON {
     return {
@@ -156,12 +281,20 @@ export class Thread {
   }
 
   /**
-   * Deserialize from JSON
+   * Deserializes a thread from JSON format.
+   *
+   * @param json - The JSON representation to deserialize
+   * @returns Reconstructed Thread instance
+   *
+   * @example
+   * ```typescript
+   * const json = JSON.parse(localStorage.getItem('thread'));
+   * const thread = Thread.fromJSON(json);
+   * ```
    */
   static fromJSON(json: ThreadJSON): Thread {
     const messages = json.messages.map((m) => Thread.messageFromJSON(m));
     const thread = new Thread(messages);
-    // Override the generated id with the serialized one
     (thread as { id: string }).id = json.id;
     thread._createdAt = new Date(json.createdAt);
     thread._updatedAt = new Date(json.updatedAt);
@@ -169,14 +302,23 @@ export class Thread {
   }
 
   /**
-   * Iterate over messages
+   * Enables iteration over messages with for...of loops.
+   *
+   * @returns Iterator over the thread's messages
+   *
+   * @example
+   * ```typescript
+   * for (const message of thread) {
+   *   console.log(message.text);
+   * }
+   * ```
    */
   [Symbol.iterator](): Iterator<Message> {
     return this._messages[Symbol.iterator]();
   }
 
   /**
-   * Convert a message to JSON
+   * Converts a message to JSON format.
    */
   private messageToJSON(m: Message): MessageJSON {
     const base: MessageJSON = {
@@ -200,7 +342,7 @@ export class Thread {
   }
 
   /**
-   * Reconstruct a message from JSON
+   * Reconstructs a message from JSON format.
    */
   private static messageFromJSON(json: MessageJSON): Message {
     const options = {

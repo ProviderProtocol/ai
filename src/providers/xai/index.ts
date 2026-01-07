@@ -9,18 +9,24 @@ import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createMessagesLLMHandler } from './llm.messages.ts';
 import type { XAICompletionsParams, XAIResponsesParams, XAIMessagesParams, XAIConfig, XAIAPIMode } from './types.ts';
 
-/** Union type for modalities interface */
+/**
+ * Union type for LLM parameters across all xAI API modes.
+ * This type enables the provider to handle parameters from any of the three APIs.
+ */
 type XAILLMParamsUnion = XAICompletionsParams | XAIResponsesParams | XAIMessagesParams;
 
 /**
- * xAI provider options
+ * Configuration options for creating xAI model references.
  */
 export interface XAIProviderOptions {
   /**
-   * Which API to use:
-   * - 'completions': Chat Completions API (OpenAI-compatible, default)
-   * - 'responses': Responses API (OpenAI Responses-compatible, stateful)
-   * - 'messages': Messages API (Anthropic-compatible)
+   * The API mode to use for this model.
+   *
+   * - `'completions'`: Chat Completions API (OpenAI-compatible, default, recommended)
+   * - `'responses'`: Responses API (OpenAI Responses-compatible, supports stateful conversations)
+   * - `'messages'`: Messages API (Anthropic-compatible, for easy migration from Anthropic)
+   *
+   * @default 'completions'
    */
   api?: XAIAPIMode;
 }
@@ -66,14 +72,13 @@ export interface XAIProvider extends Provider<XAIProviderOptions> {
 }
 
 /**
- * Create the xAI provider
+ * Creates the xAI provider instance with support for all three API modes.
+ *
+ * @returns The configured xAI provider
  */
 function createXAIProvider(): XAIProvider {
-  // Track which API mode is currently active for the modalities
-  // Default to 'completions' (recommended for most use cases)
   let currentApiMode: XAIAPIMode = 'completions';
 
-  // Create handlers eagerly so we can inject provider reference
   const completionsHandler = createCompletionsLLMHandler();
   const responsesHandler = createResponsesLLMHandler();
   const messagesHandler = createMessagesLLMHandler();
@@ -87,7 +92,6 @@ function createXAIProvider(): XAIProvider {
     return { modelId, provider };
   };
 
-  // Create a dynamic modalities object that returns the correct handler
   const modalities = {
     get llm(): LLMHandler<XAILLMParamsUnion> {
       switch (currentApiMode) {
@@ -102,7 +106,6 @@ function createXAIProvider(): XAIProvider {
     },
   };
 
-  // Define properties
   Object.defineProperties(fn, {
     name: {
       value: 'xai',
@@ -123,7 +126,6 @@ function createXAIProvider(): XAIProvider {
 
   const provider = fn as XAIProvider;
 
-  // Inject provider reference into all handlers (spec compliance)
   completionsHandler._setProvider?.(provider as unknown as LLMProvider<XAICompletionsParams>);
   responsesHandler._setProvider?.(provider as unknown as LLMProvider<XAIResponsesParams>);
   messagesHandler._setProvider?.(provider as unknown as LLMProvider<XAIMessagesParams>);

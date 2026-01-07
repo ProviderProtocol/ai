@@ -15,10 +15,15 @@ import {
   buildResponseFromState,
 } from './transform.ts';
 
+/** Base URL for the Google Generative Language API (v1beta). */
 const GOOGLE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
 /**
- * Google API capabilities
+ * Capability flags for the Google Gemini API.
+ *
+ * Gemini models support streaming responses, function/tool calling,
+ * structured JSON output, and multimodal inputs including images,
+ * video, and audio.
  */
 const GOOGLE_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,7 +35,12 @@ const GOOGLE_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Build Google API URL for a model
+ * Constructs the Google API endpoint URL for a specific model and action.
+ *
+ * @param modelId - The Gemini model identifier (e.g., 'gemini-1.5-pro')
+ * @param action - The API action to perform
+ * @param apiKey - The Google API key for authentication
+ * @returns Fully qualified URL with API key as query parameter
  */
 function buildUrl(modelId: string, action: 'generateContent' | 'streamGenerateContent', apiKey: string): string {
   const base = `${GOOGLE_API_BASE}/models/${modelId}:${action}`;
@@ -38,10 +48,26 @@ function buildUrl(modelId: string, action: 'generateContent' | 'streamGenerateCo
 }
 
 /**
- * Create Google LLM handler
+ * Creates an LLM handler for Google Gemini models.
+ *
+ * The handler implements the UPP LLMHandler interface, providing `bind()`
+ * to create model instances that support both synchronous completion and
+ * streaming responses.
+ *
+ * @returns An LLMHandler configured for Google Gemini API
+ *
+ * @example
+ * ```typescript
+ * const handler = createLLMHandler();
+ * const model = handler.bind('gemini-1.5-pro');
+ *
+ * const response = await model.complete({
+ *   messages: [...],
+ *   config: { apiKey: 'your-api-key' },
+ * });
+ * ```
  */
 export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
-  // Provider reference injected by createProvider() after construction
   let providerRef: LLMProvider<GoogleLLMParams> | null = null;
 
   return {
@@ -50,7 +76,6 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
     },
 
     bind(modelId: string): BoundLLMModel<GoogleLLMParams> {
-      // Use the injected provider reference (set by createProvider)
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
@@ -162,7 +187,6 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
                 if (typeof data === 'object' && data !== null) {
                   const chunk = data as GoogleStreamChunk;
 
-                  // Check for error
                   if ('error' in chunk) {
                     const error = new UPPError(
                       (chunk as any).error.message,

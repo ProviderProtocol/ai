@@ -1,6 +1,21 @@
 /**
- * OpenRouter Chat Completions API parameters
- * These are passed through to the /api/v1/chat/completions endpoint
+ * OpenRouter-specific types for the Unified Provider Protocol.
+ *
+ * This module defines types for both the Chat Completions API and the
+ * Responses API (beta), including request/response formats, streaming
+ * events, and OpenRouter-specific features like model routing.
+ *
+ * @module types
+ */
+
+/**
+ * Parameters for OpenRouter's Chat Completions API.
+ *
+ * These parameters are passed through to the `/api/v1/chat/completions` endpoint.
+ * Includes standard OpenAI-compatible parameters plus OpenRouter-specific features
+ * like model routing and provider preferences.
+ *
+ * @see {@link https://openrouter.ai/docs/api-reference/chat-completions | OpenRouter Chat Completions API}
  */
 export interface OpenRouterCompletionsParams {
   /** Maximum number of tokens to generate */
@@ -95,8 +110,13 @@ export interface OpenRouterCompletionsParams {
 }
 
 /**
- * OpenRouter Responses API parameters (Beta)
- * These are passed through to the /api/v1/responses endpoint
+ * Parameters for OpenRouter's Responses API (beta).
+ *
+ * These parameters are passed through to the `/api/v1/responses` endpoint.
+ * The Responses API uses a different structure than Chat Completions and
+ * supports features like reasoning configuration.
+ *
+ * @see {@link https://openrouter.ai/docs/api-reference/responses | OpenRouter Responses API}
  */
 export interface OpenRouterResponsesParams {
   /** Maximum output tokens */
@@ -120,58 +140,69 @@ export interface OpenRouterResponsesParams {
 }
 
 /**
- * API mode for OpenRouter provider
+ * API mode selection for OpenRouter provider.
+ *
+ * - `'completions'`: Chat Completions API (stable, recommended)
+ * - `'responses'`: Responses API (beta)
  */
 export type OpenRouterAPIMode = 'completions' | 'responses';
 
 /**
- * Model options when creating a model reference
+ * Options for creating an OpenRouter model reference.
  */
 export interface OpenRouterModelOptions {
-  /** Which API to use */
+  /** Which API to use for this model. */
   api?: OpenRouterAPIMode;
 }
 
 /**
- * Model reference with OpenRouter-specific options
+ * Model reference with OpenRouter-specific options.
  */
 export interface OpenRouterModelReference {
+  /** The model identifier in `provider/model` format. */
   modelId: string;
+  /** Optional API selection. */
   options?: OpenRouterModelOptions;
 }
 
 /**
- * OpenRouter provider configuration
+ * Configuration for the OpenRouter provider.
  */
 export interface OpenRouterConfig {
-  /** Which API to use: 'completions' (default) or 'responses' (beta) */
+  /** Which API to use: 'completions' (default) or 'responses' (beta). */
   api?: 'completions' | 'responses';
 }
 
 /**
- * Provider routing preferences
+ * Provider routing preferences for OpenRouter.
+ *
+ * Controls how OpenRouter selects and routes requests to upstream providers.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/routing/provider-selection | Provider Selection}
  */
 export interface OpenRouterProviderPreferences {
-  /** Allow fallback to other providers */
+  /** Allow fallback to other providers if the primary is unavailable. */
   allow_fallbacks?: boolean;
-  /** Require specific parameters to be supported */
+  /** Require that the provider supports all specified parameters. */
   require_parameters?: boolean;
-  /** Data collection policy */
+  /** Data collection policy: 'allow' or 'deny'. */
   data_collection?: 'allow' | 'deny';
-  /** Order of provider preference */
+  /** Ordered list of preferred provider slugs. */
   order?: string[];
-  /** Ignore specific providers */
+  /** List of provider slugs to exclude from routing. */
   ignore?: string[];
-  /** Quantization preferences */
+  /** Preferred quantization levels (e.g., 'fp16', 'int8'). */
   quantizations?: string[];
 }
 
-// ============================================
+// ============================================================================
 // Chat Completions API Types
-// ============================================
+// ============================================================================
 
 /**
- * Chat Completions API request body
+ * Request body for OpenRouter's Chat Completions API.
+ *
+ * This is the internal representation sent to the `/api/v1/chat/completions` endpoint.
  */
 export interface OpenRouterCompletionsRequest {
   model: string;
@@ -213,7 +244,7 @@ export interface OpenRouterCompletionsRequest {
 }
 
 /**
- * Chat Completions message format
+ * Union type for all Chat Completions message roles.
  */
 export type OpenRouterCompletionsMessage =
   | OpenRouterSystemMessage
@@ -221,70 +252,118 @@ export type OpenRouterCompletionsMessage =
   | OpenRouterAssistantMessage
   | OpenRouterToolMessage;
 
+/**
+ * System message in Chat Completions format.
+ */
 export interface OpenRouterSystemMessage {
+  /** Message role identifier. */
   role: 'system';
+  /** System prompt content. */
   content: string;
-  name?: string;
-}
-
-export interface OpenRouterUserMessage {
-  role: 'user';
-  content: string | OpenRouterUserContent[];
-  name?: string;
-}
-
-export interface OpenRouterAssistantMessage {
-  role: 'assistant';
-  content?: string | null;
-  name?: string;
-  tool_calls?: OpenRouterToolCall[];
-}
-
-export interface OpenRouterToolMessage {
-  role: 'tool';
-  content: string;
-  tool_call_id: string;
+  /** Optional name for the system. */
   name?: string;
 }
 
 /**
- * User content types
+ * User message in Chat Completions format.
+ */
+export interface OpenRouterUserMessage {
+  /** Message role identifier. */
+  role: 'user';
+  /** User content as string or array of content parts. */
+  content: string | OpenRouterUserContent[];
+  /** Optional user name. */
+  name?: string;
+}
+
+/**
+ * Assistant message in Chat Completions format.
+ */
+export interface OpenRouterAssistantMessage {
+  /** Message role identifier. */
+  role: 'assistant';
+  /** Text content from the assistant, or null if only tool calls. */
+  content?: string | null;
+  /** Optional assistant name. */
+  name?: string;
+  /** Tool calls made by the assistant. */
+  tool_calls?: OpenRouterToolCall[];
+}
+
+/**
+ * Tool result message in Chat Completions format.
+ */
+export interface OpenRouterToolMessage {
+  /** Message role identifier. */
+  role: 'tool';
+  /** Tool execution result as string. */
+  content: string;
+  /** ID of the tool call this result corresponds to. */
+  tool_call_id: string;
+  /** Optional tool name. */
+  name?: string;
+}
+
+/**
+ * Union type for user message content parts.
  */
 export type OpenRouterUserContent = OpenRouterTextContent | OpenRouterImageContent;
 
+/**
+ * Text content part in a user message.
+ */
 export interface OpenRouterTextContent {
+  /** Content type identifier. */
   type: 'text';
+  /** The text content. */
   text: string;
 }
 
+/**
+ * Image content part in a user message.
+ */
 export interface OpenRouterImageContent {
+  /** Content type identifier. */
   type: 'image_url';
+  /** Image URL configuration. */
   image_url: {
+    /** Image URL (can be data URL or HTTP URL). */
     url: string;
+    /** Image detail level for vision models. */
     detail?: 'auto' | 'low' | 'high';
   };
 }
 
 /**
- * Tool call format
+ * Tool call made by the assistant in a Chat Completions response.
  */
 export interface OpenRouterToolCall {
+  /** Unique identifier for this tool call. */
   id: string;
+  /** Tool type (currently only 'function' is supported). */
   type: 'function';
+  /** Function call details. */
   function: {
+    /** Name of the function to call. */
     name: string;
+    /** JSON-encoded arguments for the function. */
     arguments: string;
   };
 }
 
 /**
- * Tool definition for Chat Completions
+ * Tool definition for Chat Completions API.
  */
 export interface OpenRouterCompletionsTool {
+  /** Tool type (currently only 'function' is supported). */
   type: 'function';
+  /** Function definition. */
   function: {
+    /** Function name. */
     name: string;
+    /** Description of what the function does. */
     description: string;
+    /** JSON Schema for function parameters. */
     parameters: {
       type: 'object';
       properties: Record<string, unknown>;
@@ -295,7 +374,11 @@ export interface OpenRouterCompletionsTool {
 }
 
 /**
- * Tool choice options
+ * Tool choice configuration for Chat Completions.
+ *
+ * - `'none'`: Model will not call any tools
+ * - `'auto'`: Model decides whether to call tools
+ * - Object: Force a specific function call
  */
 export type OpenRouterToolChoice =
   | 'none'
@@ -303,7 +386,7 @@ export type OpenRouterToolChoice =
   | { type: 'function'; function: { name: string } };
 
 /**
- * Response format
+ * Response format configuration for structured output.
  */
 export type OpenRouterResponseFormat =
   | { type: 'text' }
@@ -311,38 +394,64 @@ export type OpenRouterResponseFormat =
   | {
       type: 'json_schema';
       json_schema: {
+        /** Schema name for identification. */
         name: string;
+        /** Optional schema description. */
         description?: string;
+        /** JSON Schema definition. */
         schema: Record<string, unknown>;
+        /** Enable strict schema validation. */
         strict?: boolean;
       };
     };
 
 /**
- * Chat Completions response format
+ * Response from OpenRouter's Chat Completions API.
  */
 export interface OpenRouterCompletionsResponse {
+  /** Unique response identifier. */
   id: string;
+  /** Object type identifier. */
   object: 'chat.completion';
+  /** Unix timestamp of when the response was created. */
   created: number;
+  /** Model used for generation. */
   model: string;
+  /** Array of completion choices. */
   choices: OpenRouterCompletionsChoice[];
+  /** Token usage statistics. */
   usage: OpenRouterUsage;
+  /** System fingerprint for reproducibility. */
   system_fingerprint?: string;
 }
 
+/**
+ * A single completion choice in a Chat Completions response.
+ */
 export interface OpenRouterCompletionsChoice {
+  /** Index of this choice in the choices array. */
   index: number;
+  /** The assistant's response message. */
   message: OpenRouterAssistantMessage;
+  /** Reason the model stopped generating. */
   finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null;
+  /** Log probability information (if requested). */
   logprobs?: OpenRouterLogprobs | null;
 }
 
+/**
+ * Log probability information for generated tokens.
+ */
 export interface OpenRouterLogprobs {
+  /** Array of token log probabilities. */
   content?: Array<{
+    /** The generated token. */
     token: string;
+    /** Log probability of this token. */
     logprob: number;
+    /** Byte representation of the token. */
     bytes?: number[];
+    /** Top alternative tokens and their probabilities. */
     top_logprobs?: Array<{
       token: string;
       logprob: number;
@@ -351,54 +460,92 @@ export interface OpenRouterLogprobs {
   }>;
 }
 
+/**
+ * Token usage statistics for Chat Completions.
+ */
 export interface OpenRouterUsage {
+  /** Number of tokens in the input prompt. */
   prompt_tokens: number;
+  /** Number of tokens generated in the completion. */
   completion_tokens: number;
+  /** Total tokens (prompt + completion). */
   total_tokens: number;
 }
 
 /**
- * Chat Completions streaming event types
+ * A single chunk in a Chat Completions streaming response.
  */
 export interface OpenRouterCompletionsStreamChunk {
+  /** Response identifier (same for all chunks in a stream). */
   id: string;
+  /** Object type identifier. */
   object: 'chat.completion.chunk';
+  /** Unix timestamp of when the chunk was created. */
   created: number;
+  /** Model used for generation. */
   model: string;
+  /** Array of delta choices. */
   choices: OpenRouterCompletionsStreamChoice[];
+  /** Token usage (only present in final chunk if stream_options.include_usage is true). */
   usage?: OpenRouterUsage | null;
+  /** System fingerprint for reproducibility. */
   system_fingerprint?: string;
 }
 
+/**
+ * A single choice in a streaming chunk.
+ */
 export interface OpenRouterCompletionsStreamChoice {
+  /** Index of this choice. */
   index: number;
+  /** Delta content for this chunk. */
   delta: OpenRouterCompletionsStreamDelta;
+  /** Finish reason (only present in final chunk). */
   finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null;
+  /** Log probability information. */
   logprobs?: OpenRouterLogprobs | null;
 }
 
+/**
+ * Delta content in a streaming chunk.
+ */
 export interface OpenRouterCompletionsStreamDelta {
+  /** Role (only present in first chunk). */
   role?: 'assistant';
+  /** Text content delta. */
   content?: string | null;
+  /** Tool call deltas. */
   tool_calls?: OpenRouterStreamToolCall[];
 }
 
+/**
+ * Incremental tool call data in a streaming chunk.
+ */
 export interface OpenRouterStreamToolCall {
+  /** Index of this tool call (for parallel tool calls). */
   index: number;
+  /** Tool call ID (only in first chunk for this tool call). */
   id?: string;
+  /** Tool type. */
   type?: 'function';
+  /** Function call data delta. */
   function?: {
+    /** Function name (only in first chunk for this tool call). */
     name?: string;
+    /** Incremental JSON arguments. */
     arguments?: string;
   };
 }
 
-// ============================================
+// ============================================================================
 // Responses API Types (Beta)
-// ============================================
+// ============================================================================
 
 /**
- * Responses API request body
+ * Request body for OpenRouter's Responses API (beta).
+ *
+ * Uses a different structure than Chat Completions, with input items
+ * instead of messages.
  */
 export interface OpenRouterResponsesRequest {
   model: string;
@@ -417,7 +564,7 @@ export interface OpenRouterResponsesRequest {
 }
 
 /**
- * Responses API input item
+ * Union type for all Responses API input items.
  */
 export type OpenRouterResponsesInputItem =
   | OpenRouterResponsesSystemItem
@@ -426,43 +573,78 @@ export type OpenRouterResponsesInputItem =
   | OpenRouterResponsesFunctionCallInputItem
   | OpenRouterResponsesToolResultItem;
 
+/**
+ * System message input item for Responses API.
+ */
 export interface OpenRouterResponsesSystemItem {
+  /** Item type identifier. */
   type: 'message';
+  /** Role identifier. */
   role: 'system';
+  /** System prompt content. */
   content: string | OpenRouterResponsesContentPart[];
 }
 
+/**
+ * User message input item for Responses API.
+ */
 export interface OpenRouterResponsesUserItem {
+  /** Item type identifier. */
   type: 'message';
+  /** Role identifier. */
   role: 'user';
+  /** User content. */
   content: string | OpenRouterResponsesContentPart[];
 }
 
+/**
+ * Assistant message input item for Responses API.
+ */
 export interface OpenRouterResponsesAssistantItem {
+  /** Item type identifier. */
   type: 'message';
+  /** Role identifier. */
   role: 'assistant';
+  /** Message identifier. */
   id: string;
+  /** Message completion status. */
   status: 'completed' | 'in_progress';
+  /** Message content parts. */
   content: OpenRouterResponsesContentPart[];
 }
 
+/**
+ * Function call input item for Responses API (used in multi-turn conversations).
+ */
 export interface OpenRouterResponsesFunctionCallInputItem {
+  /** Item type identifier. */
   type: 'function_call';
+  /** Unique item identifier. */
   id: string;
+  /** Call identifier for matching with output. */
   call_id: string;
+  /** Function name. */
   name: string;
+  /** JSON-encoded function arguments. */
   arguments: string;
 }
 
+/**
+ * Tool result input item for Responses API.
+ */
 export interface OpenRouterResponsesToolResultItem {
+  /** Item type identifier. */
   type: 'function_call_output';
+  /** Unique item identifier. */
   id: string;
+  /** Call identifier to match with function_call. */
   call_id: string;
+  /** Tool execution result. */
   output: string;
 }
 
 /**
- * Content parts for Responses API
+ * Union type for Responses API content parts.
  */
 export type OpenRouterResponsesContentPart =
   | OpenRouterResponsesInputTextPart
@@ -470,42 +652,74 @@ export type OpenRouterResponsesContentPart =
   | OpenRouterResponsesImagePart
   | OpenRouterResponsesFunctionCallPart;
 
-/** @deprecated Use OpenRouterResponsesInputTextPart or OpenRouterResponsesOutputTextPart */
+/**
+ * @deprecated Use OpenRouterResponsesInputTextPart or OpenRouterResponsesOutputTextPart
+ */
 export type OpenRouterResponsesTextPart = OpenRouterResponsesInputTextPart | OpenRouterResponsesOutputTextPart;
 
+/**
+ * Input text content part for Responses API.
+ */
 export interface OpenRouterResponsesInputTextPart {
+  /** Content type identifier. */
   type: 'input_text';
+  /** The text content. */
   text: string;
 }
 
+/**
+ * Output text content part from Responses API.
+ */
 export interface OpenRouterResponsesOutputTextPart {
+  /** Content type identifier. */
   type: 'output_text';
+  /** The generated text. */
   text: string;
+  /** Optional annotations (e.g., citations). */
   annotations?: unknown[];
 }
 
+/**
+ * Image content part for Responses API.
+ */
 export interface OpenRouterResponsesImagePart {
+  /** Content type identifier. */
   type: 'input_image';
+  /** Image URL (HTTP or data URL). */
   image_url?: string;
-  image?: string; // base64
+  /** Base64-encoded image data. */
+  image?: string;
+  /** Image detail level for vision models. */
   detail?: 'auto' | 'low' | 'high';
 }
 
+/**
+ * Function call content part in Responses API.
+ */
 export interface OpenRouterResponsesFunctionCallPart {
+  /** Content type identifier. */
   type: 'function_call';
+  /** Unique item identifier. */
   id: string;
+  /** Call identifier for matching with output. */
   call_id: string;
+  /** Function name. */
   name: string;
+  /** JSON-encoded function arguments. */
   arguments: string;
 }
 
 /**
- * Tool definition for Responses API
+ * Tool definition for Responses API.
  */
 export interface OpenRouterResponsesTool {
+  /** Tool type (currently only 'function' is supported). */
   type: 'function';
+  /** Function name. */
   name: string;
+  /** Description of what the function does. */
   description: string;
+  /** JSON Schema for function parameters. */
   parameters: {
     type: 'object';
     properties: Record<string, unknown>;
@@ -515,7 +729,7 @@ export interface OpenRouterResponsesTool {
 }
 
 /**
- * Tool choice for Responses API
+ * Tool choice configuration for Responses API.
  */
 export type OpenRouterResponsesToolChoice =
   | 'none'
@@ -523,9 +737,10 @@ export type OpenRouterResponsesToolChoice =
   | { type: 'function'; name: string };
 
 /**
- * Text configuration for structured output
+ * Text configuration for structured output in Responses API.
  */
 export interface OpenRouterResponsesTextConfig {
+  /** Output format configuration. */
   format?:
     | { type: 'text' }
     | { type: 'json_object' }
@@ -539,58 +754,96 @@ export interface OpenRouterResponsesTextConfig {
 }
 
 /**
- * Responses API response format
+ * Response from OpenRouter's Responses API.
  */
 export interface OpenRouterResponsesResponse {
+  /** Unique response identifier. */
   id: string;
+  /** Object type identifier. */
   object: 'response';
+  /** Unix timestamp of when the response was created. */
   created_at: number;
+  /** Model used for generation. */
   model: string;
+  /** Output items from the response. */
   output: OpenRouterResponsesOutputItem[];
+  /** Token usage statistics. */
   usage: OpenRouterResponsesUsage;
+  /** Response status. */
   status: 'completed' | 'failed' | 'incomplete' | 'in_progress';
+  /** Error details (only present if status is 'failed'). */
   error?: {
     code: string;
     message: string;
   };
+  /** Details about incomplete response (only present if status is 'incomplete'). */
   incomplete_details?: {
     reason: string;
   };
 }
 
+/**
+ * Union type for Responses API output items.
+ */
 export type OpenRouterResponsesOutputItem =
   | OpenRouterResponsesMessageOutput
   | OpenRouterResponsesFunctionCallOutput;
 
+/**
+ * Message output item from Responses API.
+ */
 export interface OpenRouterResponsesMessageOutput {
+  /** Item type identifier. */
   type: 'message';
+  /** Message identifier. */
   id: string;
+  /** Role identifier. */
   role: 'assistant';
+  /** Message content parts. */
   content: OpenRouterResponsesOutputContent[];
+  /** Message completion status. */
   status: 'completed' | 'in_progress';
 }
 
+/**
+ * Function call output item from Responses API.
+ */
 export interface OpenRouterResponsesFunctionCallOutput {
+  /** Item type identifier. */
   type: 'function_call';
+  /** Unique item identifier. */
   id: string;
+  /** Call identifier for matching with tool result. */
   call_id: string;
+  /** Function name. */
   name: string;
+  /** JSON-encoded function arguments. */
   arguments: string;
+  /** Completion status. */
   status: 'completed' | 'in_progress';
 }
 
+/**
+ * Union type for output content in Responses API.
+ */
 export type OpenRouterResponsesOutputContent =
   | { type: 'output_text'; text: string; annotations?: unknown[] }
   | { type: 'refusal'; refusal: string };
 
+/**
+ * Token usage statistics for Responses API.
+ */
 export interface OpenRouterResponsesUsage {
+  /** Number of tokens in the input. */
   input_tokens: number;
+  /** Number of tokens in the output. */
   output_tokens: number;
+  /** Total tokens (input + output). */
   total_tokens: number;
 }
 
 /**
- * Responses API streaming event types
+ * Union type for all Responses API streaming events.
  */
 export type OpenRouterResponsesStreamEvent =
   | OpenRouterResponseCreatedEvent
@@ -610,38 +863,45 @@ export type OpenRouterResponsesStreamEvent =
   | OpenRouterResponseReasoningDeltaEvent
   | OpenRouterResponseErrorEvent;
 
+/** Emitted when a new response is created. */
 export interface OpenRouterResponseCreatedEvent {
   type: 'response.created';
   response: OpenRouterResponsesResponse;
 }
 
+/** Emitted when response generation is in progress. */
 export interface OpenRouterResponseInProgressEvent {
   type: 'response.in_progress';
   response: OpenRouterResponsesResponse;
 }
 
+/** Emitted when response generation is complete. */
 export interface OpenRouterResponseCompletedEvent {
   type: 'response.completed' | 'response.done';
   response: OpenRouterResponsesResponse;
 }
 
+/** Emitted when response generation fails. */
 export interface OpenRouterResponseFailedEvent {
   type: 'response.failed';
   response: OpenRouterResponsesResponse;
 }
 
+/** Emitted when a new output item is added to the response. */
 export interface OpenRouterResponseOutputItemAddedEvent {
   type: 'response.output_item.added';
   output_index: number;
   item: OpenRouterResponsesOutputItem;
 }
 
+/** Emitted when an output item is complete. */
 export interface OpenRouterResponseOutputItemDoneEvent {
   type: 'response.output_item.done';
   output_index: number;
   item: OpenRouterResponsesOutputItem;
 }
 
+/** Emitted when a new content part is added. */
 export interface OpenRouterResponseContentPartAddedEvent {
   type: 'response.content_part.added';
   output_index: number;
@@ -649,6 +909,7 @@ export interface OpenRouterResponseContentPartAddedEvent {
   part: OpenRouterResponsesOutputContent;
 }
 
+/** Emitted when a content part is complete. */
 export interface OpenRouterResponseContentPartDoneEvent {
   type: 'response.content_part.done';
   output_index: number;
@@ -656,6 +917,7 @@ export interface OpenRouterResponseContentPartDoneEvent {
   part: OpenRouterResponsesOutputContent;
 }
 
+/** Emitted for incremental text content. */
 export interface OpenRouterResponseTextDeltaEvent {
   type: 'response.content_part.delta' | 'response.output_text.delta';
   response_id?: string;
@@ -664,6 +926,7 @@ export interface OpenRouterResponseTextDeltaEvent {
   delta: string;
 }
 
+/** Emitted when text content is complete. */
 export interface OpenRouterResponseTextDoneEvent {
   type: 'response.output_text.done' | 'response.content_part.done';
   output_index: number;
@@ -671,6 +934,7 @@ export interface OpenRouterResponseTextDoneEvent {
   text: string;
 }
 
+/** Emitted for incremental refusal content. */
 export interface OpenRouterResponseRefusalDeltaEvent {
   type: 'response.refusal.delta';
   output_index: number;
@@ -678,6 +942,7 @@ export interface OpenRouterResponseRefusalDeltaEvent {
   delta: string;
 }
 
+/** Emitted when refusal content is complete. */
 export interface OpenRouterResponseRefusalDoneEvent {
   type: 'response.refusal.done';
   output_index: number;
@@ -685,6 +950,7 @@ export interface OpenRouterResponseRefusalDoneEvent {
   refusal: string;
 }
 
+/** Emitted for incremental function call arguments. */
 export interface OpenRouterResponseFunctionCallArgumentsDeltaEvent {
   type: 'response.function_call_arguments.delta';
   output_index: number;
@@ -693,6 +959,7 @@ export interface OpenRouterResponseFunctionCallArgumentsDeltaEvent {
   call_id?: string;
 }
 
+/** Emitted when function call arguments are complete. */
 export interface OpenRouterResponseFunctionCallArgumentsDoneEvent {
   type: 'response.function_call_arguments.done';
   output_index: number;
@@ -702,11 +969,13 @@ export interface OpenRouterResponseFunctionCallArgumentsDoneEvent {
   call_id?: string;
 }
 
+/** Emitted for incremental reasoning content (for reasoning models). */
 export interface OpenRouterResponseReasoningDeltaEvent {
   type: 'response.reasoning.delta';
   delta: string;
 }
 
+/** Emitted when an error occurs during streaming. */
 export interface OpenRouterResponseErrorEvent {
   type: 'error';
   error: {

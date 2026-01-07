@@ -1,3 +1,12 @@
+/**
+ * @fileoverview LLM types for language model inference.
+ *
+ * Defines the interfaces for configuring and executing LLM inference,
+ * including options, instances, requests, responses, and capabilities.
+ *
+ * @module types/llm
+ */
+
 import type { Message, AssistantMessage } from './messages.ts';
 import type { ContentBlock } from './content.ts';
 import type { Tool, ToolUseStrategy } from './tool.ts';
@@ -12,12 +21,25 @@ import type {
 import type { Thread } from './thread.ts';
 
 /**
- * LLMCapabilities declares what the provider's API supports, not individual model capabilities.
- * If a user attempts to use a feature with a model that doesn't support it,
- * the provider's API will return an error—this is expected behavior.
+ * LLM capabilities declare what a provider's API supports.
  *
- * Capabilities are static - they are constant for the lifetime of the provider instance
- * and do not vary per-request or per-model.
+ * These are API-level capabilities, not individual model capabilities.
+ * If a user attempts to use a feature with a model that doesn't support it,
+ * the provider's API will return an error.
+ *
+ * Capabilities are static and do not vary per-request or per-model.
+ *
+ * @example
+ * ```typescript
+ * const capabilities: LLMCapabilities = {
+ *   streaming: true,
+ *   tools: true,
+ *   structuredOutput: true,
+ *   imageInput: true,
+ *   videoInput: false,
+ *   audioInput: false
+ * };
+ * ```
  */
 export interface LLMCapabilities {
   /** Provider API supports streaming responses */
@@ -29,23 +51,41 @@ export interface LLMCapabilities {
   /** Provider API supports native structured output (JSON schema) */
   structuredOutput: boolean;
 
-  /** Provider API supports image input */
+  /** Provider API supports image input in messages */
   imageInput: boolean;
 
-  /** Provider API supports video input */
+  /** Provider API supports video input in messages */
   videoInput: boolean;
 
-  /** Provider API supports audio input */
+  /** Provider API supports audio input in messages */
   audioInput: boolean;
 }
 
 /**
- * Input types for inference
+ * Valid input types for inference.
+ *
+ * Inference input can be a simple string, a Message object, or
+ * a raw ContentBlock for multimodal input.
  */
 export type InferenceInput = string | Message | ContentBlock;
 
 /**
- * Options for llm() function
+ * Options for creating an LLM instance with the llm() function.
+ *
+ * @typeParam TParams - Provider-specific parameter type
+ *
+ * @example
+ * ```typescript
+ * const options: LLMOptions = {
+ *   model: openai('gpt-4'),
+ *   system: 'You are a helpful assistant.',
+ *   params: { temperature: 0.7, max_tokens: 1000 },
+ *   tools: [weatherTool, searchTool],
+ *   toolStrategy: { maxIterations: 5 }
+ * };
+ *
+ * const instance = llm(options);
+ * ```
  */
 export interface LLMOptions<TParams = unknown> {
   /** A model reference from a provider factory */
@@ -72,20 +112,44 @@ export interface LLMOptions<TParams = unknown> {
 }
 
 /**
- * LLM instance returned by llm()
+ * LLM instance returned by the llm() function.
+ *
+ * Provides methods for generating responses and streaming output,
+ * with access to the bound model and capabilities.
+ *
+ * @typeParam TParams - Provider-specific parameter type
+ *
+ * @example
+ * ```typescript
+ * const instance = llm({ model: openai('gpt-4') });
+ *
+ * // Simple generation
+ * const turn = await instance.generate('Hello!');
+ * console.log(turn.response.text);
+ *
+ * // Streaming
+ * const stream = instance.stream('Tell me a story');
+ * for await (const event of stream) {
+ *   if (event.type === 'text_delta') {
+ *     process.stdout.write(event.delta.text ?? '');
+ *   }
+ * }
+ * const finalTurn = await stream.turn;
+ * ```
  */
 export interface LLMInstance<TParams = unknown> {
   /**
-   * Execute inference and return complete Turn
+   * Executes inference and returns the complete Turn.
    *
-   * @overload No history - single input
-   * generate(input: InferenceInput): Promise<Turn>
+   * Supports multiple calling patterns:
+   * - Single input: `generate('Hello')`
+   * - Multiple inputs: `generate('Context...', 'Question?')`
+   * - With history: `generate(messages, 'Follow-up?')`
+   * - With thread: `generate(thread, 'Next message')`
    *
-   * @overload No history - multiple inputs
-   * generate(...inputs: InferenceInput[]): Promise<Turn>
-   *
-   * @overload With history
-   * generate(history: Message[] | Thread, ...inputs: InferenceInput[]): Promise<Turn>
+   * @param historyOrInput - History (Message[] or Thread) or first input
+   * @param input - Additional inputs to include in the request
+   * @returns Promise resolving to the complete Turn
    */
   generate(
     historyOrInput: Message[] | Thread | InferenceInput,
@@ -93,29 +157,27 @@ export interface LLMInstance<TParams = unknown> {
   ): Promise<Turn>;
 
   /**
-   * Execute streaming inference
+   * Executes streaming inference.
    *
-   * @overload No history - single input
-   * stream(input: InferenceInput): StreamResult
+   * Returns an async iterable of stream events that can also
+   * be awaited for the final Turn.
    *
-   * @overload No history - multiple inputs
-   * stream(...inputs: InferenceInput[]): StreamResult
-   *
-   * @overload With history
-   * stream(history: Message[] | Thread, ...inputs: InferenceInput[]): StreamResult
+   * @param historyOrInput - History (Message[] or Thread) or first input
+   * @param input - Additional inputs to include in the request
+   * @returns StreamResult that yields events and resolves to Turn
    */
   stream(
     historyOrInput: Message[] | Thread | InferenceInput,
     ...input: InferenceInput[]
   ): StreamResult;
 
-  /** The bound model */
+  /** The bound model instance */
   readonly model: BoundLLMModel<TParams>;
 
   /** Current system prompt */
   readonly system: string | undefined;
 
-  /** Current parameters */
+  /** Current model parameters */
   readonly params: TParams | undefined;
 
   /** Provider API capabilities */
@@ -123,9 +185,14 @@ export interface LLMInstance<TParams = unknown> {
 }
 
 /**
- * Request passed from llm() core to providers
- * Note: config is required here because llm() core resolves defaults
- * before passing to providers
+ * Request passed from the llm() core to providers.
+ *
+ * Contains all information needed by a provider to execute inference.
+ * The config is required here because llm() resolves defaults before
+ * passing to providers.
+ *
+ * @typeParam TParams - Provider-specific parameter type
+ * @internal
  */
 export interface LLMRequest<TParams = unknown> {
   /** All messages for this request (history + new input) */
@@ -151,31 +218,49 @@ export interface LLMRequest<TParams = unknown> {
 }
 
 /**
- * Raw provider response (single cycle, no tool loop)
+ * Raw provider response from a single inference cycle.
+ *
+ * Does not include tool loop handling - that's managed by llm() core.
+ *
+ * @internal
  */
 export interface LLMResponse {
+  /** The assistant's response message */
   message: AssistantMessage;
+
+  /** Token usage for this cycle */
   usage: TokenUsage;
+
+  /** Stop reason from the provider */
   stopReason: string;
 
   /**
    * Structured output data extracted by the provider.
-   * Present when a structure schema was requested and the provider
-   * successfully extracted the data (via tool call or native JSON mode).
-   * Providers handle their own extraction logic - core just uses this value.
+   * Present when a structure schema was requested and successfully extracted.
    */
   data?: unknown;
 }
 
 /**
- * Raw provider stream result
+ * Raw provider stream result.
+ *
+ * An async iterable of stream events with a Promise that resolves
+ * to the complete response after streaming finishes.
+ *
+ * @internal
  */
 export interface LLMStreamResult extends AsyncIterable<StreamEvent> {
+  /** Promise resolving to the complete response */
   readonly response: Promise<LLMResponse>;
 }
 
 /**
- * Bound LLM model - full definition
+ * Bound LLM model - full definition.
+ *
+ * Represents a model bound to a specific provider and model ID,
+ * ready to execute inference requests.
+ *
+ * @typeParam TParams - Provider-specific parameter type
  */
 export interface BoundLLMModel<TParams = unknown> {
   /** The model identifier */
@@ -187,24 +272,44 @@ export interface BoundLLMModel<TParams = unknown> {
   /** Provider API capabilities */
   readonly capabilities: LLMCapabilities;
 
-  /** Execute a single non-streaming inference request */
+  /**
+   * Executes a single non-streaming inference request.
+   *
+   * @param request - The inference request
+   * @returns Promise resolving to the response
+   */
   complete(request: LLMRequest<TParams>): Promise<LLMResponse>;
 
-  /** Execute a single streaming inference request */
+  /**
+   * Executes a single streaming inference request.
+   *
+   * @param request - The inference request
+   * @returns Stream result with events and final response
+   */
   stream(request: LLMRequest<TParams>): LLMStreamResult;
 }
 
 /**
- * LLM Handler for providers
+ * LLM Handler interface for providers.
+ *
+ * Implemented by providers to enable language model capabilities.
+ *
+ * @typeParam TParams - Provider-specific parameter type
  */
 export interface LLMHandler<TParams = unknown> {
-  /** Bind model ID to create executable model */
+  /**
+   * Binds a model ID to create an executable model instance.
+   *
+   * @param modelId - The model identifier to bind
+   * @returns A bound LLM model ready for inference
+   */
   bind(modelId: string): BoundLLMModel<TParams>;
 
   /**
-   * Internal: Set the parent provider reference.
+   * Sets the parent provider reference.
    * Called by createProvider() after the provider is constructed.
-   * This allows bind() to return models with the correct provider reference.
+   *
+   * @param provider - The parent provider
    * @internal
    */
   _setProvider?(provider: LLMProvider<TParams>): void;

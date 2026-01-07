@@ -1,4 +1,16 @@
-// Key management
+/**
+ * HTTP utilities module for unified provider protocol.
+ *
+ * This module provides comprehensive HTTP infrastructure including:
+ * - API key management with multiple strategies (round-robin, weighted, dynamic)
+ * - Retry strategies (exponential backoff, linear backoff, token bucket)
+ * - Fetch wrappers with timeout and error normalization
+ * - Server-Sent Events (SSE) stream parsing
+ * - Standardized error handling and normalization
+ *
+ * @module http
+ */
+
 export {
   resolveApiKey,
   RoundRobinKeys,
@@ -6,7 +18,6 @@ export {
   DynamicKey,
 } from './keys.ts';
 
-// Retry strategies
 export {
   ExponentialBackoff,
   LinearBackoff,
@@ -15,13 +26,10 @@ export {
   RetryAfterStrategy,
 } from './retry.ts';
 
-// HTTP fetch
 export { doFetch, doStreamFetch } from './fetch.ts';
 
-// SSE parsing
 export { parseSSEStream, parseSimpleTextStream } from './sse.ts';
 
-// Error utilities
 export {
   normalizeHttpError,
   networkError,

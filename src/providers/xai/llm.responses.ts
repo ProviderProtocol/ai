@@ -15,10 +15,12 @@ import {
   buildResponseFromState,
 } from './transform.responses.ts';
 
+/** Base URL for the xAI Responses API endpoint. */
 const XAI_RESPONSES_API_URL = 'https://api.x.ai/v1/responses';
 
 /**
- * xAI Responses API capabilities
+ * Capability declarations for the xAI Responses API.
+ * Indicates which features are supported by this OpenAI Responses-compatible API mode.
  */
 const XAI_RESPONSES_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,10 +32,45 @@ const XAI_RESPONSES_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create xAI Responses API LLM handler
+ * Creates an LLM handler for the xAI Responses API (OpenAI Responses-compatible).
+ *
+ * The Responses API provides stateful conversation support, allowing you to
+ * continue conversations across requests using `previous_response_id`. This
+ * is useful for building applications that need to maintain context over
+ * extended interactions.
+ *
+ * @returns An LLM handler configured for the Responses API
+ *
+ * @example
+ * ```typescript
+ * import { xai } from './providers/xai';
+ * import { llm } from './core/llm';
+ *
+ * // Initial request
+ * const model = llm({
+ *   model: xai('grok-4', { api: 'responses' }),
+ *   params: {
+ *     max_output_tokens: 1000,
+ *     store: true, // Enable stateful storage
+ *   }
+ * });
+ *
+ * const turn = await model.generate('Hello!');
+ * const responseId = turn.response.message.metadata?.xai?.response_id;
+ *
+ * // Continue the conversation
+ * const continuedModel = llm({
+ *   model: xai('grok-4', { api: 'responses' }),
+ *   params: {
+ *     previous_response_id: responseId,
+ *   }
+ * });
+ * ```
+ *
+ * @see {@link createCompletionsLLMHandler} for OpenAI Chat Completions mode
+ * @see {@link createMessagesLLMHandler} for Anthropic-compatible mode
  */
 export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
-  // Provider reference injected by createProvider() or xAI's custom factory
   let providerRef: LLMProvider<XAIResponsesParams> | null = null;
 
   return {
@@ -42,7 +79,6 @@ export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
     },
 
     bind(modelId: string): BoundLLMModel<XAIResponsesParams> {
-      // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',

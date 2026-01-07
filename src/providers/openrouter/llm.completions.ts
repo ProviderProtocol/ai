@@ -1,3 +1,12 @@
+/**
+ * OpenRouter Chat Completions API LLM handler.
+ *
+ * This module implements the LLMHandler interface for OpenRouter's Chat Completions API,
+ * which is compatible with the OpenAI Chat Completions API format.
+ *
+ * @module llm.completions
+ */
+
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
@@ -15,10 +24,14 @@ import {
   buildResponseFromState,
 } from './transform.completions.ts';
 
+/** Base URL for OpenRouter's Chat Completions API endpoint. */
 const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
 
 /**
- * OpenRouter API capabilities
+ * Capability flags for the OpenRouter Chat Completions API.
+ *
+ * OpenRouter supports streaming, function calling (tools), structured JSON output,
+ * and image inputs. Video and audio inputs are not currently supported.
  */
 const OPENROUTER_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,10 +43,22 @@ const OPENROUTER_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create OpenRouter Chat Completions LLM handler
+ * Creates an LLM handler for OpenRouter's Chat Completions API.
+ *
+ * This handler implements the UPP LLMHandler interface and provides
+ * both synchronous completion and streaming capabilities.
+ *
+ * @returns An LLMHandler configured for OpenRouter Chat Completions
+ *
+ * @example
+ * ```typescript
+ * const handler = createCompletionsLLMHandler();
+ * handler._setProvider(provider);
+ * const model = handler.bind('openai/gpt-4o');
+ * const response = await model.complete(request);
+ * ```
  */
 export function createCompletionsLLMHandler(): LLMHandler<OpenRouterCompletionsParams> {
-  // Provider reference injected by createProvider() or OpenRouter's custom factory
   let providerRef: LLMProvider<OpenRouterCompletionsParams> | null = null;
 
   return {
@@ -42,7 +67,6 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenRouterCompletionsP
     },
 
     bind(modelId: string): BoundLLMModel<OpenRouterCompletionsParams> {
-      // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',

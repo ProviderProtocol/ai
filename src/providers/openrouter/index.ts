@@ -6,67 +6,92 @@ import type {
 } from '../../types/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
-import type { OpenRouterCompletionsParams, OpenRouterResponsesParams, OpenRouterConfig } from './types.ts';
+import type { OpenRouterCompletionsParams, OpenRouterResponsesParams } from './types.ts';
 
-/** Union type for modalities interface */
+/**
+ * Union type for both Completions and Responses API parameter types.
+ * Used internally to type the modalities handler.
+ */
 type OpenRouterLLMParamsUnion = OpenRouterCompletionsParams | OpenRouterResponsesParams;
 
 /**
- * OpenRouter provider options
+ * Configuration options for creating an OpenRouter model reference.
+ *
+ * OpenRouter supports two distinct APIs:
+ * - Chat Completions API: Stable, production-ready, supports most models
+ * - Responses API: Beta, supports advanced features like reasoning
  */
 export interface OpenRouterProviderOptions {
   /**
-   * Which API to use:
-   * - 'completions': Chat Completions API (default, recommended)
-   * - 'responses': Responses API (beta)
+   * Which OpenRouter API to use.
+   *
+   * - `'completions'`: Chat Completions API (default, recommended for production)
+   * - `'responses'`: Responses API (beta, supports reasoning models)
    */
   api?: 'completions' | 'responses';
 }
 
 /**
- * OpenRouter provider with configurable API mode
+ * OpenRouter provider interface with configurable API mode.
  *
- * @example
- * // Using the Chat Completions API (default)
+ * OpenRouter is a unified API that provides access to hundreds of AI models
+ * through a single endpoint, including models from OpenAI, Anthropic, Google,
+ * Meta, Mistral, and many others.
+ *
+ * @example Using the Chat Completions API (default)
+ * ```typescript
  * const model = openrouter('openai/gpt-4o');
+ * ```
  *
- * @example
- * // Using the Responses API (beta)
+ * @example Using the Responses API (beta)
+ * ```typescript
  * const model = openrouter('openai/gpt-4o', { api: 'responses' });
+ * ```
  *
- * @example
- * // Explicit Completions API
+ * @example Using Anthropic models
+ * ```typescript
  * const model = openrouter('anthropic/claude-3.5-sonnet', { api: 'completions' });
+ * ```
  */
 export interface OpenRouterProvider extends Provider<OpenRouterProviderOptions> {
   /**
-   * Create a model reference
-   * @param modelId - The model identifier (e.g., 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet', 'meta-llama/llama-3.1-70b-instruct')
-   * @param options - Provider options including API selection
+   * Creates a model reference for the specified model ID.
+   *
+   * @param modelId - The OpenRouter model identifier in `provider/model` format
+   *                  (e.g., 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet',
+   *                  'meta-llama/llama-3.1-70b-instruct')
+   * @param options - Optional configuration including API selection
+   * @returns A model reference that can be passed to llm()
    */
   (modelId: string, options?: OpenRouterProviderOptions): ModelReference<OpenRouterProviderOptions>;
 
-  /** Provider name */
+  /** Provider identifier. Always 'openrouter'. */
   readonly name: 'openrouter';
 
-  /** Provider version */
+  /** Semantic version of this provider implementation. */
   readonly version: string;
 
-  /** Supported modalities */
+  /**
+   * Supported modalities for this provider.
+   * OpenRouter currently only supports LLM (text generation).
+   */
   readonly modalities: {
     llm: LLMHandler<OpenRouterLLMParamsUnion>;
   };
 }
 
 /**
- * Create the OpenRouter provider
+ * Factory function to create the OpenRouter provider singleton.
+ *
+ * Creates both Completions and Responses API handlers and manages
+ * API mode switching based on the options passed when creating model references.
+ *
+ * @returns A fully configured OpenRouter provider instance
+ * @internal
  */
 function createOpenRouterProvider(): OpenRouterProvider {
-  // Track which API mode is currently active for the modalities
-  // Default to 'completions' (unlike OpenAI which defaults to 'responses')
   let currentApiMode: 'completions' | 'responses' = 'completions';
 
-  // Create handlers eagerly so we can inject provider reference
   const completionsHandler = createCompletionsLLMHandler();
   const responsesHandler = createResponsesLLMHandler();
 
@@ -79,7 +104,6 @@ function createOpenRouterProvider(): OpenRouterProvider {
     return { modelId, provider };
   };
 
-  // Create a dynamic modalities object that returns the correct handler
   const modalities = {
     get llm(): LLMHandler<OpenRouterLLMParamsUnion> {
       return currentApiMode === 'responses'
@@ -88,7 +112,6 @@ function createOpenRouterProvider(): OpenRouterProvider {
     },
   };
 
-  // Define properties
   Object.defineProperties(fn, {
     name: {
       value: 'openrouter',
@@ -109,7 +132,6 @@ function createOpenRouterProvider(): OpenRouterProvider {
 
   const provider = fn as OpenRouterProvider;
 
-  // Inject provider reference into both handlers (spec compliance)
   completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterCompletionsParams>);
   responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterResponsesParams>);
 
@@ -117,55 +139,56 @@ function createOpenRouterProvider(): OpenRouterProvider {
 }
 
 /**
- * OpenRouter provider
- *
- * Supports both the Chat Completions API (default) and Responses API (beta).
+ * OpenRouter provider singleton.
  *
  * OpenRouter is a unified API that provides access to hundreds of AI models
  * through a single endpoint, including models from OpenAI, Anthropic, Google,
  * Meta, Mistral, and many others.
  *
- * @example
- * ```ts
+ * Supports both the Chat Completions API (default) and Responses API (beta).
+ *
+ * @example Basic usage with Chat Completions API
+ * ```typescript
  * import { openrouter } from './providers/openrouter';
  * import { llm } from './core/llm';
  *
- * // Using Chat Completions API (default, recommended)
  * const model = llm({
  *   model: openrouter('openai/gpt-4o'),
  *   params: { max_tokens: 1000 }
  * });
  *
- * // Using Responses API (beta)
+ * const turn = await model.generate('Hello!');
+ * console.log(turn.response.text);
+ * ```
+ *
+ * @example Using the Responses API (beta)
+ * ```typescript
  * const betaModel = llm({
  *   model: openrouter('openai/gpt-4o', { api: 'responses' }),
  *   params: { max_output_tokens: 1000 }
  * });
+ * ```
  *
- * // Using OpenRouter-specific features
+ * @example Model routing and fallback configuration
+ * ```typescript
  * const routedModel = llm({
  *   model: openrouter('openai/gpt-4o'),
  *   params: {
  *     max_tokens: 1000,
- *     // Fallback routing
  *     models: ['openai/gpt-4o', 'anthropic/claude-3.5-sonnet'],
  *     route: 'fallback',
- *     // Provider preferences
  *     provider: {
  *       allow_fallbacks: true,
  *       require_parameters: true,
  *     },
  *   }
  * });
- *
- * // Generate
- * const turn = await model.generate('Hello!');
- * console.log(turn.response.text);
  * ```
+ *
+ * @see {@link https://openrouter.ai/docs | OpenRouter Documentation}
  */
 export const openrouter = createOpenRouterProvider();
 
-// Re-export types
 export type {
   OpenRouterCompletionsParams,
   OpenRouterResponsesParams,

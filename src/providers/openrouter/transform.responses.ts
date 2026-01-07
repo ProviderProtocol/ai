@@ -1,3 +1,13 @@
+/**
+ * Transform utilities for OpenRouter Responses API (beta).
+ *
+ * This module handles bidirectional conversion between UPP (Unified Provider Protocol)
+ * request/response formats and OpenRouter's Responses API format. The Responses API
+ * uses a different structure than Chat Completions, with input items and output items.
+ *
+ * @module transform.responses
+ */
+
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
@@ -24,11 +34,15 @@ import type {
 } from './types.ts';
 
 /**
- * Transform UPP request to OpenRouter Responses API format
+ * Transforms a UPP LLMRequest into an OpenRouter Responses API request body.
  *
- * Params are spread directly to allow pass-through of any OpenRouter API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * Parameters are spread directly to enable pass-through of any OpenRouter API fields,
+ * even those not explicitly defined in our types. This allows developers to use new
+ * API features without waiting for library updates.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and parameters
+ * @param modelId - The OpenRouter model identifier (e.g., 'openai/gpt-4o')
+ * @returns A fully formed OpenRouter Responses API request body
  */
 export function transformRequest(
   request: LLMRequest<OpenRouterResponsesParams>,
@@ -36,19 +50,16 @@ export function transformRequest(
 ): OpenRouterResponsesRequest {
   const params = request.params ?? ({} as OpenRouterResponsesParams);
 
-  // Spread params to pass through all fields, then set required fields
   const openrouterRequest: OpenRouterResponsesRequest = {
     ...params,
     model: modelId,
     input: transformInputItems(request.messages, request.system),
   };
 
-  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     openrouterRequest.tools = request.tools.map(transformTool);
   }
 
-  // Structured output via text.format (overrides params.text if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',
@@ -77,7 +88,14 @@ export function transformRequest(
 }
 
 /**
- * Transform messages to Responses API input items
+ * Transforms UPP messages into Responses API input items.
+ *
+ * Handles system prompts, user messages, assistant messages, function calls,
+ * and tool results. Returns a string for simple single-message requests.
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt to prepend
+ * @returns Array of input items, or a simple string for single-message requests
  */
 function transformInputItems(
   messages: Message[],
@@ -98,7 +116,6 @@ function transformInputItems(
     result.push(...items);
   }
 
-  // If there's only one user message with simple text, return as string
   if (result.length === 1 && result[0]?.type === 'message') {
     const item = result[0] as { role?: string; content?: string | unknown[] };
     if (item.role === 'user' && typeof item.content === 'string') {
@@ -110,19 +127,27 @@ function transformInputItems(
 }
 
 /**
- * Filter to only valid content blocks with a type property
+ * Filters content blocks to only those with a valid type property.
+ *
+ * @param content - Array of content blocks to filter
+ * @returns Filtered array containing only blocks with string type properties
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
 }
 
 /**
- * Transform a UPP Message to OpenRouter Responses API input items
+ * Transforms a single UPP message to Responses API input items.
+ *
+ * May return multiple input items for messages containing tool calls,
+ * as function_call items must be separate from message items.
+ *
+ * @param message - The UPP message to transform
+ * @returns Array of Responses API input items
  */
 function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
   if (isUserMessage(message)) {
     const validContent = filterValidContent(message.content);
-    // Check if we can use simple string content
     if (validContent.length === 1 && validContent[0]?.type === 'text') {
       return [
         {
@@ -145,7 +170,6 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
     const validContent = filterValidContent(message.content);
     const items: OpenRouterResponsesInputItem[] = [];
 
-    // Add message content - only text parts for assistant messages
     const contentParts: OpenRouterResponsesContentPart[] = validContent
       .filter((c): c is TextBlock => c.type === 'text')
       .map((c): OpenRouterResponsesContentPart => ({
@@ -154,10 +178,8 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
         annotations: [],
       }));
 
-    // Get message id from metadata or generate one
     const messageId = message.id ?? `msg_${Date.now()}`;
 
-    // Add assistant message if we have text content
     if (contentParts.length > 0) {
       items.push({
         type: 'message',
@@ -168,7 +190,6 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
       });
     }
 
-    // Add function_call items for each tool call (must precede function_call_output)
     const openrouterMeta = message.metadata?.openrouter as
       | { functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }> }
       | undefined;
@@ -200,7 +221,6 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
   }
 
   if (isToolResultMessage(message)) {
-    // Tool results are function_call_output items
     return message.results.map((result, index) => ({
       type: 'function_call_output' as const,
       id: `fco_${result.toolCallId}_${index}`,
@@ -216,7 +236,14 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
 }
 
 /**
- * Transform a content block to Responses API format
+ * Transforms a UPP content block to Responses API content part format.
+ *
+ * Supports text and image content types. Images are converted to data URLs
+ * or passed through as URL references.
+ *
+ * @param block - The UPP content block to transform
+ * @returns Responses API content part
+ * @throws Error if the content type is unsupported
  */
 function transformContentPart(block: ContentBlock): OpenRouterResponsesContentPart {
   switch (block.type) {
@@ -264,7 +291,10 @@ function transformContentPart(block: ContentBlock): OpenRouterResponsesContentPa
 }
 
 /**
- * Transform a UPP Tool to Responses API format
+ * Transforms a UPP Tool definition to Responses API function tool format.
+ *
+ * @param tool - The UPP tool definition
+ * @returns Responses API function tool definition
  */
 function transformTool(tool: Tool): OpenRouterResponsesTool {
   return {
@@ -283,10 +313,15 @@ function transformTool(tool: Tool): OpenRouterResponsesTool {
 }
 
 /**
- * Transform OpenRouter Responses API response to UPP LLMResponse
+ * Transforms an OpenRouter Responses API response to UPP LLMResponse format.
+ *
+ * Extracts text content, tool calls, usage statistics, and stop reason from
+ * the Responses API output items. Handles refusals and structured output parsing.
+ *
+ * @param data - The raw OpenRouter Responses API response
+ * @returns UPP-formatted LLM response
  */
 export function transformResponse(data: OpenRouterResponsesResponse): LLMResponse {
-  // Extract text content and tool calls from output items
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   const functionCallItems: Array<{
@@ -304,13 +339,11 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
       for (const content of messageItem.content) {
         if (content.type === 'output_text') {
           textContent.push({ type: 'text', text: content.text });
-          // Try to parse as JSON for structured output (native JSON mode)
-          // Only set data if text is valid JSON
           if (structuredData === undefined) {
             try {
               structuredData = JSON.parse(content.text);
             } catch {
-              // Not valid JSON - that's fine, might not be structured output
+              // Content is not JSON - acceptable for non-structured responses
             }
           }
         } else if (content.type === 'refusal') {
@@ -324,7 +357,7 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
       try {
         args = JSON.parse(functionCall.arguments);
       } catch {
-        // Invalid JSON - use empty object
+        // Invalid JSON arguments - use empty object as fallback
       }
       toolCalls.push({
         toolCallId: functionCall.call_id,
@@ -364,7 +397,6 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
     totalTokens: data.usage.total_tokens,
   };
 
-  // Map status to stop reason
   let stopReason = 'end_turn';
   if (data.status === 'completed') {
     stopReason = toolCalls.length > 0 ? 'tool_use' : 'end_turn';
@@ -388,24 +420,37 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
 }
 
 /**
- * State for accumulating streaming response
+ * Mutable state object for accumulating Responses API streaming data.
+ *
+ * Used during streaming to collect text deltas, tool call fragments,
+ * and usage statistics before building the final LLMResponse.
  */
 export interface ResponsesStreamState {
+  /** Response ID from the created event */
   id: string;
+  /** Model identifier from the response */
   model: string;
+  /** Map of output index to accumulated text content */
   textByIndex: Map<number, string>;
+  /** Map of output index to accumulated tool call data */
   toolCalls: Map<
     number,
     { itemId?: string; callId?: string; name?: string; arguments: string }
   >;
+  /** Current response status */
   status: string;
+  /** Input token count from usage */
   inputTokens: number;
+  /** Output token count from usage */
   outputTokens: number;
+  /** Whether a refusal was encountered */
   hadRefusal: boolean;
 }
 
 /**
- * Create initial stream state
+ * Creates an empty stream state object for accumulating Responses API streaming data.
+ *
+ * @returns A new ResponsesStreamState with all fields initialized
  */
 export function createStreamState(): ResponsesStreamState {
   return {
@@ -421,8 +466,15 @@ export function createStreamState(): ResponsesStreamState {
 }
 
 /**
- * Transform OpenRouter Responses API stream event to UPP StreamEvent
- * Returns array since one event may produce multiple UPP events
+ * Transforms an OpenRouter Responses API streaming event into UPP StreamEvents.
+ *
+ * Handles the various Responses API event types including response lifecycle events,
+ * output item events, content deltas, function call arguments, and reasoning deltas.
+ * Updates the provided state object with accumulated data.
+ *
+ * @param event - The OpenRouter Responses API streaming event to process
+ * @param state - The mutable state object to update with event data
+ * @returns Array of UPP StreamEvents generated from this event
  */
 export function transformStreamEvent(
   event: OpenRouterResponsesStreamEvent,
@@ -443,15 +495,11 @@ export function transformStreamEvent(
 
     case 'response.completed':
     case 'response.done':
-      // Handle both event type names (OpenRouter docs show response.done)
       state.status = 'completed';
       if (event.response?.usage) {
         state.inputTokens = event.response.usage.input_tokens;
         state.outputTokens = event.response.usage.output_tokens;
       }
-      // CRITICAL: OpenRouter's streaming doesn't send function call arguments incrementally.
-      // They only appear in the final response.completed event's output array.
-      // We must extract them here to populate state.toolCalls with actual arguments.
       if (event.response?.output) {
         for (let i = 0; i < event.response.output.length; i++) {
           const item = event.response.output[i];
@@ -461,7 +509,6 @@ export function transformStreamEvent(
             existing.itemId = functionCall.id ?? existing.itemId;
             existing.callId = functionCall.call_id ?? existing.callId;
             existing.name = functionCall.name ?? existing.name;
-            // This is the key fix: get arguments from the completed response
             if (functionCall.arguments) {
               existing.arguments = functionCall.arguments;
             }
@@ -538,8 +585,6 @@ export function transformStreamEvent(
 
     case 'response.content_part.delta':
     case 'response.output_text.delta': {
-      // Handle both event type names (OpenRouter docs vs OpenAI-style)
-      // Accumulate text
       const textDelta = (event as { delta: string }).delta;
       const currentText = state.textByIndex.get(event.output_index) ?? '';
       state.textByIndex.set(event.output_index, currentText + textDelta);
@@ -553,7 +598,6 @@ export function transformStreamEvent(
 
     case 'response.output_text.done':
     case 'response.content_part.done':
-      // Handle both event type names
       if ('text' in event) {
         state.textByIndex.set(event.output_index, (event as { text: string }).text);
       }
@@ -577,7 +621,6 @@ export function transformStreamEvent(
       break;
 
     case 'response.function_call_arguments.delta': {
-      // Accumulate function call arguments
       let toolCall = state.toolCalls.get(event.output_index);
       if (!toolCall) {
         toolCall = { arguments: '' };
@@ -603,7 +646,6 @@ export function transformStreamEvent(
     }
 
     case 'response.function_call_arguments.done': {
-      // Finalize function call
       let toolCall = state.toolCalls.get(event.output_index);
       if (!toolCall) {
         toolCall = { arguments: '' };
@@ -630,11 +672,9 @@ export function transformStreamEvent(
       break;
 
     case 'error':
-      // Error events are handled at the handler level
       break;
 
     default:
-      // Ignore other events
       break;
   }
 
@@ -642,22 +682,26 @@ export function transformStreamEvent(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Builds the final LLMResponse from accumulated Responses API streaming state.
+ *
+ * Constructs the complete response after streaming has finished, including
+ * the assistant message, tool calls, usage statistics, and stop reason.
+ *
+ * @param state - The accumulated stream state
+ * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
   const textContent: TextBlock[] = [];
   let structuredData: unknown;
 
-  // Combine all text content
   for (const [, text] of state.textByIndex) {
     if (text) {
       textContent.push({ type: 'text', text });
-      // Try to parse as JSON for structured output (native JSON mode)
       if (structuredData === undefined) {
         try {
           structuredData = JSON.parse(text);
         } catch {
-          // Not valid JSON - that's fine, might not be structured output
+          // Content is not JSON - acceptable for non-structured responses
         }
       }
     }
@@ -676,7 +720,7 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
       try {
         args = JSON.parse(toolCall.arguments);
       } catch {
-        // Invalid JSON - use empty object
+        // Invalid JSON arguments - use empty object as fallback
       }
     }
     const itemId = toolCall.itemId ?? '';
@@ -722,7 +766,6 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     totalTokens: state.inputTokens + state.outputTokens,
   };
 
-  // Map status to stop reason
   let stopReason = 'end_turn';
   if (state.status === 'completed') {
     stopReason = toolCalls.length > 0 ? 'tool_use' : 'end_turn';

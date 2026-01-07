@@ -1,20 +1,46 @@
+/**
+ * @fileoverview Turn types for inference results.
+ *
+ * A Turn represents the complete result of one inference call, including
+ * all messages produced during tool execution loops, token usage, and
+ * optional structured output data.
+ *
+ * @module types/turn
+ */
+
 import type { Message, AssistantMessage } from './messages.ts';
 import type { ToolExecution } from './tool.ts';
 
 /**
- * Token usage information
+ * Token usage information for an inference request.
+ *
+ * Tracks input and output tokens across all inference cycles,
+ * with optional per-cycle breakdown.
+ *
+ * @example
+ * ```typescript
+ * const usage: TokenUsage = {
+ *   inputTokens: 150,
+ *   outputTokens: 50,
+ *   totalTokens: 200,
+ *   cycles: [
+ *     { inputTokens: 100, outputTokens: 30 },
+ *     { inputTokens: 50, outputTokens: 20 }
+ *   ]
+ * };
+ * ```
  */
 export interface TokenUsage {
-  /** Input tokens across all cycles */
+  /** Total input tokens across all cycles */
   inputTokens: number;
 
-  /** Output tokens across all cycles */
+  /** Total output tokens across all cycles */
   outputTokens: number;
 
-  /** Total tokens */
+  /** Sum of input and output tokens */
   totalTokens: number;
 
-  /** Per-cycle breakdown (if available) */
+  /** Per-cycle token breakdown (if multiple cycles occurred) */
   cycles?: Array<{
     inputTokens: number;
     outputTokens: number;
@@ -22,17 +48,34 @@ export interface TokenUsage {
 }
 
 /**
- * A Turn represents the complete result of one inference call,
- * including all messages produced during tool execution loops.
+ * A Turn represents the complete result of one inference call.
+ *
+ * Includes all messages produced during tool execution loops,
+ * the final assistant response, token usage, and optional
+ * structured output data.
+ *
+ * @typeParam TData - Type of the structured output data
+ *
+ * @example
+ * ```typescript
+ * const turn = await instance.generate('Hello');
+ * console.log(turn.response.text);
+ * console.log(`Used ${turn.usage.totalTokens} tokens in ${turn.cycles} cycles`);
+ *
+ * // With structured output
+ * interface WeatherData { temperature: number; conditions: string; }
+ * const turn = await instance.generate<WeatherData>('Get weather');
+ * console.log(turn.data?.temperature);
+ * ```
  */
 export interface Turn<TData = unknown> {
   /**
    * All messages produced during this inference, in chronological order.
-   * Types: UserMessage, AssistantMessage (may include toolCalls), ToolResultMessage
+   * Includes UserMessage, AssistantMessage (may include toolCalls), and ToolResultMessage.
    */
   readonly messages: Message[];
 
-  /** The final assistant response (convenience accessor) */
+  /** The final assistant response (last AssistantMessage in the turn) */
   readonly response: AssistantMessage;
 
   /** Tool executions that occurred during this turn */
@@ -45,14 +88,33 @@ export interface Turn<TData = unknown> {
   readonly cycles: number;
 
   /**
-   * Structured output data (if structure was provided).
+   * Structured output data (if a structure schema was provided).
    * Type is inferred from the schema when using TypeScript.
    */
   readonly data?: TData;
 }
 
 /**
- * Create a Turn from accumulated data
+ * Creates a Turn from accumulated inference data.
+ *
+ * @typeParam TData - Type of the structured output data
+ * @param messages - All messages produced during the inference
+ * @param toolExecutions - Record of all tool executions
+ * @param usage - Aggregate token usage
+ * @param cycles - Number of inference cycles
+ * @param data - Optional structured output data
+ * @returns A complete Turn object
+ * @throws Error if no assistant message is found in the messages
+ *
+ * @example
+ * ```typescript
+ * const turn = createTurn(
+ *   [userMsg, assistantMsg],
+ *   [],
+ *   { inputTokens: 100, outputTokens: 50, totalTokens: 150 },
+ *   1
+ * );
+ * ```
  */
 export function createTurn<TData = unknown>(
   messages: Message[],
@@ -61,7 +123,6 @@ export function createTurn<TData = unknown>(
   cycles: number,
   data?: TData
 ): Turn<TData> {
-  // Find the last assistant message as the response
   const response = messages
     .filter((m): m is AssistantMessage => m.type === 'assistant')
     .pop();
@@ -81,7 +142,15 @@ export function createTurn<TData = unknown>(
 }
 
 /**
- * Create empty token usage
+ * Creates an empty TokenUsage object.
+ *
+ * @returns A TokenUsage with all values set to zero
+ *
+ * @example
+ * ```typescript
+ * const usage = emptyUsage();
+ * // { inputTokens: 0, outputTokens: 0, totalTokens: 0, cycles: [] }
+ * ```
  */
 export function emptyUsage(): TokenUsage {
   return {
@@ -93,7 +162,18 @@ export function emptyUsage(): TokenUsage {
 }
 
 /**
- * Aggregate token usage from multiple cycles
+ * Aggregates token usage from multiple inference cycles.
+ *
+ * @param usages - Array of TokenUsage objects to aggregate
+ * @returns Combined TokenUsage with per-cycle breakdown
+ *
+ * @example
+ * ```typescript
+ * const cycle1 = { inputTokens: 100, outputTokens: 30, totalTokens: 130 };
+ * const cycle2 = { inputTokens: 150, outputTokens: 40, totalTokens: 190 };
+ * const total = aggregateUsage([cycle1, cycle2]);
+ * // { inputTokens: 250, outputTokens: 70, totalTokens: 320, cycles: [...] }
+ * ```
  */
 export function aggregateUsage(usages: TokenUsage[]): TokenUsage {
   const cycles: TokenUsage['cycles'] = [];

@@ -1,6 +1,21 @@
 /**
- * xAI Chat Completions API parameters (OpenAI-compatible)
- * These are passed through to the /v1/chat/completions endpoint
+ * xAI Chat Completions API parameters (OpenAI-compatible).
+ *
+ * These parameters are passed through to the xAI `/v1/chat/completions` endpoint.
+ * The API is fully compatible with OpenAI's Chat Completions API, allowing seamless
+ * migration between providers.
+ *
+ * @example
+ * ```typescript
+ * const params: XAICompletionsParams = {
+ *   max_tokens: 1000,
+ *   temperature: 0.7,
+ *   reasoning_effort: 'high', // Grok 3 Mini only
+ * };
+ * ```
+ *
+ * @see {@link XAIResponsesParams} for Responses API parameters
+ * @see {@link XAIMessagesParams} for Messages API parameters
  */
 export interface XAICompletionsParams {
   /** Maximum number of tokens to generate */
@@ -68,8 +83,24 @@ export interface XAICompletionsParams {
 }
 
 /**
- * xAI Responses API parameters (OpenAI Responses-compatible)
- * These are passed through to the /v1/responses endpoint
+ * xAI Responses API parameters (OpenAI Responses-compatible).
+ *
+ * These parameters are passed through to the xAI `/v1/responses` endpoint.
+ * The Responses API provides stateful conversation support with features like
+ * `previous_response_id` for continuing conversations across requests.
+ *
+ * @example
+ * ```typescript
+ * const params: XAIResponsesParams = {
+ *   max_output_tokens: 1000,
+ *   temperature: 0.7,
+ *   store: true, // Enable stateful storage
+ *   previous_response_id: 'resp_123...', // Continue previous conversation
+ * };
+ * ```
+ *
+ * @see {@link XAICompletionsParams} for Chat Completions API parameters
+ * @see {@link XAIMessagesParams} for Messages API parameters
  */
 export interface XAIResponsesParams {
   /** Maximum output tokens */
@@ -117,8 +148,23 @@ export interface XAIResponsesParams {
 }
 
 /**
- * xAI Messages API parameters (Anthropic-compatible)
- * These are passed through to the /v1/messages endpoint
+ * xAI Messages API parameters (Anthropic-compatible).
+ *
+ * These parameters are passed through to the xAI `/v1/messages` endpoint.
+ * The API is compatible with Anthropic's Messages API, allowing developers
+ * migrating from Anthropic to use familiar patterns.
+ *
+ * @example
+ * ```typescript
+ * const params: XAIMessagesParams = {
+ *   max_tokens: 1000,
+ *   temperature: 0.7,
+ *   thinking: { type: 'enabled', budget_tokens: 500 }, // Extended thinking
+ * };
+ * ```
+ *
+ * @see {@link XAICompletionsParams} for Chat Completions API parameters
+ * @see {@link XAIResponsesParams} for Responses API parameters
  */
 export interface XAIMessagesParams {
   /** Maximum number of tokens to generate */
@@ -149,36 +195,46 @@ export interface XAIMessagesParams {
 }
 
 /**
- * API mode for xAI provider
+ * API mode selector for the xAI provider.
+ *
+ * xAI supports three distinct API modes, each with different capabilities:
+ * - `completions`: OpenAI Chat Completions compatible (recommended, default)
+ * - `responses`: OpenAI Responses compatible with stateful conversations
+ * - `messages`: Anthropic Messages compatible for easy migration
  */
 export type XAIAPIMode = 'completions' | 'responses' | 'messages';
 
 /**
- * Model options when creating a model reference
+ * Options for configuring an xAI model reference.
  */
 export interface XAIModelOptions {
-  /** Which API to use */
+  /** The API mode to use for this model */
   api?: XAIAPIMode;
 }
 
 /**
- * Model reference with xAI-specific options
+ * A reference to an xAI model with optional configuration.
  */
 export interface XAIModelReference {
+  /** The xAI model identifier (e.g., 'grok-4', 'grok-3-mini') */
   modelId: string;
+  /** Optional model-specific options */
   options?: XAIModelOptions;
 }
 
 /**
- * xAI provider configuration
+ * Configuration options for the xAI provider.
  */
 export interface XAIConfig {
-  /** Which API to use: 'completions', 'responses', or 'messages' */
+  /** The API mode to use (defaults to 'completions') */
   api?: XAIAPIMode;
 }
 
 /**
- * Live Search parameters (deprecated)
+ * Live Search parameters for real-time web search integration.
+ *
+ * @deprecated Live Search API will be removed on December 15, 2025.
+ * Use the Agent Tools API with `web_search` tool instead.
  */
 export interface XAISearchParameters {
   /** Search mode */
@@ -194,9 +250,18 @@ export interface XAISearchParameters {
 }
 
 /**
- * Server-side agentic tools
+ * Server-side agentic tool configuration.
+ *
+ * These tools run on xAI's servers and provide capabilities like
+ * web search, X (Twitter) search, and code execution.
+ *
+ * @example
+ * ```typescript
+ * const tool: XAIAgentTool = { type: 'web_search' };
+ * ```
  */
 export interface XAIAgentTool {
+  /** The type of server-side tool to enable */
   type: 'web_search' | 'x_search' | 'code_execution';
 }
 
@@ -205,7 +270,10 @@ export interface XAIAgentTool {
 // ============================================
 
 /**
- * Chat Completions API request body
+ * Request body for the xAI Chat Completions API.
+ *
+ * This interface represents the full request structure sent to `/v1/chat/completions`.
+ * It follows the OpenAI Chat Completions API specification.
  */
 export interface XAICompletionsRequest {
   model: string;
@@ -236,7 +304,7 @@ export interface XAICompletionsRequest {
 }
 
 /**
- * Chat Completions message format
+ * Union type for all message roles in the Chat Completions API.
  */
 export type XAICompletionsMessage =
   | XAISystemMessage
@@ -244,18 +312,21 @@ export type XAICompletionsMessage =
   | XAIAssistantMessage
   | XAIToolMessage;
 
+/** System message for setting context and instructions. */
 export interface XAISystemMessage {
   role: 'system';
   content: string;
   name?: string;
 }
 
+/** User message containing the user's input. */
 export interface XAIUserMessage {
   role: 'user';
   content: string | XAIUserContent[];
   name?: string;
 }
 
+/** Assistant message containing the model's response. */
 export interface XAIAssistantMessage {
   role: 'assistant';
   content?: string | null;
@@ -264,6 +335,7 @@ export interface XAIAssistantMessage {
   refusal?: string | null;
 }
 
+/** Tool result message containing the output of a tool call. */
 export interface XAIToolMessage {
   role: 'tool';
   content: string;
@@ -271,55 +343,71 @@ export interface XAIToolMessage {
 }
 
 /**
- * User content types
+ * Union type for content within user messages.
  */
 export type XAIUserContent = XAITextContent | XAIImageContent;
 
+/** Text content block. */
 export interface XAITextContent {
   type: 'text';
   text: string;
 }
 
+/** Image content block with URL reference. */
 export interface XAIImageContent {
   type: 'image_url';
   image_url: {
+    /** Image URL (supports data: URLs for base64) */
     url: string;
+    /** Image processing detail level */
     detail?: 'auto' | 'low' | 'high';
   };
 }
 
 /**
- * Tool call format
+ * A tool call made by the assistant.
  */
 export interface XAIToolCall {
+  /** Unique identifier for this tool call */
   id: string;
   type: 'function';
   function: {
+    /** Name of the function to call */
     name: string;
+    /** JSON-encoded function arguments */
     arguments: string;
   };
 }
 
 /**
- * Tool definition for Chat Completions
+ * Tool definition for the Chat Completions API.
  */
 export interface XAICompletionsTool {
   type: 'function';
   function: {
+    /** Unique name for the tool */
     name: string;
+    /** Description of what the tool does */
     description: string;
+    /** JSON Schema defining the tool's parameters */
     parameters: {
       type: 'object';
       properties: Record<string, unknown>;
       required?: string[];
       additionalProperties?: boolean;
     };
+    /** Enable strict mode for parameter validation */
     strict?: boolean;
   };
 }
 
 /**
- * Tool choice options
+ * Controls how the model selects which tools to use.
+ *
+ * - `'none'`: Never use tools
+ * - `'auto'`: Let the model decide when to use tools
+ * - `'required'`: Force the model to use at least one tool
+ * - `{ type: 'function', function: { name: string } }`: Force a specific tool
  */
 export type XAIToolChoice =
   | 'none'
@@ -328,7 +416,11 @@ export type XAIToolChoice =
   | { type: 'function'; function: { name: string } };
 
 /**
- * Response format
+ * Specifies the output format for structured responses.
+ *
+ * - `{ type: 'text' }`: Plain text output (default)
+ * - `{ type: 'json_object' }`: JSON output with flexible schema
+ * - `{ type: 'json_schema', ... }`: JSON output with strict schema validation
  */
 export type XAIResponseFormat =
   | { type: 'text' }
@@ -344,29 +436,41 @@ export type XAIResponseFormat =
     };
 
 /**
- * Chat Completions response format
+ * Response from the Chat Completions API.
  */
 export interface XAICompletionsResponse {
+  /** Unique response identifier */
   id: string;
   object: 'chat.completion';
+  /** Unix timestamp of creation */
   created: number;
+  /** Model used for generation */
   model: string;
+  /** Generated completion choices */
   choices: XAICompletionsChoice[];
+  /** Token usage statistics */
   usage: XAIUsage;
+  /** Server-side fingerprint for reproducibility */
   system_fingerprint?: string;
-  /** Citations from live search */
+  /** Citation URLs from Live Search */
   citations?: string[];
-  /** Inline citations in response */
+  /** Inline citations with text and URL */
   inline_citations?: Array<{ text: string; url: string }>;
 }
 
+/** A single completion choice from the API response. */
 export interface XAICompletionsChoice {
+  /** Index of this choice in the choices array */
   index: number;
+  /** The generated assistant message */
   message: XAIAssistantMessage;
+  /** Reason the model stopped generating */
   finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null;
+  /** Log probabilities for tokens (if requested) */
   logprobs?: XAILogprobs | null;
 }
 
+/** Token log probabilities for debugging and analysis. */
 export interface XAILogprobs {
   content?: Array<{
     token: string;
@@ -380,14 +484,20 @@ export interface XAILogprobs {
   }>;
 }
 
+/** Token usage statistics for billing and monitoring. */
 export interface XAIUsage {
+  /** Tokens in the prompt */
   prompt_tokens: number;
+  /** Tokens in the completion */
   completion_tokens: number;
+  /** Total tokens used */
   total_tokens: number;
+  /** Breakdown of prompt token types */
   prompt_tokens_details?: {
     cached_tokens?: number;
     audio_tokens?: number;
   };
+  /** Breakdown of completion token types */
   completion_tokens_details?: {
     reasoning_tokens?: number;
     audio_tokens?: number;
@@ -395,38 +505,56 @@ export interface XAIUsage {
 }
 
 /**
- * Chat Completions streaming event types
+ * A streaming chunk from the Chat Completions API.
  */
 export interface XAICompletionsStreamChunk {
+  /** Response identifier (same across all chunks) */
   id: string;
   object: 'chat.completion.chunk';
+  /** Unix timestamp of creation */
   created: number;
+  /** Model used for generation */
   model: string;
+  /** Streaming choices with deltas */
   choices: XAICompletionsStreamChoice[];
+  /** Token usage (only present in final chunk with stream_options.include_usage) */
   usage?: XAIUsage | null;
+  /** Server-side fingerprint */
   system_fingerprint?: string;
 }
 
+/** A streaming choice containing delta updates. */
 export interface XAICompletionsStreamChoice {
   index: number;
+  /** Incremental content update */
   delta: XAICompletionsStreamDelta;
+  /** Non-null when generation is complete */
   finish_reason: 'stop' | 'length' | 'tool_calls' | 'content_filter' | null;
   logprobs?: XAILogprobs | null;
 }
 
+/** Delta update containing new content. */
 export interface XAICompletionsStreamDelta {
   role?: 'assistant';
+  /** New text content */
   content?: string | null;
+  /** Tool call updates */
   tool_calls?: XAIStreamToolCall[];
+  /** Refusal message */
   refusal?: string | null;
 }
 
+/** Streaming tool call with incremental argument updates. */
 export interface XAIStreamToolCall {
+  /** Index within the tool_calls array */
   index: number;
+  /** Tool call ID (present in first chunk for this call) */
   id?: string;
   type?: 'function';
   function?: {
+    /** Function name (present in first chunk) */
     name?: string;
+    /** Incremental JSON argument fragment */
     arguments?: string;
   };
 }
@@ -436,7 +564,10 @@ export interface XAIStreamToolCall {
 // ============================================
 
 /**
- * Responses API request body
+ * Request body for the xAI Responses API.
+ *
+ * This interface represents the full request structure sent to `/v1/responses`.
+ * The Responses API supports stateful conversations via `previous_response_id`.
  */
 export interface XAIResponsesRequest {
   model: string;
@@ -462,7 +593,7 @@ export interface XAIResponsesRequest {
 }
 
 /**
- * Responses API input item
+ * Union type for input items in the Responses API.
  */
 export type XAIResponsesInputItem =
   | XAIResponsesSystemItem
@@ -471,58 +602,75 @@ export type XAIResponsesInputItem =
   | XAIResponsesFunctionCallInputItem
   | XAIResponsesToolResultItem;
 
+/** System or developer message for the Responses API. */
 export interface XAIResponsesSystemItem {
   type: 'message';
   role: 'system' | 'developer';
   content: string | XAIResponsesContentPart[];
 }
 
+/** User message for the Responses API. */
 export interface XAIResponsesUserItem {
   type: 'message';
   role: 'user';
   content: string | XAIResponsesContentPart[];
 }
 
+/** Assistant message for the Responses API. */
 export interface XAIResponsesAssistantItem {
   type: 'message';
   role: 'assistant';
   content: string | XAIResponsesContentPart[];
 }
 
+/** Function call input item for multi-turn tool conversations. */
 export interface XAIResponsesFunctionCallInputItem {
   type: 'function_call';
+  /** Unique item identifier */
   id: string;
+  /** Call identifier for matching with output */
   call_id: string;
+  /** Function name */
   name: string;
+  /** JSON-encoded arguments */
   arguments: string;
 }
 
+/** Tool result item containing function output. */
 export interface XAIResponsesToolResultItem {
   type: 'function_call_output';
+  /** Call identifier matching the function_call */
   call_id: string;
+  /** String output from the function */
   output: string;
 }
 
 /**
- * Content parts for Responses API
+ * Union type for content parts within Responses API messages.
  */
 export type XAIResponsesContentPart =
   | XAIResponsesTextPart
   | XAIResponsesImagePart
   | XAIResponsesFunctionCallPart;
 
+/** Text content part for input or output. */
 export interface XAIResponsesTextPart {
   type: 'input_text' | 'output_text';
   text: string;
 }
 
+/** Image content part for input. */
 export interface XAIResponsesImagePart {
   type: 'input_image';
+  /** Image URL (including data: URLs) */
   image_url?: string;
-  image?: string; // base64
+  /** Base64-encoded image data */
+  image?: string;
+  /** Image processing detail level */
   detail?: 'auto' | 'low' | 'high';
 }
 
+/** Function call content part. */
 export interface XAIResponsesFunctionCallPart {
   type: 'function_call';
   id: string;
@@ -532,23 +680,27 @@ export interface XAIResponsesFunctionCallPart {
 }
 
 /**
- * Tool definition for Responses API
+ * Tool definition for the Responses API.
  */
 export interface XAIResponsesTool {
   type: 'function';
+  /** Unique name for the tool */
   name: string;
+  /** Description of what the tool does */
   description: string;
+  /** JSON Schema defining the tool's parameters */
   parameters: {
     type: 'object';
     properties: Record<string, unknown>;
     required?: string[];
     additionalProperties?: boolean;
   };
+  /** Enable strict mode for parameter validation */
   strict?: boolean;
 }
 
 /**
- * Tool choice for Responses API
+ * Controls how the model selects which tools to use in the Responses API.
  */
 export type XAIResponsesToolChoice =
   | 'none'
@@ -557,9 +709,10 @@ export type XAIResponsesToolChoice =
   | { type: 'function'; name: string };
 
 /**
- * Text configuration for structured output
+ * Text output configuration for structured responses in the Responses API.
  */
 export interface XAIResponsesTextConfig {
+  /** Output format specification */
   format?:
     | { type: 'text' }
     | { type: 'json_object' }
@@ -573,64 +726,90 @@ export interface XAIResponsesTextConfig {
 }
 
 /**
- * Responses API response format
+ * Response from the Responses API.
  */
 export interface XAIResponsesResponse {
+  /** Unique response identifier (used as previous_response_id for continuation) */
   id: string;
   object: 'response';
+  /** Unix timestamp of creation */
   created_at: number;
+  /** Model used for generation */
   model: string;
+  /** Generated output items */
   output: XAIResponsesOutputItem[];
+  /** Token usage statistics */
   usage: XAIResponsesUsage;
+  /** Current response status */
   status: 'completed' | 'failed' | 'incomplete' | 'in_progress';
+  /** Error details if status is 'failed' */
   error?: {
     code: string;
     message: string;
   };
+  /** Details about why response is incomplete */
   incomplete_details?: {
     reason: string;
   };
-  /** Citations from live search */
+  /** Citation URLs from Live Search */
   citations?: string[];
-  /** Inline citations in response */
+  /** Inline citations with text and URL */
   inline_citations?: Array<{ text: string; url: string }>;
 }
 
+/** Union type for output items in Responses API responses. */
 export type XAIResponsesOutputItem =
   | XAIResponsesMessageOutput
   | XAIResponsesFunctionCallOutput;
 
+/** Message output item containing text or refusal content. */
 export interface XAIResponsesMessageOutput {
   type: 'message';
+  /** Unique output item identifier */
   id: string;
   role: 'assistant';
+  /** Content blocks within this message */
   content: XAIResponsesOutputContent[];
+  /** Generation status for this item */
   status: 'completed' | 'in_progress';
 }
 
+/** Function call output item representing a tool invocation. */
 export interface XAIResponsesFunctionCallOutput {
   type: 'function_call';
+  /** Unique item identifier */
   id: string;
+  /** Call identifier for matching with function_call_output */
   call_id: string;
+  /** Function name */
   name: string;
+  /** JSON-encoded arguments */
   arguments: string;
+  /** Generation status for this item */
   status: 'completed' | 'in_progress';
 }
 
+/** Union type for output content within message items. */
 export type XAIResponsesOutputContent =
   | { type: 'output_text'; text: string; annotations?: unknown[] }
   | { type: 'refusal'; refusal: string };
 
+/** Token usage statistics for the Responses API. */
 export interface XAIResponsesUsage {
+  /** Tokens in the input */
   input_tokens: number;
+  /** Tokens in the output */
   output_tokens: number;
+  /** Total tokens used */
   total_tokens: number;
+  /** Breakdown of input token types */
   input_tokens_details?: {
     cached_tokens?: number;
     text_tokens?: number;
     image_tokens?: number;
     audio_tokens?: number;
   };
+  /** Breakdown of output token types */
   output_tokens_details?: {
     text_tokens?: number;
     reasoning_tokens?: number;
@@ -639,7 +818,7 @@ export interface XAIResponsesUsage {
 }
 
 /**
- * Responses API streaming event types
+ * Union type for all streaming events in the Responses API.
  */
 export type XAIResponsesStreamEvent =
   | XAIResponseCreatedEvent
@@ -658,38 +837,45 @@ export type XAIResponsesStreamEvent =
   | XAIResponseFunctionCallArgumentsDoneEvent
   | XAIResponseErrorEvent;
 
+/** Emitted when a response is first created. */
 export interface XAIResponseCreatedEvent {
   type: 'response.created';
   response: XAIResponsesResponse;
 }
 
+/** Emitted when response generation is in progress. */
 export interface XAIResponseInProgressEvent {
   type: 'response.in_progress';
   response: XAIResponsesResponse;
 }
 
+/** Emitted when response generation completes successfully. */
 export interface XAIResponseCompletedEvent {
   type: 'response.completed';
   response: XAIResponsesResponse;
 }
 
+/** Emitted when response generation fails. */
 export interface XAIResponseFailedEvent {
   type: 'response.failed';
   response: XAIResponsesResponse;
 }
 
+/** Emitted when a new output item is added to the response. */
 export interface XAIResponseOutputItemAddedEvent {
   type: 'response.output_item.added';
   output_index: number;
   item: XAIResponsesOutputItem;
 }
 
+/** Emitted when an output item generation is complete. */
 export interface XAIResponseOutputItemDoneEvent {
   type: 'response.output_item.done';
   output_index: number;
   item: XAIResponsesOutputItem;
 }
 
+/** Emitted when a content part is added to an output item. */
 export interface XAIResponseContentPartAddedEvent {
   type: 'response.content_part.added';
   output_index: number;
@@ -697,6 +883,7 @@ export interface XAIResponseContentPartAddedEvent {
   part: XAIResponsesOutputContent;
 }
 
+/** Emitted when a content part generation is complete. */
 export interface XAIResponseContentPartDoneEvent {
   type: 'response.content_part.done';
   output_index: number;
@@ -704,20 +891,25 @@ export interface XAIResponseContentPartDoneEvent {
   part: XAIResponsesOutputContent;
 }
 
+/** Emitted for incremental text content updates. */
 export interface XAIResponseTextDeltaEvent {
   type: 'response.output_text.delta';
   output_index: number;
   content_index: number;
+  /** The new text fragment */
   delta: string;
 }
 
+/** Emitted when text content generation is complete. */
 export interface XAIResponseTextDoneEvent {
   type: 'response.output_text.done';
   output_index: number;
   content_index: number;
+  /** The complete text content */
   text: string;
 }
 
+/** Emitted for incremental refusal message updates. */
 export interface XAIResponseRefusalDeltaEvent {
   type: 'response.refusal.delta';
   output_index: number;
@@ -725,6 +917,7 @@ export interface XAIResponseRefusalDeltaEvent {
   delta: string;
 }
 
+/** Emitted when refusal message generation is complete. */
 export interface XAIResponseRefusalDoneEvent {
   type: 'response.refusal.done';
   output_index: number;
@@ -732,23 +925,28 @@ export interface XAIResponseRefusalDoneEvent {
   refusal: string;
 }
 
+/** Emitted for incremental function call argument updates. */
 export interface XAIResponseFunctionCallArgumentsDeltaEvent {
   type: 'response.function_call_arguments.delta';
   output_index: number;
   item_id: string;
+  /** The new JSON argument fragment */
   delta: string;
   call_id?: string;
 }
 
+/** Emitted when function call arguments generation is complete. */
 export interface XAIResponseFunctionCallArgumentsDoneEvent {
   type: 'response.function_call_arguments.done';
   output_index: number;
   item_id: string;
   name: string;
+  /** The complete JSON arguments */
   arguments: string;
   call_id?: string;
 }
 
+/** Emitted when an error occurs during streaming. */
 export interface XAIResponseErrorEvent {
   type: 'error';
   error: {
@@ -763,7 +961,10 @@ export interface XAIResponseErrorEvent {
 // ============================================
 
 /**
- * Messages API request body
+ * Request body for the xAI Messages API.
+ *
+ * This interface represents the full request structure sent to `/v1/messages`.
+ * It follows the Anthropic Messages API specification for compatibility.
  */
 export interface XAIMessagesRequest {
   model: string;
@@ -782,15 +983,17 @@ export interface XAIMessagesRequest {
 }
 
 /**
- * Messages API message format
+ * Message format for the Messages API.
  */
 export interface XAIMessagesMessage {
+  /** Message role (user or assistant) */
   role: 'user' | 'assistant';
+  /** Message content (string or array of content blocks) */
   content: XAIMessagesContent[] | string;
 }
 
 /**
- * Messages API content types
+ * Union type for content blocks in the Messages API.
  */
 export type XAIMessagesContent =
   | XAIMessagesTextContent
@@ -798,41 +1001,57 @@ export type XAIMessagesContent =
   | XAIMessagesToolUseContent
   | XAIMessagesToolResultContent;
 
+/** Text content block. */
 export interface XAIMessagesTextContent {
   type: 'text';
   text: string;
 }
 
+/** Image content block with source information. */
 export interface XAIMessagesImageContent {
   type: 'image';
   source: {
     type: 'base64' | 'url';
+    /** MIME type (e.g., 'image/png') */
     media_type?: string;
+    /** Base64-encoded image data (for type: 'base64') */
     data?: string;
+    /** Image URL (for type: 'url') */
     url?: string;
   };
 }
 
+/** Tool use content block representing a tool invocation by the assistant. */
 export interface XAIMessagesToolUseContent {
   type: 'tool_use';
+  /** Unique identifier for this tool use */
   id: string;
+  /** Name of the tool being used */
   name: string;
+  /** Tool input arguments */
   input: Record<string, unknown>;
 }
 
+/** Tool result content block containing the output of a tool execution. */
 export interface XAIMessagesToolResultContent {
   type: 'tool_result';
+  /** ID of the tool_use this is a result for */
   tool_use_id: string;
+  /** Result content */
   content: string | XAIMessagesContent[];
+  /** Whether the tool execution resulted in an error */
   is_error?: boolean;
 }
 
 /**
- * Messages API tool format
+ * Tool definition for the Messages API.
  */
 export interface XAIMessagesTool {
+  /** Unique name for the tool */
   name: string;
+  /** Description of what the tool does */
   description: string;
+  /** JSON Schema defining the tool's input parameters */
   input_schema: {
     type: 'object';
     properties: Record<string, unknown>;
@@ -841,16 +1060,22 @@ export interface XAIMessagesTool {
 }
 
 /**
- * Messages API response format
+ * Response from the Messages API.
  */
 export interface XAIMessagesResponse {
+  /** Unique message identifier */
   id: string;
   type: 'message';
   role: 'assistant';
+  /** Content blocks in the response */
   content: XAIMessagesResponseContent[];
+  /** Model used for generation */
   model: string;
+  /** Reason the model stopped generating */
   stop_reason: 'end_turn' | 'max_tokens' | 'stop_sequence' | 'tool_use' | 'pause_turn' | 'refusal' | null;
+  /** The stop sequence that triggered stop (if applicable) */
   stop_sequence: string | null;
+  /** Token usage statistics */
   usage: {
     input_tokens: number;
     output_tokens: number;
@@ -859,19 +1084,23 @@ export interface XAIMessagesResponse {
   };
 }
 
+/** Union type for response content blocks in the Messages API. */
 export type XAIMessagesResponseContent =
   | XAIMessagesTextContent
   | XAIMessagesToolUseContent
   | XAIMessagesThinkingContent;
 
+/** Thinking content block from extended thinking feature. */
 export interface XAIMessagesThinkingContent {
   type: 'thinking';
+  /** The model's internal reasoning */
   thinking: string;
+  /** Cryptographic signature for verification */
   signature?: string;
 }
 
 /**
- * Messages API streaming event types
+ * Union type for all streaming events in the Messages API.
  */
 export type XAIMessagesStreamEvent =
   | XAIMessagesMessageStartEvent
@@ -883,21 +1112,25 @@ export type XAIMessagesStreamEvent =
   | XAIMessagesPingEvent
   | XAIMessagesErrorEvent;
 
+/** Emitted at the start of a message. */
 export interface XAIMessagesMessageStartEvent {
   type: 'message_start';
   message: XAIMessagesResponse;
 }
 
+/** Emitted when a new content block starts. */
 export interface XAIMessagesContentBlockStartEvent {
   type: 'content_block_start';
   index: number;
   content_block: XAIMessagesResponseContent;
 }
 
+/** Emitted for incremental content block updates. */
 export interface XAIMessagesContentBlockDeltaEvent {
   type: 'content_block_delta';
   /** Index may be omitted by xAI (unlike Anthropic) - use tracked currentIndex as fallback */
   index?: number;
+  /** Delta content (type varies based on content block type) */
   delta:
     | { type: 'text_delta'; text: string }
     | { type: 'thinking_delta'; thinking: string }
@@ -905,11 +1138,13 @@ export interface XAIMessagesContentBlockDeltaEvent {
     | { type: 'input_json_delta'; partial_json: string };
 }
 
+/** Emitted when a content block is complete. */
 export interface XAIMessagesContentBlockStopEvent {
   type: 'content_block_stop';
   index: number;
 }
 
+/** Emitted with final message metadata. */
 export interface XAIMessagesMessageDeltaEvent {
   type: 'message_delta';
   delta: {
@@ -921,14 +1156,17 @@ export interface XAIMessagesMessageDeltaEvent {
   };
 }
 
+/** Emitted when message generation is complete. */
 export interface XAIMessagesMessageStopEvent {
   type: 'message_stop';
 }
 
+/** Keep-alive ping event. */
 export interface XAIMessagesPingEvent {
   type: 'ping';
 }
 
+/** Error event during streaming. */
 export interface XAIMessagesErrorEvent {
   type: 'error';
   error: {

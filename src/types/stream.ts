@@ -1,70 +1,161 @@
+/**
+ * @fileoverview Streaming types for real-time LLM responses.
+ *
+ * Defines the event types and interfaces for streaming LLM inference,
+ * including text deltas, tool call deltas, and control events.
+ *
+ * @module types/stream
+ */
+
 import type { Turn } from './turn.ts';
 
 /**
- * Stream event types
+ * Stream event type discriminators.
+ *
+ * Each event type represents a different kind of streaming update
+ * from the LLM provider.
  */
 export type StreamEventType =
+  /** Incremental text output */
   | 'text_delta'
+  /** Incremental reasoning/thinking output */
   | 'reasoning_delta'
+  /** Incremental image data */
   | 'image_delta'
+  /** Incremental audio data */
   | 'audio_delta'
+  /** Incremental video data */
   | 'video_delta'
+  /** Incremental tool call data (arguments being streamed) */
   | 'tool_call_delta'
+  /** Tool execution has started */
   | 'tool_execution_start'
+  /** Tool execution has completed */
   | 'tool_execution_end'
+  /** Beginning of a message */
   | 'message_start'
+  /** End of a message */
   | 'message_stop'
+  /** Beginning of a content block */
   | 'content_block_start'
+  /** End of a content block */
   | 'content_block_stop';
 
 /**
- * Event delta data (type-specific)
+ * Event delta data payload.
+ *
+ * Contains the type-specific data for a streaming event.
+ * Different fields are populated depending on the event type.
  */
 export interface EventDelta {
+  /** Incremental text content (for text_delta, reasoning_delta) */
   text?: string;
+
+  /** Incremental binary data (for image_delta, audio_delta, video_delta) */
   data?: Uint8Array;
+
+  /** Tool call identifier (for tool_call_delta, tool_execution_start/end) */
   toolCallId?: string;
+
+  /** Tool name (for tool_call_delta, tool_execution_start/end) */
   toolName?: string;
+
+  /** Incremental JSON arguments string (for tool_call_delta) */
   argumentsJson?: string;
+
   /** Tool execution result (for tool_execution_end) */
   result?: unknown;
-  /** Whether tool execution errored (for tool_execution_end) */
+
+  /** Whether tool execution resulted in an error (for tool_execution_end) */
   isError?: boolean;
-  /** Timestamp in ms (for tool_execution_start/end) */
+
+  /** Timestamp in milliseconds (for tool_execution_start/end) */
   timestamp?: number;
 }
 
 /**
- * A streaming event
+ * A single streaming event from the LLM.
+ *
+ * Events are emitted in order as the model generates output,
+ * allowing for real-time display of responses.
+ *
+ * @example
+ * ```typescript
+ * for await (const event of stream) {
+ *   if (event.type === 'text_delta') {
+ *     process.stdout.write(event.delta.text ?? '');
+ *   } else if (event.type === 'tool_call_delta') {
+ *     console.log('Tool:', event.delta.toolName);
+ *   }
+ * }
+ * ```
  */
 export interface StreamEvent {
-  /** Event type */
+  /** Event type discriminator */
   type: StreamEventType;
 
   /** Index of the content block this event belongs to */
   index: number;
 
-  /** Event data (type-specific) */
+  /** Event-specific data payload */
   delta: EventDelta;
 }
 
 /**
- * Stream result - async iterable that also provides final turn
+ * Stream result - an async iterable that also provides the final turn.
+ *
+ * Allows consuming streaming events while also awaiting the complete
+ * Turn result after streaming finishes.
+ *
+ * @typeParam TData - Type of the structured output data
+ *
+ * @example
+ * ```typescript
+ * const stream = instance.stream('Tell me a story');
+ *
+ * // Consume streaming events
+ * for await (const event of stream) {
+ *   if (event.type === 'text_delta') {
+ *     process.stdout.write(event.delta.text ?? '');
+ *   }
+ * }
+ *
+ * // Get the complete turn after streaming
+ * const turn = await stream.turn;
+ * console.log('\n\nTokens used:', turn.usage.totalTokens);
+ * ```
  */
 export interface StreamResult<TData = unknown>
   extends AsyncIterable<StreamEvent> {
   /**
-   * Get the complete Turn after streaming finishes.
-   * Resolves when the stream completes.
+   * Promise that resolves to the complete Turn after streaming finishes.
    */
   readonly turn: Promise<Turn<TData>>;
 
-  /** Abort the stream */
+  /**
+   * Aborts the stream, stopping further events and cancelling the request.
+   */
   abort(): void;
 }
 
 /**
- * Create a stream result from an async generator and completion promise
+ * Creates a StreamResult from an async generator and completion promise.
+ *
+ * @typeParam TData - Type of the structured output data
+ * @param generator - Async generator that yields stream events
+ * @param turnPromise - Promise that resolves to the complete Turn
+ * @param abortController - Controller for aborting the stream
+ * @returns A StreamResult that can be iterated and awaited
+ *
+ * @example
+ * ```typescript
+ * const abortController = new AbortController();
+ * const stream = createStreamResult(
+ *   eventGenerator(),
+ *   turnPromise,
+ *   abortController
+ * );
+ * ```
  */
 export function createStreamResult<TData = unknown>(
   generator: AsyncGenerator<StreamEvent, void, unknown>,
@@ -83,7 +174,11 @@ export function createStreamResult<TData = unknown>(
 }
 
 /**
- * Create a text delta event
+ * Creates a text delta stream event.
+ *
+ * @param text - The incremental text content
+ * @param index - Content block index (default: 0)
+ * @returns A text_delta StreamEvent
  */
 export function textDelta(text: string, index = 0): StreamEvent {
   return {
@@ -94,7 +189,13 @@ export function textDelta(text: string, index = 0): StreamEvent {
 }
 
 /**
- * Create a tool call delta event
+ * Creates a tool call delta stream event.
+ *
+ * @param toolCallId - Unique identifier for the tool call
+ * @param toolName - Name of the tool being called
+ * @param argumentsJson - Incremental JSON arguments string
+ * @param index - Content block index (default: 0)
+ * @returns A tool_call_delta StreamEvent
  */
 export function toolCallDelta(
   toolCallId: string,
@@ -110,7 +211,9 @@ export function toolCallDelta(
 }
 
 /**
- * Create a message start event
+ * Creates a message start stream event.
+ *
+ * @returns A message_start StreamEvent
  */
 export function messageStart(): StreamEvent {
   return {
@@ -121,7 +224,9 @@ export function messageStart(): StreamEvent {
 }
 
 /**
- * Create a message stop event
+ * Creates a message stop stream event.
+ *
+ * @returns A message_stop StreamEvent
  */
 export function messageStop(): StreamEvent {
   return {
@@ -132,7 +237,10 @@ export function messageStop(): StreamEvent {
 }
 
 /**
- * Create a content block start event
+ * Creates a content block start stream event.
+ *
+ * @param index - The content block index starting
+ * @returns A content_block_start StreamEvent
  */
 export function contentBlockStart(index: number): StreamEvent {
   return {
@@ -143,7 +251,10 @@ export function contentBlockStart(index: number): StreamEvent {
 }
 
 /**
- * Create a content block stop event
+ * Creates a content block stop stream event.
+ *
+ * @param index - The content block index stopping
+ * @returns A content_block_stop StreamEvent
  */
 export function contentBlockStop(index: number): StreamEvent {
   return {
@@ -154,7 +265,13 @@ export function contentBlockStop(index: number): StreamEvent {
 }
 
 /**
- * Create a tool execution start event
+ * Creates a tool execution start stream event.
+ *
+ * @param toolCallId - Unique identifier for the tool call
+ * @param toolName - Name of the tool being executed
+ * @param timestamp - Start timestamp in milliseconds
+ * @param index - Content block index (default: 0)
+ * @returns A tool_execution_start StreamEvent
  */
 export function toolExecutionStart(
   toolCallId: string,
@@ -170,7 +287,15 @@ export function toolExecutionStart(
 }
 
 /**
- * Create a tool execution end event
+ * Creates a tool execution end stream event.
+ *
+ * @param toolCallId - Unique identifier for the tool call
+ * @param toolName - Name of the tool that was executed
+ * @param result - The result from the tool execution
+ * @param isError - Whether the execution resulted in an error
+ * @param timestamp - End timestamp in milliseconds
+ * @param index - Content block index (default: 0)
+ * @returns A tool_execution_end StreamEvent
  */
 export function toolExecutionEnd(
   toolCallId: string,

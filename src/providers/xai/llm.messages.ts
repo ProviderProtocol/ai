@@ -15,10 +15,12 @@ import {
   buildResponseFromState,
 } from './transform.messages.ts';
 
+/** Base URL for the xAI Messages API endpoint. */
 const XAI_MESSAGES_API_URL = 'https://api.x.ai/v1/messages';
 
 /**
- * xAI Messages API capabilities (Anthropic-compatible)
+ * Capability declarations for the xAI Messages API.
+ * Indicates which features are supported by this Anthropic-compatible API mode.
  */
 const XAI_MESSAGES_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,10 +32,35 @@ const XAI_MESSAGES_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create xAI Messages API LLM handler (Anthropic-compatible)
+ * Creates an LLM handler for the xAI Messages API (Anthropic-compatible).
+ *
+ * The Messages API provides compatibility with Anthropic's Messages API,
+ * making it easy for developers migrating from Claude to use xAI's Grok models
+ * with minimal code changes.
+ *
+ * @returns An LLM handler configured for the Messages API
+ *
+ * @example
+ * ```typescript
+ * import { xai } from './providers/xai';
+ * import { llm } from './core/llm';
+ *
+ * const model = llm({
+ *   model: xai('grok-4', { api: 'messages' }),
+ *   params: {
+ *     max_tokens: 1000,
+ *     thinking: { type: 'enabled', budget_tokens: 500 }, // Extended thinking
+ *   }
+ * });
+ *
+ * const turn = await model.generate('Hello!');
+ * console.log(turn.response.text);
+ * ```
+ *
+ * @see {@link createCompletionsLLMHandler} for OpenAI-compatible mode
+ * @see {@link createResponsesLLMHandler} for stateful Responses API mode
  */
 export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
-  // Provider reference injected by createProvider() or xAI's custom factory
   let providerRef: LLMProvider<XAIMessagesParams> | null = null;
 
   return {
@@ -42,7 +69,6 @@ export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
     },
 
     bind(modelId: string): BoundLLMModel<XAIMessagesParams> {
-      // Use the injected provider reference
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',

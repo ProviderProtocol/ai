@@ -22,11 +22,15 @@ import type {
 } from './types.ts';
 
 /**
- * Transform UPP request to xAI Chat Completions format
+ * Transforms a UPP LLM request to the xAI Chat Completions API format.
  *
- * Params are spread directly to allow pass-through of any xAI API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * All params are spread directly to enable pass-through of xAI API fields
+ * not explicitly defined in our types. This allows developers to use new
+ * API features without waiting for library updates.
+ *
+ * @param request - The unified provider protocol request
+ * @param modelId - The xAI model identifier
+ * @returns The transformed xAI Chat Completions request body
  */
 export function transformRequest(
   request: LLMRequest<XAICompletionsParams>,
@@ -34,19 +38,16 @@ export function transformRequest(
 ): XAICompletionsRequest {
   const params = request.params ?? ({} as XAICompletionsParams);
 
-  // Spread params to pass through all fields, then set required fields
   const xaiRequest: XAICompletionsRequest = {
     ...params,
     model: modelId,
     messages: transformMessages(request.messages, request.system),
   };
 
-  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     xaiRequest.tools = request.tools.map(transformTool);
   }
 
-  // Structured output via response_format (overrides params.response_format if set)
   if (request.structure) {
     const schema: Record<string, unknown> = {
       type: 'object',
@@ -75,7 +76,11 @@ export function transformRequest(
 }
 
 /**
- * Transform messages including system prompt
+ * Transforms UPP messages to xAI Chat Completions message format.
+ *
+ * @param messages - The array of UPP messages
+ * @param system - Optional system prompt
+ * @returns Array of xAI-formatted messages
  */
 function transformMessages(
   messages: Message[],
@@ -83,7 +88,6 @@ function transformMessages(
 ): XAICompletionsMessage[] {
   const result: XAICompletionsMessage[] = [];
 
-  // Add system message first if present
   if (system) {
     result.push({
       role: 'system',
@@ -91,9 +95,7 @@ function transformMessages(
     });
   }
 
-  // Transform each message
   for (const message of messages) {
-    // Handle tool result messages specially - they need to produce multiple messages
     if (isToolResultMessage(message)) {
       const toolMessages = transformToolResults(message);
       result.push(...toolMessages);
@@ -109,19 +111,24 @@ function transformMessages(
 }
 
 /**
- * Filter to only valid content blocks with a type property
+ * Filters content blocks to only those with a valid type property.
+ *
+ * @param content - Array of content blocks
+ * @returns Filtered array with only valid content blocks
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
 }
 
 /**
- * Transform a UPP Message to xAI format
+ * Transforms a single UPP message to xAI Chat Completions format.
+ *
+ * @param message - The UPP message to transform
+ * @returns The xAI-formatted message or null if unsupported
  */
 function transformMessage(message: Message): XAICompletionsMessage | null {
   if (isUserMessage(message)) {
     const validContent = filterValidContent(message.content);
-    // Check if we can use simple string content
     if (validContent.length === 1 && validContent[0]?.type === 'text') {
       return {
         role: 'user',
@@ -136,7 +143,6 @@ function transformMessage(message: Message): XAICompletionsMessage | null {
 
   if (isAssistantMessage(message)) {
     const validContent = filterValidContent(message.content);
-    // Extract text content
     const textContent = validContent
       .filter((c): c is TextBlock => c.type === 'text')
       .map((c) => c.text)
@@ -146,11 +152,9 @@ function transformMessage(message: Message): XAICompletionsMessage | null {
 
     const assistantMessage: XAICompletionsMessage = {
       role: 'assistant',
-      // xAI/OpenAI: content should be null when tool_calls are present and there's no text
       content: hasToolCalls && !textContent ? null : textContent,
     };
 
-    // Add tool calls if present
     if (hasToolCalls) {
       (assistantMessage as { tool_calls?: XAIToolCall[] }).tool_calls =
         message.toolCalls!.map((call) => ({
@@ -167,10 +171,6 @@ function transformMessage(message: Message): XAICompletionsMessage | null {
   }
 
   if (isToolResultMessage(message)) {
-    // Tool results are sent as individual tool messages
-    // Return the first one and handle multiple in a different way
-    // Actually, we need to return multiple messages for multiple tool results
-    // This is handled by the caller - transform each result to a message
     const results = message.results.map((result) => ({
       role: 'tool' as const,
       tool_call_id: result.toolCallId,
@@ -179,8 +179,6 @@ function transformMessage(message: Message): XAICompletionsMessage | null {
           ? result.result
           : JSON.stringify(result.result),
     }));
-
-    // For now, return the first result - caller should handle multiple
     return results[0] ?? null;
   }
 
@@ -188,7 +186,13 @@ function transformMessage(message: Message): XAICompletionsMessage | null {
 }
 
 /**
- * Transform multiple tool results to messages
+ * Transforms tool result messages into multiple xAI tool messages.
+ *
+ * Tool results in xAI's Chat Completions API require separate messages
+ * for each tool call result.
+ *
+ * @param message - The UPP message containing tool results
+ * @returns Array of xAI tool messages
  */
 export function transformToolResults(
   message: Message
@@ -209,7 +213,11 @@ export function transformToolResults(
 }
 
 /**
- * Transform a content block to xAI format
+ * Transforms a UPP content block to xAI user content format.
+ *
+ * @param block - The content block to transform
+ * @returns The xAI-formatted user content
+ * @throws Error if the content type is unsupported
  */
 function transformContentBlock(block: ContentBlock): XAIUserContent {
   switch (block.type) {
@@ -248,7 +256,10 @@ function transformContentBlock(block: ContentBlock): XAIUserContent {
 }
 
 /**
- * Transform a UPP Tool to xAI format
+ * Transforms a UPP tool definition to xAI Chat Completions format.
+ *
+ * @param tool - The UPP tool definition
+ * @returns The xAI-formatted tool definition
  */
 function transformTool(tool: Tool): XAICompletionsTool {
   return {
@@ -269,7 +280,11 @@ function transformTool(tool: Tool): XAICompletionsTool {
 }
 
 /**
- * Transform xAI response to UPP LLMResponse
+ * Transforms an xAI Chat Completions response to the UPP LLMResponse format.
+ *
+ * @param data - The xAI Chat Completions API response
+ * @returns The unified provider protocol response
+ * @throws Error if no choices are present in the response
  */
 export function transformResponse(data: XAICompletionsResponse): LLMResponse {
   const choice = data.choices[0];
@@ -277,16 +292,14 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
     throw new Error('No choices in xAI response');
   }
 
-  // Extract text content
   const textContent: TextBlock[] = [];
   let structuredData: unknown;
   if (choice.message.content) {
     textContent.push({ type: 'text', text: choice.message.content });
-    // Try to parse as JSON for structured output (native JSON mode)
     try {
       structuredData = JSON.parse(choice.message.content);
     } catch {
-      // Not valid JSON - that's fine, might not be structured output
+      // Not valid JSON, which is fine for non-structured responses
     }
   }
   let hadRefusal = false;
@@ -295,7 +308,6 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
     hadRefusal = true;
   }
 
-  // Extract tool calls
   const toolCalls: ToolCall[] = [];
   if (choice.message.tool_calls) {
     for (const call of choice.message.tool_calls) {
@@ -303,7 +315,7 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
       try {
         args = JSON.parse(call.function.arguments);
       } catch {
-        // Invalid JSON - use empty object
+        // Invalid JSON, use empty object
       }
       toolCalls.push({
         toolCallId: call.id,
@@ -336,7 +348,6 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
     totalTokens: data.usage.total_tokens,
   };
 
-  // Map finish reason to stop reason
   let stopReason = 'end_turn';
   switch (choice.finish_reason) {
     case 'stop':
@@ -365,21 +376,34 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
 }
 
 /**
- * State for accumulating streaming response
+ * State object for accumulating data during streaming responses.
+ *
+ * This state is progressively updated as stream chunks arrive and is used
+ * to build the final LLMResponse when streaming completes.
  */
 export interface CompletionsStreamState {
+  /** Response identifier */
   id: string;
+  /** Model used for generation */
   model: string;
+  /** Accumulated text content */
   text: string;
+  /** Map of tool call index to accumulated tool call data */
   toolCalls: Map<number, { id: string; name: string; arguments: string }>;
+  /** Final finish reason from the API */
   finishReason: string | null;
+  /** Total input tokens (from usage chunk) */
   inputTokens: number;
+  /** Total output tokens (from usage chunk) */
   outputTokens: number;
+  /** Whether a refusal message was received */
   hadRefusal: boolean;
 }
 
 /**
- * Create initial stream state
+ * Creates a new initialized stream state for accumulating streaming data.
+ *
+ * @returns A fresh CompletionsStreamState with default values
  */
 export function createStreamState(): CompletionsStreamState {
   return {
@@ -395,8 +419,14 @@ export function createStreamState(): CompletionsStreamState {
 }
 
 /**
- * Transform xAI stream chunk to UPP StreamEvent
- * Returns array since one chunk may produce multiple events
+ * Transforms an xAI Chat Completions stream chunk to UPP StreamEvents.
+ *
+ * A single chunk may produce multiple events (e.g., text delta + tool call delta).
+ * The state object is mutated to accumulate data for the final response.
+ *
+ * @param chunk - The xAI streaming chunk
+ * @param state - The mutable stream state to update
+ * @returns Array of UPP stream events (may be empty)
  */
 export function transformStreamEvent(
   chunk: XAICompletionsStreamChunk,
@@ -404,7 +434,6 @@ export function transformStreamEvent(
 ): StreamEvent[] {
   const events: StreamEvent[] = [];
 
-  // Update state with basic info
   if (chunk.id && !state.id) {
     state.id = chunk.id;
     events.push({ type: 'message_start', index: 0, delta: {} });
@@ -413,10 +442,8 @@ export function transformStreamEvent(
     state.model = chunk.model;
   }
 
-  // Process choices
   const choice = chunk.choices[0];
   if (choice) {
-    // Text delta
     if (choice.delta.content) {
       state.text += choice.delta.content;
       events.push({
@@ -435,7 +462,6 @@ export function transformStreamEvent(
       });
     }
 
-    // Tool call deltas
     if (choice.delta.tool_calls) {
       for (const toolCallDelta of choice.delta.tool_calls) {
         const index = toolCallDelta.index;
@@ -467,14 +493,12 @@ export function transformStreamEvent(
       }
     }
 
-    // Finish reason
     if (choice.finish_reason) {
       state.finishReason = choice.finish_reason;
       events.push({ type: 'message_stop', index: 0, delta: {} });
     }
   }
 
-  // Usage info (usually comes at the end with stream_options.include_usage)
   if (chunk.usage) {
     state.inputTokens = chunk.usage.prompt_tokens;
     state.outputTokens = chunk.usage.completion_tokens;
@@ -484,18 +508,23 @@ export function transformStreamEvent(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Builds the final LLMResponse from accumulated stream state.
+ *
+ * Called when streaming is complete to construct the unified response
+ * from all the data accumulated during streaming.
+ *
+ * @param state - The accumulated stream state
+ * @returns The complete LLMResponse
  */
 export function buildResponseFromState(state: CompletionsStreamState): LLMResponse {
   const textContent: TextBlock[] = [];
   let structuredData: unknown;
   if (state.text) {
     textContent.push({ type: 'text', text: state.text });
-    // Try to parse as JSON for structured output (native JSON mode)
     try {
       structuredData = JSON.parse(state.text);
     } catch {
-      // Not valid JSON - that's fine, might not be structured output
+      // Not valid JSON, which is fine for non-structured responses
     }
   }
 
@@ -506,7 +535,7 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
       try {
         args = JSON.parse(toolCall.arguments);
       } catch {
-        // Invalid JSON - use empty object
+        // Invalid JSON, use empty object
       }
     }
     toolCalls.push({
@@ -536,7 +565,6 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     totalTokens: state.inputTokens + state.outputTokens,
   };
 
-  // Map finish reason to stop reason
   let stopReason = 'end_turn';
   switch (state.finishReason) {
     case 'stop':

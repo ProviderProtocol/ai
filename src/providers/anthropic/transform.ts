@@ -1,3 +1,14 @@
+/**
+ * @fileoverview UPP to Anthropic message transformation utilities.
+ *
+ * This module handles bidirectional conversion between Universal Provider Protocol
+ * message formats and Anthropic's native API structures. It supports:
+ * - Request transformation (UPP -> Anthropic)
+ * - Response transformation (Anthropic -> UPP)
+ * - Stream event transformation for real-time responses
+ * - Tool call and structured output handling
+ */
+
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
@@ -6,8 +17,6 @@ import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
 import {
   AssistantMessage,
-  UserMessage,
-  ToolResultMessage,
   isUserMessage,
   isAssistantMessage,
   isToolResultMessage,
@@ -20,15 +29,30 @@ import type {
   AnthropicTool,
   AnthropicResponse,
   AnthropicStreamEvent,
-  AnthropicContentBlockDeltaEvent,
 } from './types.ts';
 
 /**
- * Transform UPP request to Anthropic format
+ * Transforms a UPP LLM request to Anthropic's native API format.
  *
- * Params are spread directly to allow pass-through of any Anthropic API fields,
- * even those not explicitly defined in our type. This enables developers to
- * use new API features without waiting for library updates.
+ * Handles conversion of messages, system prompts, tools, and structured output
+ * configuration. Parameters are spread directly to enable pass-through of any
+ * Anthropic API fields, even those not explicitly defined in our types.
+ *
+ * @typeParam TParams - Anthropic-specific parameters extending AnthropicLLMParams
+ * @param request - The UPP-formatted LLM request
+ * @param modelId - The Anthropic model identifier (e.g., 'claude-sonnet-4-20250514')
+ * @returns An AnthropicRequest ready for the Messages API
+ *
+ * @example
+ * ```typescript
+ * const anthropicRequest = transformRequest({
+ *   messages: [new UserMessage([{ type: 'text', text: 'Hello!' }])],
+ *   config: { apiKey: 'sk-...' },
+ *   params: { max_tokens: 1024, temperature: 0.7 },
+ * }, 'claude-sonnet-4-20250514');
+ * ```
+ *
+ * @see {@link transformResponse} for the reverse transformation
  */
 export function transformRequest<TParams extends AnthropicLLMParams>(
   request: LLMRequest<TParams>,
@@ -36,26 +60,21 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
 ): AnthropicRequest {
   const params = (request.params ?? {}) as AnthropicLLMParams;
 
-  // Spread params to pass through all fields, then set required fields
   const anthropicRequest: AnthropicRequest = {
     ...params,
     model: modelId,
     messages: request.messages.map(transformMessage),
   };
 
-  // System prompt (top-level in Anthropic)
   if (request.system) {
     anthropicRequest.system = request.system;
   }
 
-  // Tools come from request, not params
   if (request.tools && request.tools.length > 0) {
     anthropicRequest.tools = request.tools.map(transformTool);
     anthropicRequest.tool_choice = { type: 'auto' };
   }
 
-  // Structured output via tool-based approach
-  // Anthropic doesn't have native structured output, so we use a tool to enforce the schema
   if (request.structure) {
     const structuredTool: AnthropicTool = {
       name: 'json_response',
@@ -67,9 +86,7 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
       },
     };
 
-    // Add the structured output tool (may coexist with user tools)
     anthropicRequest.tools = [...(anthropicRequest.tools ?? []), structuredTool];
-    // Force the model to use the json_response tool
     anthropicRequest.tool_choice = { type: 'tool', name: 'json_response' };
   }
 
@@ -77,14 +94,26 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
 }
 
 /**
- * Filter to only valid content blocks with a type property
+ * Filters content blocks to include only those with a valid type property.
+ *
+ * @param content - Array of content blocks to filter
+ * @returns Filtered array containing only blocks with a string type property
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
 }
 
 /**
- * Transform a UPP Message to Anthropic format
+ * Transforms a UPP Message to Anthropic's message format.
+ *
+ * Handles three message types:
+ * - UserMessage: Converted with content blocks
+ * - AssistantMessage: Includes text and tool_use blocks
+ * - ToolResultMessage: Converted to user role with tool_result content
+ *
+ * @param message - The UPP message to transform
+ * @returns An AnthropicMessage with the appropriate role and content
+ * @throws Error if the message type is unknown
  */
 function transformMessage(message: Message): AnthropicMessage {
   if (isUserMessage(message)) {
@@ -99,7 +128,6 @@ function transformMessage(message: Message): AnthropicMessage {
     const validContent = filterValidContent(message.content);
     const content: AnthropicContent[] = validContent.map(transformContentBlock);
 
-    // Add tool calls as tool_use content blocks
     if (message.toolCalls) {
       for (const call of message.toolCalls) {
         content.push({
@@ -118,7 +146,6 @@ function transformMessage(message: Message): AnthropicMessage {
   }
 
   if (isToolResultMessage(message)) {
-    // Tool results are sent as user messages with tool_result content
     return {
       role: 'user',
       content: message.results.map((result) => ({
@@ -137,7 +164,14 @@ function transformMessage(message: Message): AnthropicMessage {
 }
 
 /**
- * Transform a content block to Anthropic format
+ * Transforms a UPP ContentBlock to Anthropic's content format.
+ *
+ * Supports text and image content types. Image blocks can be provided
+ * as base64, URL, or raw bytes (which are converted to base64).
+ *
+ * @param block - The UPP content block to transform
+ * @returns An AnthropicContent object
+ * @throws Error if the content type or image source type is unsupported
  */
 function transformContentBlock(block: ContentBlock): AnthropicContent {
   switch (block.type) {
@@ -166,7 +200,6 @@ function transformContentBlock(block: ContentBlock): AnthropicContent {
         };
       }
       if (imageBlock.source.type === 'bytes') {
-        // Convert bytes to base64
         const base64 = btoa(
           Array.from(imageBlock.source.data)
             .map((b) => String.fromCharCode(b))
@@ -190,7 +223,10 @@ function transformContentBlock(block: ContentBlock): AnthropicContent {
 }
 
 /**
- * Transform a UPP Tool to Anthropic format
+ * Transforms a UPP Tool definition to Anthropic's tool format.
+ *
+ * @param tool - The UPP tool definition
+ * @returns An AnthropicTool with the appropriate input schema
  */
 function transformTool(tool: Tool): AnthropicTool {
   return {
@@ -205,10 +241,18 @@ function transformTool(tool: Tool): AnthropicTool {
 }
 
 /**
- * Transform Anthropic response to UPP LLMResponse
+ * Transforms an Anthropic API response to UPP's LLMResponse format.
+ *
+ * Extracts text content, tool calls, and structured output data from
+ * Anthropic's response. The json_response tool is treated specially
+ * for structured output extraction.
+ *
+ * @param data - The raw Anthropic API response
+ * @returns A UPP LLMResponse with message, usage, and optional structured data
+ *
+ * @see {@link transformRequest} for the request transformation
  */
 export function transformResponse(data: AnthropicResponse): LLMResponse {
-  // Extract text content
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
@@ -217,9 +261,7 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
     if (block.type === 'text') {
       textContent.push({ type: 'text', text: block.text });
     } else if (block.type === 'tool_use') {
-      // Check if this is the json_response tool (structured output)
       if (block.name === 'json_response') {
-        // Extract structured data from tool arguments
         structuredData = block.input;
       }
       toolCalls.push({
@@ -228,7 +270,6 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
         arguments: block.input,
       });
     }
-    // Skip thinking blocks for now
   }
 
   const message = new AssistantMessage(
@@ -261,19 +302,30 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
 }
 
 /**
- * State for accumulating streaming response
+ * Mutable state object for accumulating streamed response data.
+ *
+ * Used during streaming to collect content blocks, token counts, and
+ * metadata as events arrive from the Anthropic API.
  */
 export interface StreamState {
+  /** Unique identifier for the message being streamed. */
   messageId: string;
+  /** The model that generated this response. */
   model: string;
+  /** Accumulated content blocks indexed by their stream position. */
   content: Array<{ type: string; text?: string; id?: string; name?: string; input?: string }>;
+  /** The reason the response ended, if completed. */
   stopReason: string | null;
+  /** Number of input tokens consumed. */
   inputTokens: number;
+  /** Number of output tokens generated. */
   outputTokens: number;
 }
 
 /**
- * Create initial stream state
+ * Creates an initialized StreamState for accumulating streaming responses.
+ *
+ * @returns A fresh StreamState with empty/default values
  */
 export function createStreamState(): StreamState {
   return {
@@ -287,8 +339,27 @@ export function createStreamState(): StreamState {
 }
 
 /**
- * Transform Anthropic stream event to UPP StreamEvent
- * Returns null for events that don't produce UPP events
+ * Transforms an Anthropic streaming event to a UPP StreamEvent.
+ *
+ * Updates the provided state object as a side effect to accumulate
+ * response data across multiple events. Returns null for events that
+ * don't produce corresponding UPP events (e.g., ping, message_delta).
+ *
+ * @param event - The Anthropic SSE event to transform
+ * @param state - Mutable state object to update with accumulated data
+ * @returns A UPP StreamEvent, or null if no event should be emitted
+ *
+ * @example
+ * ```typescript
+ * const state = createStreamState();
+ * for await (const event of parseSSEStream(response.body)) {
+ *   const uppEvent = transformStreamEvent(event, state);
+ *   if (uppEvent) {
+ *     yield uppEvent;
+ *   }
+ * }
+ * const finalResponse = buildResponseFromState(state);
+ * ```
  */
 export function transformStreamEvent(
   event: AnthropicStreamEvent,
@@ -302,7 +373,6 @@ export function transformStreamEvent(
       return { type: 'message_start', index: 0, delta: {} };
 
     case 'content_block_start':
-      // Initialize content block
       if (event.content_block.type === 'text') {
         state.content[event.index] = { type: 'text', text: '' };
       } else if (event.content_block.type === 'tool_use') {
@@ -374,7 +444,17 @@ export function transformStreamEvent(
 }
 
 /**
- * Build LLMResponse from accumulated stream state
+ * Builds a complete LLMResponse from accumulated stream state.
+ *
+ * Call this after all stream events have been processed to construct
+ * the final response. Parses accumulated JSON for tool call arguments
+ * and extracts structured output data.
+ *
+ * @param state - The accumulated stream state
+ * @returns A complete UPP LLMResponse
+ *
+ * @see {@link createStreamState} for initializing state
+ * @see {@link transformStreamEvent} for populating state from events
  */
 export function buildResponseFromState(state: StreamState): LLMResponse {
   const textContent: TextBlock[] = [];
@@ -393,7 +473,6 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
           // Invalid JSON - use empty object
         }
       }
-      // Check if this is the json_response tool (structured output)
       if (block.name === 'json_response') {
         structuredData = args;
       }

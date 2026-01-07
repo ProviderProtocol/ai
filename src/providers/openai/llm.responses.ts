@@ -1,3 +1,16 @@
+/**
+ * @fileoverview OpenAI Responses API Handler
+ *
+ * This module implements the LLM handler for OpenAI's modern Responses API
+ * (`/v1/responses`). This is the recommended API that supports built-in tools
+ * like web search, image generation, file search, code interpreter, and MCP.
+ *
+ * For the legacy Chat Completions API, see `llm.completions.ts`.
+ *
+ * @see {@link https://platform.openai.com/docs/api-reference/responses OpenAI Responses API Reference}
+ * @module providers/openai/llm.responses
+ */
+
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
@@ -15,10 +28,17 @@ import {
   buildResponseFromState,
 } from './transform.responses.ts';
 
+/** Base URL for OpenAI's Responses API endpoint */
 const OPENAI_RESPONSES_API_URL = 'https://api.openai.com/v1/responses';
 
 /**
- * OpenAI API capabilities
+ * Capability declaration for the OpenAI Responses API.
+ *
+ * Defines what features are supported by this handler:
+ * - Streaming: Real-time token-by-token response streaming via SSE
+ * - Tools: Function calling plus built-in tools (web search, code interpreter, etc.)
+ * - Structured Output: JSON schema-based response formatting
+ * - Image Input: Vision capabilities for image understanding
  */
 const OPENAI_CAPABILITIES: LLMCapabilities = {
   streaming: true,
@@ -30,10 +50,56 @@ const OPENAI_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
- * Create OpenAI Responses API LLM handler
+ * Creates an LLM handler for OpenAI's modern Responses API.
+ *
+ * This factory function creates a handler that communicates with the
+ * `/v1/responses` endpoint. The Responses API is the modern, recommended
+ * approach that supports built-in tools like web search, image generation,
+ * file search, code interpreter, and MCP servers.
+ *
+ * @returns An LLM handler configured for the Responses API
+ *
+ * @example Basic usage
+ * ```typescript
+ * const handler = createResponsesLLMHandler();
+ * const model = handler.bind('gpt-4o');
+ *
+ * const response = await model.complete({
+ *   messages: [{ role: 'user', content: 'Hello!' }],
+ *   config: { apiKey: 'sk-...' }
+ * });
+ * ```
+ *
+ * @example With built-in tools
+ * ```typescript
+ * import { tools } from './types.ts';
+ *
+ * const response = await model.complete({
+ *   messages: [{ role: 'user', content: 'What is the weather today?' }],
+ *   params: {
+ *     tools: [tools.webSearch()]
+ *   },
+ *   config: { apiKey: 'sk-...' }
+ * });
+ * ```
+ *
+ * @example Streaming responses
+ * ```typescript
+ * const stream = model.stream({
+ *   messages: [{ role: 'user', content: 'Tell me a story' }],
+ *   config: { apiKey: 'sk-...' }
+ * });
+ *
+ * for await (const event of stream) {
+ *   if (event.type === 'text_delta') {
+ *     process.stdout.write(event.delta.text);
+ *   }
+ * }
+ * ```
+ *
+ * @see {@link createCompletionsLLMHandler} for the legacy Chat Completions API handler
  */
 export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
-  // Provider reference injected by createProvider() or OpenAI's custom factory
   let providerRef: LLMProvider<OpenAIResponsesParams> | null = null;
 
   return {

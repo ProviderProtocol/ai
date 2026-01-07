@@ -1,14 +1,38 @@
 /**
- * Server-Sent Events (SSE) stream parser
+ * Server-Sent Events (SSE) stream parsing utilities.
+ * @module http/sse
  */
 
 /**
- * Parse a Server-Sent Events stream into JSON objects
- * Handles standard SSE format with "data:" prefix
- * Yields parsed JSON for each event
- * Terminates on "[DONE]" message (OpenAI style)
+ * Parses a Server-Sent Events stream into JSON objects.
  *
- * @param body - ReadableStream from fetch response
+ * This async generator handles the standard SSE wire format:
+ * - Lines prefixed with "data:" contain event data
+ * - Lines prefixed with "event:" specify event types
+ * - Lines prefixed with ":" are comments (used for keep-alive)
+ * - Events are separated by double newlines
+ * - Stream terminates on "[DONE]" message (OpenAI convention)
+ *
+ * Also handles non-standard formats used by some providers:
+ * - Raw JSON without "data:" prefix (Google)
+ * - Multi-line data fields
+ *
+ * @param body - ReadableStream from fetch response body
+ * @yields Parsed JSON objects from each SSE event
+ *
+ * @example
+ * ```typescript
+ * const response = await doStreamFetch(url, init, config, 'openai', 'llm');
+ *
+ * for await (const event of parseSSEStream(response.body!)) {
+ *   // event is parsed JSON from each SSE data field
+ *   const chunk = event as OpenAIStreamChunk;
+ *   const delta = chunk.choices[0]?.delta?.content;
+ *   if (delta) {
+ *     process.stdout.write(delta);
+ *   }
+ * }
+ * ```
  */
 export async function* parseSSEStream(
   body: ReadableStream<Uint8Array>
@@ -58,10 +82,16 @@ export async function* parseSSEStream(
 }
 
 /**
- * Parse a single SSE event
- * Returns 'DONE' for [DONE] terminator
- * Returns null for empty or unparseable events
- * Returns parsed JSON otherwise
+ * Parses a single SSE event block into a JSON object.
+ *
+ * Handles the following line prefixes:
+ * - "data:" - Event data (multiple data lines are concatenated)
+ * - "event:" - Event type (added to result as _eventType)
+ * - ":" - Comment (ignored, often used for keep-alive)
+ * - Raw JSON starting with { or [ (provider-specific fallback)
+ *
+ * @param eventText - Raw text of a single SSE event block
+ * @returns Parsed JSON object, 'DONE' for termination signal, or null for invalid/empty events
  */
 function parseSSEEvent(eventText: string): unknown | 'DONE' | null {
   const lines = eventText.split('\n');
@@ -73,14 +103,11 @@ function parseSSEEvent(eventText: string): unknown | 'DONE' | null {
     if (trimmedLine.startsWith('event:')) {
       eventType = trimmedLine.slice(6).trim();
     } else if (trimmedLine.startsWith('data:')) {
-      // Append data (some providers send multi-line data)
       const lineData = trimmedLine.slice(5).trim();
       data += (data ? '\n' : '') + lineData;
     } else if (trimmedLine.startsWith(':')) {
-      // Comment line, ignore (often used for keep-alive)
       continue;
     } else if (trimmedLine.startsWith('{') || trimmedLine.startsWith('[')) {
-      // Some providers (like Google) may send raw JSON without data: prefix
       data += (data ? '\n' : '') + trimmedLine;
     }
   }
@@ -89,7 +116,6 @@ function parseSSEEvent(eventText: string): unknown | 'DONE' | null {
     return null;
   }
 
-  // Check for OpenAI-style termination
   if (data === '[DONE]') {
     return 'DONE';
   }
@@ -97,21 +123,39 @@ function parseSSEEvent(eventText: string): unknown | 'DONE' | null {
   try {
     const parsed = JSON.parse(data);
 
-    // If we have an event type, include it
     if (eventType) {
       return { _eventType: eventType, ...parsed };
     }
 
     return parsed;
   } catch {
-    // Failed to parse JSON - could be a ping or malformed event
     return null;
   }
 }
 
 /**
- * Create a simple SSE reader that handles basic text streaming
- * For providers that just stream text deltas
+ * Parses a simple text stream without SSE formatting.
+ *
+ * This is a simpler alternative to {@link parseSSEStream} for providers
+ * that stream raw text deltas without SSE event wrappers. Each chunk
+ * from the response body is decoded and yielded as-is.
+ *
+ * Use this for:
+ * - Plain text streaming responses
+ * - Providers with custom streaming formats
+ * - Testing and debugging stream handling
+ *
+ * @param body - ReadableStream from fetch response body
+ * @yields Decoded text strings from each stream chunk
+ *
+ * @example
+ * ```typescript
+ * const response = await doStreamFetch(url, init, config, 'custom', 'llm');
+ *
+ * for await (const text of parseSimpleTextStream(response.body!)) {
+ *   process.stdout.write(text);
+ * }
+ * ```
  */
 export async function* parseSimpleTextStream(
   body: ReadableStream<Uint8Array>
