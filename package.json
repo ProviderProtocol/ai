@@ -63,14 +63,17 @@
     "test": "bun test",
     "test:unit": "bun test tests/unit",
     "test:live": "bun test tests/live",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "docgen": "typedoc --entryPoints src/index.ts --entryPoints src/anthropic/index.ts --entryPoints src/openai/index.ts --entryPoints src/google/index.ts --entryPoints src/ollama/index.ts --entryPoints src/openrouter/index.ts --entryPoints src/xai/index.ts --entryPoints src/http/index.ts --out docs --plugin typedoc-plugin-markdown"
   },
   "publishConfig": {
     "access": "public"
   },
   "devDependencies": {
     "@types/bun": "latest",
-    "tsup": "^8.5.1"
+    "tsup": "^8.5.1",
+    "typedoc": "^0.28.15",
+    "typedoc-plugin-markdown": "^4.9.0"
   },
   "peerDependencies": {
     "typescript": "^5"
