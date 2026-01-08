@@ -56,6 +56,40 @@ export interface AnthropicLLMParams {
    * - `standard_only`: Only use standard capacity, never priority
    */
   service_tier?: 'auto' | 'standard_only';
+
+  /**
+   * Built-in tools for server-side execution.
+   *
+   * Use the tool helper constructors from the `tools` namespace:
+   * - `tools.webSearch()` - Web search capability
+   * - `tools.computer()` - Computer use (mouse, keyboard, screenshots)
+   * - `tools.textEditor()` - File viewing and editing
+   * - `tools.bash()` - Shell command execution
+   * - `tools.codeExecution()` - Sandboxed Python/Bash execution
+   * - `tools.toolSearch()` - Dynamic tool catalog search
+   *
+   * @example
+   * ```typescript
+   * import { anthropic, tools } from 'provider-protocol/anthropic';
+   *
+   * const model = llm({
+   *   model: anthropic('claude-sonnet-4-20250514'),
+   *   params: {
+   *     builtInTools: [
+   *       tools.webSearch({ max_uses: 5 }),
+   *       tools.codeExecution(),
+   *     ],
+   *   },
+   * });
+   * ```
+   */
+  builtInTools?: AnthropicBuiltInTool[];
+
+  /**
+   * Container ID for code execution tool reuse.
+   * Pass the container ID from a previous response to reuse the same environment.
+   */
+  container?: string;
 }
 
 /**
@@ -97,8 +131,8 @@ export interface AnthropicRequest {
   stop_sequences?: string[];
   /** Enable Server-Sent Events streaming. */
   stream?: boolean;
-  /** Available tools for function calling. */
-  tools?: AnthropicTool[];
+  /** Available tools for function calling and built-in tools. */
+  tools?: (AnthropicTool | AnthropicBuiltInTool)[];
   /** Tool selection strategy. */
   tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string };
   /** Request metadata for tracking. */
@@ -293,12 +327,15 @@ export interface AnthropicResponse {
 /**
  * Union type for content blocks that can appear in API responses.
  *
- * Includes text, tool use, and thinking blocks.
+ * Includes text, tool use, thinking blocks, and code execution results.
  */
 export type AnthropicResponseContent =
   | AnthropicTextContent
   | AnthropicToolUseContent
-  | AnthropicThinkingContent;
+  | AnthropicThinkingContent
+  | AnthropicServerToolUseContent
+  | AnthropicBashCodeExecutionToolResultContent
+  | AnthropicTextEditorCodeExecutionToolResultContent;
 
 /**
  * Thinking content block from extended thinking feature.
@@ -312,6 +349,96 @@ export interface AnthropicThinkingContent {
   thinking: string;
   /** Cryptographic signature for thinking verification. */
   signature?: string;
+}
+
+/**
+ * Server tool use content block for built-in tools like code execution.
+ *
+ * Appears when Claude invokes a server-side tool.
+ */
+export interface AnthropicServerToolUseContent {
+  /** Content type discriminator. */
+  type: 'server_tool_use';
+  /** Unique identifier for this tool invocation. */
+  id: string;
+  /** Name of the server tool being called (e.g., 'bash_code_execution', 'text_editor_code_execution'). */
+  name: string;
+  /** Arguments passed to the tool. */
+  input: Record<string, unknown>;
+}
+
+/**
+ * Result from bash code execution tool.
+ *
+ * Contains stdout, stderr, and return code from command execution.
+ */
+export interface AnthropicBashCodeExecutionToolResultContent {
+  /** Content type discriminator. */
+  type: 'bash_code_execution_tool_result';
+  /** ID of the server_tool_use block this result corresponds to. */
+  tool_use_id: string;
+  /** The execution result. */
+  content: {
+    /** Result type discriminator. */
+    type: 'bash_code_execution_result';
+    /** Standard output from the command. */
+    stdout: string;
+    /** Standard error from the command. */
+    stderr: string;
+    /** Exit code (0 for success). */
+    return_code: number;
+    /** File IDs for any files created during execution. */
+    content?: Array<{ file_id: string }>;
+  } | {
+    /** Error result type. */
+    type: 'bash_code_execution_tool_result_error';
+    /** Error code. */
+    error_code: string;
+  };
+}
+
+/**
+ * Result from text editor code execution tool.
+ *
+ * Contains file operation results.
+ */
+export interface AnthropicTextEditorCodeExecutionToolResultContent {
+  /** Content type discriminator. */
+  type: 'text_editor_code_execution_tool_result';
+  /** ID of the server_tool_use block this result corresponds to. */
+  tool_use_id: string;
+  /** The operation result. */
+  content: {
+    /** Result type discriminator. */
+    type: 'text_editor_code_execution_result';
+    /** File type (for view operations). */
+    file_type?: string;
+    /** File content (for view operations). */
+    content?: string;
+    /** Number of lines returned (for view operations). */
+    numLines?: number;
+    /** Starting line number (for view operations). */
+    startLine?: number;
+    /** Total lines in file (for view operations). */
+    totalLines?: number;
+    /** Whether this was a file update (for create operations). */
+    is_file_update?: boolean;
+    /** Old start line (for edit operations). */
+    oldStart?: number;
+    /** Old line count (for edit operations). */
+    oldLines?: number;
+    /** New start line (for edit operations). */
+    newStart?: number;
+    /** New line count (for edit operations). */
+    newLines?: number;
+    /** Diff lines (for edit operations). */
+    lines?: string[];
+  } | {
+    /** Error result type. */
+    type: 'text_editor_code_execution_tool_result_error';
+    /** Error code. */
+    error_code: string;
+  };
 }
 
 /**
@@ -453,7 +580,449 @@ export interface AnthropicHeaders {
    * Comma-separated list of beta feature flags:
    * - `extended-cache-ttl-2025-04-11` - Enable 1-hour cache TTL
    * - `token-efficient-tools-2025-02-19` - Token-efficient tool encoding
+   * - `computer-use-2025-01-24` - Computer use tool (Claude 4 models)
+   * - `computer-use-2025-11-24` - Computer use tool (Claude Opus 4.5)
+   * - `code-execution-2025-08-25` - Code execution tool
+   * - `advanced-tool-use-2025-11-20` - Tool search tool
    */
   'anthropic-beta'?: string;
   [key: string]: string | undefined;
 }
+
+// ============================================
+// Built-in Tools
+// ============================================
+
+/**
+ * User location for web search context.
+ *
+ * Used to localize web search results based on the user's approximate location.
+ */
+export interface AnthropicUserLocation {
+  /** Location type - must be 'approximate' */
+  type: 'approximate';
+  /** City name */
+  city?: string;
+  /** Region/state name */
+  region?: string;
+  /** ISO 3166-1 alpha-2 country code (e.g., "US") */
+  country?: string;
+  /** IANA timezone (e.g., "America/New_York") */
+  timezone?: string;
+}
+
+/**
+ * Web search tool for real-time web information retrieval.
+ *
+ * Enables Claude to search the web for up-to-date information.
+ * No beta header required - this is a GA feature.
+ *
+ * @example
+ * ```typescript
+ * const tool: AnthropicWebSearchTool = {
+ *   type: 'web_search_20250305',
+ *   name: 'web_search',
+ *   max_uses: 5,
+ *   allowed_domains: ['wikipedia.org', 'github.com'],
+ * };
+ * ```
+ */
+export interface AnthropicWebSearchTool {
+  /** Tool type identifier */
+  type: 'web_search_20250305';
+  /** Tool name - must be 'web_search' */
+  name: 'web_search';
+  /** Maximum searches per request (default: unlimited) */
+  max_uses?: number;
+  /** Whitelist domains (mutually exclusive with blocked_domains) */
+  allowed_domains?: string[];
+  /** Blacklist domains (mutually exclusive with allowed_domains) */
+  blocked_domains?: string[];
+  /** User location for localized results */
+  user_location?: AnthropicUserLocation;
+}
+
+/**
+ * Computer use tool for desktop automation.
+ *
+ * Enables Claude to interact with computer interfaces through
+ * mouse clicks, keyboard input, and screenshots.
+ *
+ * Requires beta header:
+ * - `computer-use-2025-11-24` for Claude Opus 4.5
+ * - `computer-use-2025-01-24` for other Claude 4 models
+ *
+ * @example
+ * ```typescript
+ * const tool: AnthropicComputerTool = {
+ *   type: 'computer_20250124',
+ *   name: 'computer',
+ *   display_width_px: 1920,
+ *   display_height_px: 1080,
+ * };
+ * ```
+ */
+export interface AnthropicComputerTool {
+  /** Tool type identifier (version-specific) */
+  type: 'computer_20251124' | 'computer_20250124';
+  /** Tool name - must be 'computer' */
+  name: 'computer';
+  /** Display width in pixels */
+  display_width_px: number;
+  /** Display height in pixels */
+  display_height_px: number;
+  /** X11 display number (optional) */
+  display_number?: number;
+  /** Enable zoom action (Opus 4.5 only with 20251124 version) */
+  enable_zoom?: boolean;
+}
+
+/**
+ * Text editor tool for file viewing and editing.
+ *
+ * Enables Claude to view, create, and edit files with
+ * commands like view, str_replace, create, and insert.
+ *
+ * No beta header required.
+ *
+ * @example
+ * ```typescript
+ * const tool: AnthropicTextEditorTool = {
+ *   type: 'text_editor_20250728',
+ *   name: 'str_replace_based_edit_tool',
+ *   max_characters: 10000,
+ * };
+ * ```
+ */
+export interface AnthropicTextEditorTool {
+  /** Tool type identifier (version-specific) */
+  type: 'text_editor_20250728' | 'text_editor_20250124';
+  /** Tool name (version-specific) */
+  name: 'str_replace_based_edit_tool' | 'str_replace_editor';
+  /** Max characters for view truncation (20250728+ only) */
+  max_characters?: number;
+}
+
+/**
+ * Bash tool for shell command execution.
+ *
+ * Enables Claude to execute bash commands in a shell session.
+ * The session persists within the conversation.
+ *
+ * No beta header required.
+ *
+ * @example
+ * ```typescript
+ * const tool: AnthropicBashTool = {
+ *   type: 'bash_20250124',
+ *   name: 'bash',
+ * };
+ * ```
+ */
+export interface AnthropicBashTool {
+  /** Tool type identifier */
+  type: 'bash_20250124';
+  /** Tool name - must be 'bash' */
+  name: 'bash';
+}
+
+/**
+ * Code execution tool for sandboxed Python/Bash execution.
+ *
+ * Enables Claude to write and execute code in a secure container
+ * with pre-installed data science libraries.
+ *
+ * Requires beta header: `code-execution-2025-08-25`
+ *
+ * @example
+ * ```typescript
+ * const tool: AnthropicCodeExecutionTool = {
+ *   type: 'code_execution_20250825',
+ *   name: 'code_execution',
+ * };
+ * ```
+ */
+export interface AnthropicCodeExecutionTool {
+  /** Tool type identifier */
+  type: 'code_execution_20250825';
+  /** Tool name - must be 'code_execution' */
+  name: 'code_execution';
+}
+
+/**
+ * Tool search tool for dynamic tool discovery.
+ *
+ * Enables Claude to search through large tool catalogs
+ * using regex or natural language (BM25) queries.
+ *
+ * Requires beta header: `advanced-tool-use-2025-11-20`
+ *
+ * @example
+ * ```typescript
+ * const tool: AnthropicToolSearchTool = {
+ *   type: 'tool_search_tool_regex_20251119',
+ *   name: 'tool_search_tool_regex',
+ * };
+ * ```
+ */
+export interface AnthropicToolSearchTool {
+  /** Tool type identifier (regex or BM25 variant) */
+  type: 'tool_search_tool_regex_20251119' | 'tool_search_tool_bm25_20251119';
+  /** Tool name (must match type variant) */
+  name: 'tool_search_tool_regex' | 'tool_search_tool_bm25';
+}
+
+/**
+ * Union type for all Anthropic built-in tools.
+ *
+ * Built-in tools run server-side and have special handling
+ * different from user-defined function tools.
+ */
+export type AnthropicBuiltInTool =
+  | AnthropicWebSearchTool
+  | AnthropicComputerTool
+  | AnthropicTextEditorTool
+  | AnthropicBashTool
+  | AnthropicCodeExecutionTool
+  | AnthropicToolSearchTool;
+
+/**
+ * Combined tool type for API requests (user-defined or built-in).
+ */
+export type AnthropicToolUnion = AnthropicTool | AnthropicBuiltInTool;
+
+// ============================================
+// Tool Helper Constructors
+// ============================================
+
+/**
+ * Creates a web search tool configuration.
+ *
+ * The web search tool enables Claude to search the web for up-to-date information.
+ * Pricing: $10 per 1,000 searches plus standard token costs.
+ *
+ * @param options - Optional configuration for search behavior
+ * @returns A web search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Basic web search
+ * const search = webSearchTool();
+ *
+ * // With configuration
+ * const searchWithOptions = webSearchTool({
+ *   max_uses: 5,
+ *   allowed_domains: ['wikipedia.org', 'github.com'],
+ *   user_location: {
+ *     type: 'approximate',
+ *     city: 'San Francisco',
+ *     country: 'US',
+ *   },
+ * });
+ * ```
+ */
+export function webSearchTool(options?: {
+  max_uses?: number;
+  allowed_domains?: string[];
+  blocked_domains?: string[];
+  user_location?: AnthropicUserLocation;
+}): AnthropicWebSearchTool {
+  return {
+    type: 'web_search_20250305',
+    name: 'web_search',
+    ...options,
+  };
+}
+
+/**
+ * Creates a computer use tool configuration.
+ *
+ * The computer tool enables Claude to interact with computer interfaces
+ * through mouse clicks, keyboard input, and screenshots.
+ *
+ * Requires beta header (automatically injected when using this tool):
+ * - `computer-use-2025-11-24` for Claude Opus 4.5
+ * - `computer-use-2025-01-24` for other models
+ *
+ * @param options - Display configuration and optional settings
+ * @returns A computer tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const computer = computerTool({
+ *   display_width_px: 1920,
+ *   display_height_px: 1080,
+ * });
+ *
+ * // For Opus 4.5 with zoom support
+ * const computerOpus = computerTool({
+ *   display_width_px: 1920,
+ *   display_height_px: 1080,
+ *   version: '20251124',
+ *   enable_zoom: true,
+ * });
+ * ```
+ */
+export function computerTool(options: {
+  display_width_px: number;
+  display_height_px: number;
+  display_number?: number;
+  enable_zoom?: boolean;
+  /** Use '20251124' for Claude Opus 4.5, '20250124' for other models */
+  version?: '20251124' | '20250124';
+}): AnthropicComputerTool {
+  const { version = '20250124', ...rest } = options;
+  return {
+    type: version === '20251124' ? 'computer_20251124' : 'computer_20250124',
+    name: 'computer',
+    ...rest,
+  };
+}
+
+/**
+ * Creates a text editor tool configuration.
+ *
+ * The text editor tool enables Claude to view, create, and edit files
+ * using commands like view, str_replace, create, and insert.
+ *
+ * Token overhead: ~700 tokens per tool definition.
+ *
+ * @param options - Optional configuration
+ * @returns A text editor tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const editor = textEditorTool();
+ *
+ * // With max characters for view truncation
+ * const editorWithLimit = textEditorTool({
+ *   max_characters: 10000,
+ * });
+ * ```
+ */
+export function textEditorTool(options?: {
+  max_characters?: number;
+  /** Use '20250728' for Claude 4, '20250124' for Claude 3.7 */
+  version?: '20250728' | '20250124';
+}): AnthropicTextEditorTool {
+  const version = options?.version ?? '20250728';
+  return {
+    type: version === '20250728' ? 'text_editor_20250728' : 'text_editor_20250124',
+    name: version === '20250728' ? 'str_replace_based_edit_tool' : 'str_replace_editor',
+    ...(options?.max_characters !== undefined && { max_characters: options.max_characters }),
+  };
+}
+
+/**
+ * Creates a bash tool configuration.
+ *
+ * The bash tool enables Claude to execute shell commands.
+ * Sessions persist within the conversation.
+ *
+ * Token overhead: ~245 tokens per tool definition.
+ *
+ * @returns A bash tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const bash = bashTool();
+ * ```
+ */
+export function bashTool(): AnthropicBashTool {
+  return {
+    type: 'bash_20250124',
+    name: 'bash',
+  };
+}
+
+/**
+ * Creates a code execution tool configuration.
+ *
+ * The code execution tool enables Claude to write and execute
+ * Python/Bash code in a secure sandboxed container.
+ *
+ * Requires beta header: `code-execution-2025-08-25` (automatically injected).
+ *
+ * Pricing:
+ * - Free tier: 1,550 hours/month per organization
+ * - Additional: $0.05 per hour, per container
+ *
+ * @returns A code execution tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const codeExec = codeExecutionTool();
+ * ```
+ */
+export function codeExecutionTool(): AnthropicCodeExecutionTool {
+  return {
+    type: 'code_execution_20250825',
+    name: 'code_execution',
+  };
+}
+
+/**
+ * Creates a tool search tool configuration.
+ *
+ * The tool search tool enables Claude to search through large
+ * tool catalogs (up to 10,000 tools) using regex or natural language.
+ *
+ * Requires beta header: `advanced-tool-use-2025-11-20` (automatically injected).
+ *
+ * @param options - Optional mode selection
+ * @returns A tool search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Regex-based search (default)
+ * const search = toolSearchTool();
+ *
+ * // Natural language (BM25) search
+ * const nlSearch = toolSearchTool({ mode: 'bm25' });
+ * ```
+ */
+export function toolSearchTool(options?: {
+  /** Search mode: 'regex' for pattern matching, 'bm25' for natural language */
+  mode?: 'regex' | 'bm25';
+}): AnthropicToolSearchTool {
+  const mode = options?.mode ?? 'regex';
+  return {
+    type: mode === 'regex' ? 'tool_search_tool_regex_20251119' : 'tool_search_tool_bm25_20251119',
+    name: mode === 'regex' ? 'tool_search_tool_regex' : 'tool_search_tool_bm25',
+  };
+}
+
+/**
+ * Namespace object containing all Anthropic tool helper constructors.
+ *
+ * Provides a convenient way to create built-in tool configurations.
+ *
+ * @example
+ * ```typescript
+ * import { anthropic, tools } from 'provider-protocol/anthropic';
+ *
+ * const model = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   params: {
+ *     builtInTools: [
+ *       tools.webSearch({ max_uses: 5 }),
+ *       tools.codeExecution(),
+ *     ],
+ *   },
+ * });
+ * ```
+ */
+export const tools = {
+  /** Creates a web search tool configuration */
+  webSearch: webSearchTool,
+  /** Creates a computer use tool configuration */
+  computer: computerTool,
+  /** Creates a text editor tool configuration */
+  textEditor: textEditorTool,
+  /** Creates a bash tool configuration */
+  bash: bashTool,
+  /** Creates a code execution tool configuration */
+  codeExecution: codeExecutionTool,
+  /** Creates a tool search tool configuration */
+  toolSearch: toolSearchTool,
+};

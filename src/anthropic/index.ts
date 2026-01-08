@@ -24,5 +24,16 @@
  * @packageDocumentation
  */
 
-export { anthropic } from '../providers/anthropic/index.ts';
-export type { AnthropicLLMParams } from '../providers/anthropic/index.ts';
+export { anthropic, tools } from '../providers/anthropic/index.ts';
+export type {
+  AnthropicLLMParams,
+  AnthropicHeaders,
+  AnthropicBuiltInTool,
+  AnthropicWebSearchTool,
+  AnthropicComputerTool,
+  AnthropicTextEditorTool,
+  AnthropicBashTool,
+  AnthropicCodeExecutionTool,
+  AnthropicToolSearchTool,
+  AnthropicUserLocation,
+} from '../providers/anthropic/index.ts';

@@ -72,6 +72,7 @@ const baseProvider = createProvider({
 export const google = Object.assign(baseProvider, { cache });
 
 export { cache } from './cache.ts';
+export { tools } from './types.ts';
 export type { CacheCreateOptions, CacheListOptions } from './cache.ts';
 export type {
   GoogleLLMParams,
@@ -80,4 +81,13 @@ export type {
   GoogleCacheUpdateRequest,
   GoogleCacheListResponse,
   GoogleHeaders,
+  GoogleBuiltInTool,
+  GoogleSearchTool,
+  GoogleCodeExecutionTool,
+  GoogleUrlContextTool,
+  GoogleMapsTool,
+  GoogleFileSearchTool,
+  GoogleToolConfig,
+  GoogleGroundingMetadata,
+  GoogleCodeExecutionResult,
 } from './types.ts';

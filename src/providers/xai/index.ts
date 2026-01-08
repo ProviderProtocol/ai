@@ -211,7 +211,8 @@ function createXAIProvider(): XAIProvider {
  */
 export const xai = createXAIProvider();
 
-// Re-export types
+// Re-export tools and types
+export { tools } from './types.ts';
 export type {
   XAICompletionsParams,
   XAIResponsesParams,
@@ -223,4 +224,11 @@ export type {
   XAISearchParameters,
   XAIAgentTool,
   XAIHeaders,
+  XAIBuiltInTool,
+  XAIWebSearchTool,
+  XAIXSearchTool,
+  XAICodeExecutionTool,
+  XAIFileSearchTool,
+  XAIMcpTool,
+  XAIServerSideToolUsage,
 } from './types.ts';

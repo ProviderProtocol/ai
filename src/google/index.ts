@@ -24,5 +24,23 @@
  * @packageDocumentation
  */
 
-export { google } from '../providers/google/index.ts';
-export type { GoogleLLMParams } from '../providers/google/index.ts';
+export { google, tools, cache } from '../providers/google/index.ts';
+export type {
+  GoogleLLMParams,
+  CacheCreateOptions,
+  CacheListOptions,
+  GoogleCacheCreateRequest,
+  GoogleCacheResponse,
+  GoogleCacheUpdateRequest,
+  GoogleCacheListResponse,
+  GoogleHeaders,
+  GoogleBuiltInTool,
+  GoogleSearchTool,
+  GoogleCodeExecutionTool,
+  GoogleUrlContextTool,
+  GoogleMapsTool,
+  GoogleFileSearchTool,
+  GoogleToolConfig,
+  GoogleGroundingMetadata,
+  GoogleCodeExecutionResult,
+} from '../providers/google/index.ts';

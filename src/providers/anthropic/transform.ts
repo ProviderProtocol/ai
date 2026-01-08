@@ -61,9 +61,10 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   modelId: string
 ): AnthropicRequest {
   const params = (request.params ?? {}) as AnthropicLLMParams;
+  const { builtInTools, ...restParams } = params;
 
   const anthropicRequest: AnthropicRequest = {
-    ...params,
+    ...restParams,
     model: modelId,
     messages: request.messages.map(transformMessage),
   };
@@ -74,9 +75,21 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
     anthropicRequest.system = request.system as string | AnthropicSystemContent[];
   }
 
+  // Collect all tools: user-defined tools + built-in tools
+  const allTools: NonNullable<AnthropicRequest['tools']> = [];
+
   if (request.tools && request.tools.length > 0) {
     // For tool caching, use params.tools directly with native Anthropic format
-    anthropicRequest.tools = request.tools.map(transformTool);
+    allTools.push(...request.tools.map(transformTool));
+  }
+
+  // Add built-in tools (web_search, computer, text_editor, bash, code_execution, etc.)
+  if (builtInTools && builtInTools.length > 0) {
+    allTools.push(...builtInTools);
+  }
+
+  if (allTools.length > 0) {
+    anthropicRequest.tools = allTools;
     anthropicRequest.tool_choice = { type: 'auto' };
   }
 
@@ -317,9 +330,10 @@ function transformTool(tool: Tool): AnthropicTool {
 /**
  * Transforms an Anthropic API response to UPP's LLMResponse format.
  *
- * Extracts text content, tool calls, and structured output data from
- * Anthropic's response. The json_response tool is treated specially
- * for structured output extraction.
+ * Extracts text content, tool calls, code execution results, and structured
+ * output data from Anthropic's response. The json_response tool is treated
+ * specially for structured output extraction. Code execution results (stdout)
+ * are appended to the text content.
  *
  * @param data - The raw Anthropic API response
  * @returns A UPP LLMResponse with message, usage, and optional structured data
@@ -343,7 +357,18 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
         toolName: block.name,
         arguments: block.input,
       });
+    } else if (block.type === 'bash_code_execution_tool_result') {
+      // Extract stdout from code execution results and append to text
+      if (block.content.type === 'bash_code_execution_result' && block.content.stdout) {
+        textContent.push({ type: 'text', text: `\n\`\`\`\n${block.content.stdout}\`\`\`\n` });
+      }
+    } else if (block.type === 'text_editor_code_execution_tool_result') {
+      // Extract file content from text editor results
+      if (block.content.type === 'text_editor_code_execution_result' && block.content.content) {
+        textContent.push({ type: 'text', text: `\n\`\`\`\n${block.content.content}\`\`\`\n` });
+      }
     }
+    // server_tool_use blocks are tracked for context but don't produce output
   }
 
   const message = new AssistantMessage(
@@ -389,7 +414,19 @@ export interface StreamState {
   /** The model that generated this response. */
   model: string;
   /** Accumulated content blocks indexed by their stream position. */
-  content: Array<{ type: string; text?: string; id?: string; name?: string; input?: string }>;
+  content: Array<{
+    type: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    input?: string;
+    /** Code execution stdout (for bash_code_execution_tool_result). */
+    stdout?: string;
+    /** Code execution tool use ID (for result blocks). */
+    tool_use_id?: string;
+    /** File content (for text_editor_code_execution_tool_result). */
+    fileContent?: string;
+  }>;
   /** The reason the response ended, if completed. */
   stopReason: string | null;
   /** Number of input tokens consumed. */
@@ -465,6 +502,37 @@ export function transformStreamEvent(
           id: event.content_block.id,
           name: event.content_block.name,
           input: '',
+        };
+      } else if (event.content_block.type === 'server_tool_use') {
+        state.content[event.index] = {
+          type: 'server_tool_use',
+          id: event.content_block.id,
+          name: event.content_block.name,
+          input: '',
+        };
+      } else if (event.content_block.type === 'bash_code_execution_tool_result') {
+        // Handle code execution results - extract stdout for text
+        const resultBlock = event.content_block as {
+          type: 'bash_code_execution_tool_result';
+          tool_use_id: string;
+          content?: { type: string; stdout?: string };
+        };
+        state.content[event.index] = {
+          type: 'bash_code_execution_tool_result',
+          tool_use_id: resultBlock.tool_use_id,
+          stdout: resultBlock.content?.stdout ?? '',
+        };
+      } else if (event.content_block.type === 'text_editor_code_execution_tool_result') {
+        // Handle text editor results - extract file content
+        const resultBlock = event.content_block as {
+          type: 'text_editor_code_execution_tool_result';
+          tool_use_id: string;
+          content?: { type: string; content?: string };
+        };
+        state.content[event.index] = {
+          type: 'text_editor_code_execution_tool_result',
+          tool_use_id: resultBlock.tool_use_id,
+          fileContent: resultBlock.content?.content ?? '',
         };
       }
       return { type: 'content_block_start', index: event.index, delta: {} };
@@ -546,6 +614,9 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
   let structuredData: unknown;
 
   for (const block of state.content) {
+    // Skip undefined blocks (can happen with built-in tool results that aren't tracked)
+    if (!block) continue;
+
     if (block.type === 'text' && block.text) {
       textContent.push({ type: 'text', text: block.text });
     } else if (block.type === 'tool_use' && block.id && block.name) {
@@ -565,7 +636,14 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
         toolName: block.name,
         arguments: args,
       });
+    } else if (block.type === 'bash_code_execution_tool_result' && block.stdout) {
+      // Append code execution stdout to text content
+      textContent.push({ type: 'text', text: `\n\`\`\`\n${block.stdout}\`\`\`\n` });
+    } else if (block.type === 'text_editor_code_execution_tool_result' && block.fileContent) {
+      // Append file content to text content
+      textContent.push({ type: 'text', text: `\n\`\`\`\n${block.fileContent}\`\`\`\n` });
     }
+    // server_tool_use blocks are tracked for context but don't produce output
   }
 
   const message = new AssistantMessage(

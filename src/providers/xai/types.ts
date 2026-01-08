@@ -145,6 +145,42 @@ export interface XAIResponsesParams {
    * Use Agent Tools API instead for new implementations
    */
   search_parameters?: XAISearchParameters;
+
+  /**
+   * Built-in agentic tools for server-side execution.
+   *
+   * Use the tool helper constructors from the `tools` namespace:
+   * - `tools.webSearch()` - Web search capability
+   * - `tools.xSearch()` - X (Twitter) search capability
+   * - `tools.codeExecution()` - Python code execution
+   * - `tools.fileSearch()` - Document/collections search
+   * - `tools.mcp()` - Remote MCP server connection
+   *
+   * Note: Only available via the Responses API (`api: 'responses'`).
+   *
+   * @example
+   * ```typescript
+   * import { xai, tools } from 'provider-protocol/xai';
+   *
+   * const model = llm({
+   *   model: xai('grok-4-1-fast', { api: 'responses' }),
+   *   params: {
+   *     builtInTools: [
+   *       tools.webSearch(),
+   *       tools.xSearch({ from_date: '2025-01-01' }),
+   *       tools.codeExecution(),
+   *     ],
+   *   },
+   * });
+   * ```
+   */
+  builtInTools?: XAIBuiltInTool[];
+
+  /**
+   * Maximum agent reasoning turns.
+   * Limits the number of assistant turns, not individual tool calls.
+   */
+  max_turns?: number;
 }
 
 /**
@@ -249,16 +285,382 @@ export interface XAISearchParameters {
   max_search_results?: number;
 }
 
+// ============================================
+// Built-in Agentic Tools (Responses API)
+// ============================================
+
 /**
- * Server-side agentic tool configuration.
+ * Web search tool for real-time web information retrieval.
  *
- * These tools run on xAI's servers and provide capabilities like
- * web search, X (Twitter) search, and code execution.
+ * Enables Grok to search the web for up-to-date information.
+ * Pricing: $5 per 1,000 successful tool invocations.
  *
  * @example
  * ```typescript
- * const tool: XAIAgentTool = { type: 'web_search' };
+ * const tool: XAIWebSearchTool = {
+ *   type: 'web_search',
+ *   allowed_domains: ['wikipedia.org', 'github.com'],
+ * };
  * ```
+ */
+export interface XAIWebSearchTool {
+  /** Tool type identifier */
+  type: 'web_search';
+  /** Restrict to specific domains (max 5, mutually exclusive with excluded_domains) */
+  allowed_domains?: string[];
+  /** Exclude specific domains (max 5, mutually exclusive with allowed_domains) */
+  excluded_domains?: string[];
+  /** Enable image analysis from search results */
+  enable_image_understanding?: boolean;
+}
+
+/**
+ * X (Twitter) search tool for social media content.
+ *
+ * Enables Grok to search X posts and profiles in real-time.
+ * Pricing: $5 per 1,000 successful tool invocations.
+ *
+ * @example
+ * ```typescript
+ * const tool: XAIXSearchTool = {
+ *   type: 'x_search',
+ *   allowed_x_handles: ['elonmusk', 'xai'],
+ *   from_date: '2025-01-01',
+ * };
+ * ```
+ */
+export interface XAIXSearchTool {
+  /** Tool type identifier */
+  type: 'x_search';
+  /** Limit to specific X handles (max 10, mutually exclusive with excluded_x_handles) */
+  allowed_x_handles?: string[];
+  /** Exclude specific X handles (max 10, "grok" excluded by default) */
+  excluded_x_handles?: string[];
+  /** Start date filter (YYYY-MM-DD) */
+  from_date?: string;
+  /** End date filter (YYYY-MM-DD) */
+  to_date?: string;
+  /** Enable image analysis in posts */
+  enable_image_understanding?: boolean;
+  /** Enable video analysis in posts */
+  enable_video_understanding?: boolean;
+}
+
+/**
+ * Code execution tool for Python in a sandbox.
+ *
+ * Enables Grok to write and execute Python code in a secure environment.
+ * Pricing: $5 per 1,000 successful tool invocations.
+ *
+ * @example
+ * ```typescript
+ * const tool: XAICodeExecutionTool = {
+ *   type: 'code_interpreter',
+ *   container: {
+ *     pip_packages: ['numpy', 'pandas'],
+ *   },
+ * };
+ * ```
+ */
+export interface XAICodeExecutionTool {
+  /** Tool type identifier */
+  type: 'code_interpreter';
+  /** Container configuration */
+  container?: {
+    /** Additional pip packages to install */
+    pip_packages?: string[];
+  };
+}
+
+/**
+ * File/collections search tool for document retrieval.
+ *
+ * Enables Grok to search through uploaded document collections.
+ * Pricing: $2.50 per 1,000 successful tool invocations.
+ *
+ * @example
+ * ```typescript
+ * const tool: XAIFileSearchTool = {
+ *   type: 'file_search',
+ *   vector_store_ids: ['vs_abc123'],
+ *   max_num_results: 10,
+ * };
+ * ```
+ */
+export interface XAIFileSearchTool {
+  /** Tool type identifier */
+  type: 'file_search';
+  /** Collection/vector store IDs to search */
+  vector_store_ids: string[];
+  /** Maximum results to return */
+  max_num_results?: number;
+  /** Retrieval mode configuration */
+  retrieval_mode?: {
+    type: 'keyword' | 'semantic' | 'hybrid';
+  };
+}
+
+/**
+ * Remote MCP server tool configuration.
+ *
+ * Enables Grok to connect to external Model Context Protocol servers.
+ * Pricing: Token-based only (no per-invocation charge).
+ *
+ * @example
+ * ```typescript
+ * const tool: XAIMcpTool = {
+ *   type: 'mcp',
+ *   server_url: 'https://my-mcp-server.com/sse',
+ *   server_label: 'my_tools',
+ * };
+ * ```
+ */
+export interface XAIMcpTool {
+  /** Tool type identifier */
+  type: 'mcp';
+  /** MCP server URL (HTTP Streaming/SSE only) */
+  server_url: string;
+  /** Server label for tool call prefixing */
+  server_label?: string;
+  /** Description of server capabilities */
+  server_description?: string;
+  /** Specific tools to enable (empty = all available) */
+  allowed_tool_names?: string[];
+  /** Authentication token */
+  authorization?: string;
+  /** Custom request headers */
+  extra_headers?: Record<string, string>;
+}
+
+/**
+ * Union type for all xAI built-in tools.
+ *
+ * These tools are only available via the Responses API (`api: 'responses'`).
+ * They run server-side and provide agentic capabilities.
+ */
+export type XAIBuiltInTool =
+  | XAIWebSearchTool
+  | XAIXSearchTool
+  | XAICodeExecutionTool
+  | XAIFileSearchTool
+  | XAIMcpTool;
+
+/**
+ * Server-side tool usage tracking returned in responses.
+ */
+export interface XAIServerSideToolUsage {
+  /** Number of successful web searches */
+  web_search?: number;
+  /** Number of successful X searches */
+  x_search?: number;
+  /** Number of successful code executions */
+  code_execution?: number;
+  /** Number of successful file searches */
+  file_search?: number;
+}
+
+// ============================================
+// Tool Helper Constructors
+// ============================================
+
+/**
+ * Creates a web search tool configuration.
+ *
+ * Enables Grok to search the web for up-to-date information.
+ * Pricing: $5 per 1,000 successful tool invocations.
+ *
+ * @param options - Optional configuration for search behavior
+ * @returns A web search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Basic web search
+ * const search = webSearchTool();
+ *
+ * // With domain restrictions
+ * const searchWithDomains = webSearchTool({
+ *   allowed_domains: ['wikipedia.org', 'github.com'],
+ * });
+ * ```
+ */
+export function webSearchTool(options?: {
+  allowed_domains?: string[];
+  excluded_domains?: string[];
+  enable_image_understanding?: boolean;
+}): XAIWebSearchTool {
+  return {
+    type: 'web_search',
+    ...options,
+  };
+}
+
+/**
+ * Creates an X (Twitter) search tool configuration.
+ *
+ * Enables Grok to search X posts and profiles in real-time.
+ * Pricing: $5 per 1,000 successful tool invocations.
+ *
+ * @param options - Optional configuration for search behavior
+ * @returns An X search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Basic X search
+ * const xSearch = xSearchTool();
+ *
+ * // With handle and date filters
+ * const filteredSearch = xSearchTool({
+ *   allowed_x_handles: ['elonmusk', 'xai'],
+ *   from_date: '2025-01-01',
+ *   to_date: '2025-12-31',
+ * });
+ * ```
+ */
+export function xSearchTool(options?: {
+  allowed_x_handles?: string[];
+  excluded_x_handles?: string[];
+  from_date?: string;
+  to_date?: string;
+  enable_image_understanding?: boolean;
+  enable_video_understanding?: boolean;
+}): XAIXSearchTool {
+  return {
+    type: 'x_search',
+    ...options,
+  };
+}
+
+/**
+ * Creates a code execution tool configuration.
+ *
+ * Enables Grok to write and execute Python code in a sandbox.
+ * Pricing: $5 per 1,000 successful tool invocations.
+ *
+ * @param options - Optional configuration for the execution environment
+ * @returns A code execution tool configuration object
+ *
+ * @example
+ * ```typescript
+ * // Basic code execution
+ * const codeExec = codeExecutionTool();
+ *
+ * // With additional packages
+ * const codeExecWithPackages = codeExecutionTool({
+ *   pip_packages: ['numpy', 'pandas', 'scipy'],
+ * });
+ * ```
+ */
+export function codeExecutionTool(options?: {
+  pip_packages?: string[];
+}): XAICodeExecutionTool {
+  return {
+    type: 'code_interpreter',
+    ...(options?.pip_packages && { container: { pip_packages: options.pip_packages } }),
+  };
+}
+
+/**
+ * Creates a file/collections search tool configuration.
+ *
+ * Enables Grok to search through uploaded document collections.
+ * Pricing: $2.50 per 1,000 successful tool invocations.
+ *
+ * @param options - File search configuration
+ * @returns A file search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const fileSearch = fileSearchTool({
+ *   vector_store_ids: ['vs_abc123'],
+ *   max_num_results: 10,
+ *   retrieval_mode: 'hybrid',
+ * });
+ * ```
+ */
+export function fileSearchTool(options: {
+  vector_store_ids: string[];
+  max_num_results?: number;
+  retrieval_mode?: 'keyword' | 'semantic' | 'hybrid';
+}): XAIFileSearchTool {
+  return {
+    type: 'file_search',
+    vector_store_ids: options.vector_store_ids,
+    ...(options.max_num_results !== undefined && { max_num_results: options.max_num_results }),
+    ...(options.retrieval_mode && { retrieval_mode: { type: options.retrieval_mode } }),
+  };
+}
+
+/**
+ * Creates a remote MCP server tool configuration.
+ *
+ * Enables Grok to connect to external Model Context Protocol servers.
+ * Pricing: Token-based only (no per-invocation charge).
+ *
+ * @param options - MCP server configuration
+ * @returns An MCP tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const mcp = mcpTool({
+ *   server_url: 'https://my-mcp-server.com/sse',
+ *   server_label: 'my_tools',
+ *   allowed_tool_names: ['get_weather', 'search_db'],
+ * });
+ * ```
+ */
+export function mcpTool(options: {
+  server_url: string;
+  server_label?: string;
+  server_description?: string;
+  allowed_tool_names?: string[];
+  authorization?: string;
+  extra_headers?: Record<string, string>;
+}): XAIMcpTool {
+  return {
+    type: 'mcp',
+    ...options,
+  };
+}
+
+/**
+ * Namespace object containing all xAI tool helper constructors.
+ *
+ * Provides a convenient way to create built-in tool configurations.
+ * Note: These tools are only available via the Responses API (`api: 'responses'`).
+ *
+ * @example
+ * ```typescript
+ * import { xai, tools } from 'provider-protocol/xai';
+ *
+ * const model = llm({
+ *   model: xai('grok-4-1-fast', { api: 'responses' }),
+ *   params: {
+ *     builtInTools: [
+ *       tools.webSearch(),
+ *       tools.xSearch({ from_date: '2025-01-01' }),
+ *       tools.codeExecution(),
+ *     ],
+ *     include: ['inline_citations', 'code_execution_call_output'],
+ *   },
+ * });
+ * ```
+ */
+export const tools = {
+  /** Creates a web search tool configuration */
+  webSearch: webSearchTool,
+  /** Creates an X (Twitter) search tool configuration */
+  xSearch: xSearchTool,
+  /** Creates a code execution tool configuration */
+  codeExecution: codeExecutionTool,
+  /** Creates a file/collections search tool configuration */
+  fileSearch: fileSearchTool,
+  /** Creates a remote MCP server tool configuration */
+  mcp: mcpTool,
+};
+
+/**
+ * @deprecated Use the specific tool interfaces and the `tools` namespace instead.
+ * This basic type is maintained for backwards compatibility.
  */
 export interface XAIAgentTool {
   /** The type of server-side tool to enable */

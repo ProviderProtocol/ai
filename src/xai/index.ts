@@ -23,7 +23,7 @@
  * @packageDocumentation
  */
 
-export { xai } from '../providers/xai/index.ts';
+export { xai, tools } from '../providers/xai/index.ts';
 export type {
   XAIProviderOptions,
   XAIProvider,
@@ -38,4 +38,12 @@ export type {
   XAIModelReference,
   XAISearchParameters,
   XAIAgentTool,
+  XAIHeaders,
+  XAIBuiltInTool,
+  XAIWebSearchTool,
+  XAIXSearchTool,
+  XAICodeExecutionTool,
+  XAIFileSearchTool,
+  XAIMcpTool,
+  XAIServerSideToolUsage,
 } from '../providers/xai/types.ts';

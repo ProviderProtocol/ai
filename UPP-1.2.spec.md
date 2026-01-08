@@ -2175,6 +2175,275 @@ turn = await gpt.generate("What's the weather in Paris and save it to my notes")
 
 The `llm()` core handles UPP function tool execution automatically. Provider-native tools execute server-side and their results appear in the response.
 
+#### 10.9.5 Provider Tool Reference
+
+This section documents the built-in tools available for each provider. All tools are passed via the `params.builtInTools` array and have helper constructors in the provider's `tools` namespace.
+
+##### Anthropic Built-in Tools
+
+Anthropic provides server-side tools for Claude models. Import via `import { tools } from "upp/anthropic"`.
+
+| Tool | Constructor | Description | Pricing |
+|------|-------------|-------------|---------|
+| **Web Search** | `tools.webSearch()` | Search the web for real-time information | $10 per 1,000 tool invocations |
+| **Computer Use** | `tools.computer()` | Control computer via mouse, keyboard, screenshots | Requires beta header |
+| **Text Editor** | `tools.textEditor()` | View and edit files with str_replace operations | ~700 tokens overhead |
+| **Bash** | `tools.bash()` | Execute shell commands | ~245 tokens overhead |
+| **Code Execution** | `tools.codeExecution()` | Run Python in sandboxed container | $0.05 per container-hour |
+| **Tool Search** | `tools.toolSearch()` | Dynamic tool catalog search (regex/BM25) | Token-based |
+
+**Beta Header Requirements:**
+
+Some Anthropic tools require a beta header to be included in the request:
+
+| Tool | Beta Header | Status |
+|------|-------------|--------|
+| Web Search | None | GA |
+| Computer Use | `computer-use-2025-01-24` | Beta |
+| Text Editor | None | GA |
+| Bash | None | GA |
+| Code Execution | `code-execution-2025-08-25` | Beta |
+| Tool Search | `advanced-tool-use-2025-11-20` | Beta |
+
+**Web Search Example:**
+
+```pseudocode
+import { anthropic, tools } from "upp/anthropic"
+
+claude = llm({
+  model: anthropic("claude-sonnet-4-20250514"),
+  params: {
+    builtInTools: [
+      tools.webSearch({
+        max_uses: 5,  // Limit searches per request
+        allowed_domains: ["wikipedia.org", "github.com"],
+        user_location: {
+          type: "approximate",
+          city: "San Francisco",
+          country: "US"
+        }
+      })
+    ]
+  }
+})
+```
+
+**Code Execution Example (requires beta header):**
+
+```pseudocode
+claude = llm({
+  model: anthropic("claude-sonnet-4-20250514"),
+  config: {
+    headers: { "anthropic-beta": "code-execution-2025-08-25" }
+  },
+  params: {
+    builtInTools: [tools.codeExecution()],
+    container: "container_id_from_previous_response"  // Reuse container
+  }
+})
+```
+
+**Computer Use (Beta):**
+
+```pseudocode
+claude = llm({
+  model: anthropic("claude-sonnet-4-20250514"),
+  config: {
+    headers: { "anthropic-beta": "computer-use-2025-01-24" }
+  },
+  params: {
+    builtInTools: [
+      tools.computer({
+        display_width_px: 1920,
+        display_height_px: 1080,
+        version: "20251124",  // Opus-optimized version
+        enable_zoom: true
+      })
+    ]
+  }
+})
+```
+
+##### Google Built-in Tools
+
+Google provides server-side tools for Gemini models. Import via `import { tools } from "upp/google"`.
+
+| Tool | Constructor | Description | Pricing |
+|------|-------------|-------------|---------|
+| **Google Search** | `tools.googleSearch()` | Grounding with Google Search | $14-35 per 1,000 queries |
+| **Code Execution** | `tools.codeExecution()` | Execute Python code | Free |
+| **URL Context** | `tools.urlContext()` | Fetch and analyze URLs | Token-based |
+| **Google Maps** | `tools.googleMaps()` | Grounding with Google Maps | $25 per 1,000 queries |
+| **File Search** | `tools.fileSearch()` | RAG search on document stores | Token-based |
+
+**Google Search Example:**
+
+```pseudocode
+import { google, tools } from "upp/google"
+
+gemini = llm({
+  model: google("gemini-2.5-flash"),
+  params: {
+    builtInTools: [
+      tools.googleSearch()
+    ]
+  }
+})
+
+// Grounding metadata available in response
+turn = await gemini.generate("What's the latest news about AI?")
+// turn.metadata.google.groundingMetadata contains search results
+```
+
+**Multiple Tools with Tool Config:**
+
+```pseudocode
+gemini = llm({
+  model: google("gemini-2.5-flash"),
+  params: {
+    builtInTools: [
+      tools.googleMaps({ enableWidget: true }),
+      tools.codeExecution()
+    ],
+    toolConfig: {
+      retrievalConfig: {
+        latLng: { latitude: 40.758896, longitude: -73.985130 }
+      }
+    }
+  }
+})
+```
+
+**Note:** File Search cannot be combined with other built-in tools.
+
+##### xAI Built-in Tools
+
+xAI provides server-side tools for Grok models via the **Responses API only** (`api: 'responses'`). Import via `import { tools } from "upp/xai"`.
+
+| Tool | Constructor | Description | Pricing |
+|------|-------------|-------------|---------|
+| **Web Search** | `tools.webSearch()` | Search the web for current information | $5 per 1,000 invocations |
+| **X Search** | `tools.xSearch()` | Search X (Twitter) posts and profiles | $5 per 1,000 invocations |
+| **Code Execution** | `tools.codeExecution()` | Execute Python in sandbox | $5 per 1,000 invocations |
+| **File Search** | `tools.fileSearch()` | Search document collections | $2.50 per 1,000 invocations |
+| **MCP** | `tools.mcp()` | Connect to remote MCP servers | Token-based only |
+
+**Web Search and X Search Example:**
+
+```pseudocode
+import { xai, tools } from "upp/xai"
+
+grok = llm({
+  model: xai("grok-4", { api: "responses" }),
+  params: {
+    builtInTools: [
+      tools.webSearch({
+        allowed_domains: ["wikipedia.org"],
+        enable_image_understanding: true
+      }),
+      tools.xSearch({
+        allowed_x_handles: ["elonmusk", "xai"],
+        from_date: "2025-01-01",
+        enable_video_understanding: true
+      })
+    ]
+  }
+})
+```
+
+**Code Execution with Packages:**
+
+```pseudocode
+grok = llm({
+  model: xai("grok-4", { api: "responses" }),
+  params: {
+    builtInTools: [
+      tools.codeExecution({
+        pip_packages: ["numpy", "pandas", "scipy"]
+      })
+    ]
+  }
+})
+```
+
+**MCP Server Connection:**
+
+```pseudocode
+grok = llm({
+  model: xai("grok-4", { api: "responses" }),
+  params: {
+    builtInTools: [
+      tools.mcp({
+        server_url: "https://my-mcp-server.com/sse",
+        server_label: "my_tools",
+        allowed_tool_names: ["get_weather", "search_db"],
+        authorization: "Bearer token123"
+      })
+    ]
+  }
+})
+```
+
+##### OpenAI Built-in Tools
+
+OpenAI provides built-in tools for GPT models via the **Responses API**. Import via `import { tools } from "upp/openai"`.
+
+| Tool | Constructor | Description | Pricing |
+|------|-------------|-------------|---------|
+| **Web Search** | `tools.webSearch()` | Search the web for current information | Token-based |
+| **Image Generation** | `tools.imageGeneration()` | Generate images from prompts | Per-image pricing |
+| **Code Interpreter** | `tools.codeInterpreter()` | Execute Python in sandbox | Session-based |
+| **File Search** | `tools.fileSearch()` | Search vector stores | Token-based |
+
+**Web Search Example:**
+
+```pseudocode
+import { openai, tools } from "upp/openai"
+
+gpt = llm({
+  model: openai("gpt-4o"),
+  params: {
+    tools: [
+      tools.webSearch({
+        search_context_size: "medium",
+        user_location: {
+          type: "approximate",
+          city: "Tokyo",
+          country: "JP"
+        }
+      })
+    ]
+  }
+})
+```
+
+**Image Generation Example:**
+
+```pseudocode
+gpt = llm({
+  model: openai("gpt-4o"),
+  params: {
+    tools: [
+      tools.imageGeneration({
+        quality: "high",
+        size: "1024x1024"
+      })
+    ]
+  }
+})
+
+turn = await gpt.generate("Generate an image of a sunset over mountains")
+// turn.response.images contains the generated ImageBlock
+```
+
+##### OpenRouter
+
+OpenRouter acts as a routing layer and does not provide its own built-in tools. Use the underlying provider's tools based on the model being used.
+
+##### Ollama
+
+Ollama runs local models and does not provide server-side built-in tools. Use UPP function tools for client-side tool calling with local models.
+
 ---
 
 ## 11. Structured Outputs

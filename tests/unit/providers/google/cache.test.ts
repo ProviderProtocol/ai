@@ -1,5 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach, mock } from 'bun:test';
 import { cache } from '../../../../src/providers/google/cache.ts';
+import { UPPError } from '../../../../src/types/errors.ts';
 
 const MOCK_API_KEY = 'test-api-key';
 const MOCK_CACHE_NAME = 'cachedContents/abc123xyz';
@@ -157,15 +158,21 @@ describe('Google Cache Utilities', () => {
       expect(body.ttl).toBeUndefined();
     });
 
-    test('throws on API error', async () => {
+    test('throws UPPError on API error', async () => {
       setMockFetch(new Response('Bad Request', { status: 400 }));
 
-      await expect(
-        cache.create({
+      try {
+        await cache.create({
           apiKey: MOCK_API_KEY,
           model: 'gemini-3-flash-preview',
-        })
-      ).rejects.toThrow('Failed to create cache: 400');
+        });
+        expect(true).toBe(false);
+      } catch (error) {
+        expect(error).toBeInstanceOf(UPPError);
+        expect((error as UPPError).code).toBe('INVALID_REQUEST');
+        expect((error as UPPError).provider).toBe('google');
+        expect((error as UPPError).statusCode).toBe(400);
+      }
     });
 
     test('normalizes model name without prefix', async () => {
@@ -254,12 +261,18 @@ describe('Google Cache Utilities', () => {
       expect(url).toContain('cachedContents/abc123xyz');
     });
 
-    test('throws on not found', async () => {
+    test('throws UPPError on not found', async () => {
       setMockFetch(new Response('Not Found', { status: 404 }));
 
-      await expect(cache.get('nonexistent', MOCK_API_KEY)).rejects.toThrow(
-        'Failed to get cache: 404'
-      );
+      try {
+        await cache.get('nonexistent', MOCK_API_KEY);
+        expect(true).toBe(false);
+      } catch (error) {
+        expect(error).toBeInstanceOf(UPPError);
+        expect((error as UPPError).code).toBe('MODEL_NOT_FOUND');
+        expect((error as UPPError).provider).toBe('google');
+        expect((error as UPPError).statusCode).toBe(404);
+      }
     });
   });
 
@@ -324,12 +337,18 @@ describe('Google Cache Utilities', () => {
       expect(url).toContain('pageToken=prevToken');
     });
 
-    test('throws on API error', async () => {
+    test('throws UPPError on API error', async () => {
       setMockFetch(new Response('Unauthorized', { status: 401 }));
 
-      await expect(cache.list({ apiKey: 'invalid' })).rejects.toThrow(
-        'Failed to list caches: 401'
-      );
+      try {
+        await cache.list({ apiKey: 'invalid' });
+        expect(true).toBe(false);
+      } catch (error) {
+        expect(error).toBeInstanceOf(UPPError);
+        expect((error as UPPError).code).toBe('AUTHENTICATION_FAILED');
+        expect((error as UPPError).provider).toBe('google');
+        expect((error as UPPError).statusCode).toBe(401);
+      }
     });
   });
 
@@ -382,12 +401,18 @@ describe('Google Cache Utilities', () => {
       expect(body.expireTime).toBe('2024-12-31T23:59:59Z');
     });
 
-    test('throws on not found', async () => {
+    test('throws UPPError on not found', async () => {
       setMockFetch(new Response('Not Found', { status: 404 }));
 
-      await expect(
-        cache.update('nonexistent', { ttl: '3600s' }, MOCK_API_KEY)
-      ).rejects.toThrow('Failed to update cache: 404');
+      try {
+        await cache.update('nonexistent', { ttl: '3600s' }, MOCK_API_KEY);
+        expect(true).toBe(false);
+      } catch (error) {
+        expect(error).toBeInstanceOf(UPPError);
+        expect((error as UPPError).code).toBe('MODEL_NOT_FOUND');
+        expect((error as UPPError).provider).toBe('google');
+        expect((error as UPPError).statusCode).toBe(404);
+      }
     });
   });
 
@@ -411,12 +436,18 @@ describe('Google Cache Utilities', () => {
       expect(url).toContain('cachedContents/abc123xyz');
     });
 
-    test('throws on not found', async () => {
+    test('throws UPPError on not found', async () => {
       setMockFetch(new Response('Not Found', { status: 404 }));
 
-      await expect(cache.delete('nonexistent', MOCK_API_KEY)).rejects.toThrow(
-        'Failed to delete cache: 404'
-      );
+      try {
+        await cache.delete('nonexistent', MOCK_API_KEY);
+        expect(true).toBe(false);
+      } catch (error) {
+        expect(error).toBeInstanceOf(UPPError);
+        expect((error as UPPError).code).toBe('MODEL_NOT_FOUND');
+        expect((error as UPPError).provider).toBe('google');
+        expect((error as UPPError).statusCode).toBe(404);
+      }
     });
   });
 });

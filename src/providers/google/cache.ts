@@ -17,6 +17,7 @@ import type {
   GoogleContent,
   GoogleTool,
 } from './types.ts';
+import { normalizeHttpError } from '../../http/errors.ts';
 
 const CACHE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/cachedContents';
 
@@ -134,8 +135,7 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to create cache: ${response.status} ${error}`);
+    throw await normalizeHttpError(response, 'google', 'llm');
   }
 
   return response.json() as Promise<GoogleCacheResponse>;
@@ -161,8 +161,7 @@ export async function get(name: string, apiKey: string): Promise<GoogleCacheResp
   const response = await fetch(url, { method: 'GET' });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to get cache: ${response.status} ${error}`);
+    throw await normalizeHttpError(response, 'google', 'llm');
   }
 
   return response.json() as Promise<GoogleCacheResponse>;
@@ -196,8 +195,7 @@ export async function list(options: CacheListOptions): Promise<GoogleCacheListRe
   const response = await fetch(`${CACHE_API_BASE}?${params}`, { method: 'GET' });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to list caches: ${response.status} ${error}`);
+    throw await normalizeHttpError(response, 'google', 'llm');
   }
 
   return response.json() as Promise<GoogleCacheListResponse>;
@@ -239,8 +237,7 @@ export async function update(
   });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to update cache: ${response.status} ${error}`);
+    throw await normalizeHttpError(response, 'google', 'llm');
   }
 
   return response.json() as Promise<GoogleCacheResponse>;
@@ -264,8 +261,7 @@ async function deleteCache(name: string, apiKey: string): Promise<void> {
   const response = await fetch(url, { method: 'DELETE' });
 
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`Failed to delete cache: ${response.status} ${error}`);
+    throw await normalizeHttpError(response, 'google', 'llm');
   }
 }
 

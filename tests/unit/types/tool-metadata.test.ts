@@ -110,7 +110,8 @@ describe('Anthropic Tool Metadata Transform', () => {
     );
 
     expect(request.tools).toHaveLength(1);
-    expect(request.tools?.[0]?.cache_control).toEqual({ type: 'ephemeral' });
+    const tool0 = request.tools?.[0] as { cache_control?: { type: string } };
+    expect(tool0?.cache_control).toEqual({ type: 'ephemeral' });
   });
 
   test('transformTool works without metadata', async () => {
@@ -138,7 +139,8 @@ describe('Anthropic Tool Metadata Transform', () => {
     );
 
     expect(request.tools).toHaveLength(1);
-    expect(request.tools?.[0]?.cache_control).toBeUndefined();
+    const tool0 = request.tools?.[0] as { cache_control?: { type: string } };
+    expect(tool0?.cache_control).toBeUndefined();
   });
 });
 

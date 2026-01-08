@@ -63,7 +63,7 @@ export function transformRequest<TParams extends GoogleLLMParams>(
   modelId: string
 ): GoogleRequest {
   const params = (request.params ?? {}) as GoogleLLMParams;
-  const { cachedContent, ...generationParams } = params;
+  const { cachedContent, builtInTools, toolConfig, ...generationParams } = params;
 
   const googleRequest: GoogleRequest = {
     contents: transformMessages(request.messages),
@@ -95,12 +95,28 @@ export function transformRequest<TParams extends GoogleLLMParams>(
     googleRequest.generationConfig = generationConfig;
   }
 
+  // Collect all tools: function declarations + built-in tools
+  const tools: NonNullable<GoogleRequest['tools']> = [];
+
   if (request.tools && request.tools.length > 0) {
-    googleRequest.tools = [
-      {
-        functionDeclarations: request.tools.map(transformTool),
-      },
-    ];
+    tools.push({
+      functionDeclarations: request.tools.map(transformTool),
+    });
+  }
+
+  // Add built-in tools (googleSearch, codeExecution, urlContext, etc.)
+  // These are added as separate tool objects, not as function declarations
+  if (builtInTools && builtInTools.length > 0) {
+    tools.push(...builtInTools);
+  }
+
+  if (tools.length > 0) {
+    googleRequest.tools = tools;
+  }
+
+  // Add tool config if provided (e.g., for retrievalConfig with Google Maps)
+  if (toolConfig) {
+    googleRequest.toolConfig = toolConfig;
   }
 
   if (cachedContent) {
@@ -327,7 +343,14 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
         args: fc.functionCall.args,
         thoughtSignature: fc.thoughtSignature,
       });
+    } else if ('codeExecutionResult' in part) {
+      // Append code execution output to text content
+      const codeResult = part as { codeExecutionResult: { outcome: string; output: string } };
+      if (codeResult.codeExecutionResult.output) {
+        textContent.push({ type: 'text', text: `\n\`\`\`\n${codeResult.codeExecutionResult.output}\`\`\`\n` });
+      }
     }
+    // executableCode parts are tracked for context but the output is in codeExecutionResult
   }
 
   const message = new AssistantMessage(
@@ -457,7 +480,20 @@ export function transformStreamChunk(
           argumentsJson: JSON.stringify(fc.functionCall.args),
         },
       });
+    } else if ('codeExecutionResult' in part) {
+      // Append code execution output to content and emit as text delta
+      const codeResult = part as { codeExecutionResult: { outcome: string; output: string } };
+      if (codeResult.codeExecutionResult.output) {
+        const outputText = `\n\`\`\`\n${codeResult.codeExecutionResult.output}\`\`\`\n`;
+        state.content += outputText;
+        events.push({
+          type: 'text_delta',
+          index: 0,
+          delta: { text: outputText },
+        });
+      }
     }
+    // executableCode parts are tracked for context but the output is in codeExecutionResult
   }
 
   if (candidate.finishReason) {
