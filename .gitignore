@@ -6,6 +6,10 @@ out
 dist
 *.tgz
 
+# generated docs (run `bun run docs` to regenerate)
+docs
+docs-sorted
+
 # code coverage
 coverage
 *.lcov
