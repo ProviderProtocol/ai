@@ -113,6 +113,19 @@ export function transformRequest<TParams extends OllamaLLMParams>(
 }
 
 /**
+ * Normalizes system prompt to string.
+ * Converts array format to concatenated string for providers that only support strings.
+ */
+function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
+  if (!system) return undefined;
+  if (typeof system === 'string') return system;
+  return (system as Array<{text?: string}>)
+    .map(block => block.text ?? '')
+    .filter(text => text.length > 0)
+    .join('\n\n');
+}
+
+/**
  * Transforms UPP messages to Ollama's message format.
  *
  * Handles conversion of:
@@ -127,17 +140,18 @@ export function transformRequest<TParams extends OllamaLLMParams>(
  * - URL images are converted to text placeholders (Ollama limitation)
  *
  * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt to prepend
+ * @param system - Optional system prompt (string or array, normalized to string)
  * @returns Array of Ollama-formatted messages
  */
-function transformMessages(messages: Message[], system?: string): OllamaMessage[] {
+function transformMessages(messages: Message[], system?: string | unknown[]): OllamaMessage[] {
   const ollamaMessages: OllamaMessage[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
   // System prompt as first message
-  if (system) {
+  if (normalizedSystem) {
     ollamaMessages.push({
       role: 'system',
-      content: system,
+      content: normalizedSystem,
     });
   }
 
@@ -307,11 +321,13 @@ export function transformResponse(data: OllamaResponse): LLMResponse {
     }
   );
 
-  // Calculate token usage
+  // Calculate token usage (Ollama doesn't support API-level prompt caching)
   const usage: TokenUsage = {
     inputTokens: data.prompt_eval_count ?? 0,
     outputTokens: data.eval_count ?? 0,
     totalTokens: (data.prompt_eval_count ?? 0) + (data.eval_count ?? 0),
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
   };
 
   // Map done_reason to standard stop reason
@@ -519,10 +535,13 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     }
   );
 
+  // Ollama doesn't support API-level prompt caching
   const usage: TokenUsage = {
     inputTokens: state.promptEvalCount,
     outputTokens: state.evalCount,
     totalTokens: state.promptEvalCount + state.evalCount,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
   };
 
   // Map done_reason to standard stop reason

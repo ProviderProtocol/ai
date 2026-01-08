@@ -93,22 +93,26 @@ export function transformRequest(
  * Handles system prompts, user messages, assistant messages, function calls,
  * and tool results. Returns a string for simple single-message requests.
  *
+ * System prompts support both string and array formats for cache_control.
+ *
  * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt to prepend
+ * @param system - Optional system prompt (string or array with cache_control)
  * @returns Array of input items, or a simple string for single-message requests
  */
 function transformInputItems(
   messages: Message[],
-  system?: string
+  system?: string | unknown[]
 ): OpenRouterResponsesInputItem[] | string {
   const result: OpenRouterResponsesInputItem[] = [];
 
   if (system) {
+    // Pass through directly - OpenRouter supports both string and array formats
+    // Array format enables cache_control for Anthropic/Gemini models
     result.push({
       type: 'message',
       role: 'system',
       content: system,
-    });
+    } as OpenRouterResponsesInputItem);
   }
 
   for (const message of messages) {
@@ -395,6 +399,8 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
     inputTokens: data.usage.input_tokens,
     outputTokens: data.usage.output_tokens,
     totalTokens: data.usage.total_tokens,
+    cacheReadTokens: data.usage.input_tokens_details?.cached_tokens ?? 0,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';
@@ -443,6 +449,8 @@ export interface ResponsesStreamState {
   inputTokens: number;
   /** Output token count from usage */
   outputTokens: number;
+  /** Number of tokens read from cache */
+  cacheReadTokens: number;
   /** Whether a refusal was encountered */
   hadRefusal: boolean;
 }
@@ -461,6 +469,7 @@ export function createStreamState(): ResponsesStreamState {
     status: 'in_progress',
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
     hadRefusal: false,
   };
 }
@@ -499,6 +508,7 @@ export function transformStreamEvent(
       if (event.response?.usage) {
         state.inputTokens = event.response.usage.input_tokens;
         state.outputTokens = event.response.usage.output_tokens;
+        state.cacheReadTokens = event.response.usage.input_tokens_details?.cached_tokens ?? 0;
       }
       if (event.response?.output) {
         for (let i = 0; i < event.response.output.length; i++) {
@@ -764,6 +774,8 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';

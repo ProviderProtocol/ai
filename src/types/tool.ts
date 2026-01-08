@@ -10,6 +10,24 @@
 import type { JSONSchema } from './schema.ts';
 
 /**
+ * Provider-namespaced metadata for tools.
+ *
+ * Each provider can attach its own metadata under its namespace,
+ * enabling provider-specific features like caching, strict mode, etc.
+ *
+ * @example
+ * ```typescript
+ * const metadata: ToolMetadata = {
+ *   anthropic: { cache_control: { type: 'ephemeral' } },
+ *   openrouter: { cache_control: { type: 'ephemeral', ttl: '1h' } }
+ * };
+ * ```
+ */
+export interface ToolMetadata {
+  [provider: string]: Record<string, unknown> | undefined;
+}
+
+/**
  * Tool call requested by the model.
  *
  * Represents a single function call request from the LLM, including
@@ -103,6 +121,25 @@ export interface Tool<TParams = unknown, TResult = unknown> {
 
   /** JSON Schema defining the tool's parameters */
   parameters: JSONSchema;
+
+  /**
+   * Provider-specific metadata, namespaced by provider name.
+   *
+   * Used for provider-specific features like prompt caching:
+   * @example
+   * ```typescript
+   * const tool: Tool = {
+   *   name: 'search_docs',
+   *   description: 'Search documentation',
+   *   parameters: {...},
+   *   run: async (params) => {...},
+   *   metadata: {
+   *     anthropic: { cache_control: { type: 'ephemeral' } }
+   *   }
+   * };
+   * ```
+   */
+  metadata?: ToolMetadata;
 
   /**
    * Executes the tool with the provided parameters.

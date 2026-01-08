@@ -63,19 +63,27 @@ export function transformRequest<TParams extends GoogleLLMParams>(
   modelId: string
 ): GoogleRequest {
   const params = (request.params ?? {}) as GoogleLLMParams;
+  const { cachedContent, ...generationParams } = params;
 
   const googleRequest: GoogleRequest = {
     contents: transformMessages(request.messages),
   };
 
   if (request.system) {
-    googleRequest.systemInstruction = {
-      parts: [{ text: request.system }],
-    };
+    if (typeof request.system === 'string') {
+      googleRequest.systemInstruction = {
+        parts: [{ text: request.system }],
+      };
+    } else {
+      // Array format - pass through as parts: [{text: '...'}, {text: '...'}]
+      googleRequest.systemInstruction = {
+        parts: request.system as GooglePart[],
+      };
+    }
   }
 
   const generationConfig: NonNullable<GoogleRequest['generationConfig']> = {
-    ...params,
+    ...generationParams,
   };
 
   if (request.structure) {
@@ -93,6 +101,10 @@ export function transformRequest<TParams extends GoogleLLMParams>(
         functionDeclarations: request.tools.map(transformTool),
       },
     ];
+  }
+
+  if (cachedContent) {
+    googleRequest.cachedContent = cachedContent;
   }
 
   return googleRequest;
@@ -336,6 +348,8 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
     inputTokens: data.usageMetadata?.promptTokenCount ?? 0,
     outputTokens: data.usageMetadata?.candidatesTokenCount ?? 0,
     totalTokens: data.usageMetadata?.totalTokenCount ?? 0,
+    cacheReadTokens: data.usageMetadata?.cachedContentTokenCount ?? 0,
+    cacheWriteTokens: 0,
   };
 
   return {
@@ -363,6 +377,8 @@ export interface StreamState {
   inputTokens: number;
   /** Total output tokens reported by the API. */
   outputTokens: number;
+  /** Number of tokens read from cached content. */
+  cacheReadTokens: number;
   /** Flag indicating whether this is the first chunk (for message_start event). */
   isFirstChunk: boolean;
 }
@@ -379,6 +395,7 @@ export function createStreamState(): StreamState {
     finishReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
     isFirstChunk: true,
   };
 }
@@ -408,6 +425,7 @@ export function transformStreamChunk(
   if (chunk.usageMetadata) {
     state.inputTokens = chunk.usageMetadata.promptTokenCount;
     state.outputTokens = chunk.usageMetadata.candidatesTokenCount;
+    state.cacheReadTokens = chunk.usageMetadata.cachedContentTokenCount ?? 0;
   }
 
   const candidate = chunk.candidates?.[0];
@@ -508,6 +526,8 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: 0,
   };
 
   return {

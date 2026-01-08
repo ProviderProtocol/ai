@@ -98,8 +98,16 @@ export interface LLMOptions<TParams = unknown> {
   /** Model-specific parameters (temperature, max_tokens, etc.) */
   params?: TParams;
 
-  /** System prompt for all inferences */
-  system?: string;
+  /**
+   * System prompt for all inferences.
+   *
+   * Can be a simple string or a provider-specific array format:
+   * - Anthropic: `[{type: 'text', text: '...', cache_control?: {...}}]`
+   * - Google: `[{text: '...'}, {text: '...'}]` (parts array)
+   *
+   * Array formats are passed through directly to the provider.
+   */
+  system?: string | unknown[];
 
   /** Tools available to the model */
   tools?: Tool[];
@@ -174,8 +182,8 @@ export interface LLMInstance<TParams = unknown> {
   /** The bound model instance */
   readonly model: BoundLLMModel<TParams>;
 
-  /** Current system prompt */
-  readonly system: string | undefined;
+  /** Current system prompt (string or provider-specific array format) */
+  readonly system: string | unknown[] | undefined;
 
   /** Current model parameters */
   readonly params: TParams | undefined;
@@ -198,8 +206,11 @@ export interface LLMRequest<TParams = unknown> {
   /** All messages for this request (history + new input) */
   messages: Message[];
 
-  /** System prompt */
-  system?: string;
+  /**
+   * System prompt - string or provider-specific array format.
+   * Arrays are passed through directly to the provider.
+   */
+  system?: string | unknown[];
 
   /** Model-specific parameters (passed through unchanged) */
   params?: TParams;

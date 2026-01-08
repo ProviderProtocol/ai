@@ -1078,15 +1078,35 @@ Messages are represented as a type hierarchy, allowing type-safe handling and pr
 
 **MessageMetadata Structure:**
 
-Provider-namespaced metadata. Each provider defines its own metadata shape.
+Provider-namespaced metadata. Each provider defines its own metadata shape, enabling provider-specific features like prompt caching without affecting other providers.
 
 ```pseudocode
 {
   google: { thought_signature: "abc123..." },
   openai: { reasoning_encrypted: "..." },
-  anthropic: { cache_control: { type: "ephemeral" } }
+  anthropic: { cache_control: { type: "ephemeral", ttl: "1h" } }
 }
 ```
+
+| Provider | Namespace | Supported Options |
+|----------|-----------|-------------------|
+| Anthropic | `anthropic` | `cache_control: { type: "ephemeral", ttl?: "5m" \| "1h" }` |
+| Google | `google` | `thought_signature: string` (for multi-turn tool calls) |
+| OpenRouter | `openrouter` | `cache_control: { type: "ephemeral", ttl?: "1h" }` |
+
+**Prompt Caching via Message Metadata:**
+
+Anthropic and OpenRouter support explicit cache breakpoints via message metadata. When set on a message, the `cache_control` is applied to the last content block of that message, marking a cache checkpoint.
+
+```pseudocode
+// Cache the system context to reduce costs on repeated requests
+userMessage = UserMessage(
+  "Here is the codebase context: " + largeCodebase,
+  { metadata: { anthropic: { cache_control: { type: "ephemeral" } } } }
+)
+```
+
+**Note:** Providers MUST ignore metadata namespaces they don't recognize. Message metadata is passed through to the provider's native format where supported.
 
 ### 6.2 Message Types
 
@@ -1721,8 +1741,27 @@ Tools use **JSON Schema** for parameter definitions.
 | `name` | String | Yes | Tool name (must be unique within an llm() instance) |
 | `description` | String | Yes | Human-readable description for the model |
 | `parameters` | JSONSchema | Yes | JSON Schema defining parameters |
+| `metadata` | ToolMetadata | No | Provider-specific metadata (e.g., cache control) |
 | `run` | Function | Yes | Tool execution function |
 | `approval` | Function | No | Optional approval handler for sensitive operations |
+
+**ToolMetadata Structure:**
+
+Provider-namespaced metadata for tools. Each provider defines its own metadata shape, enabling provider-specific features like prompt caching or strict schema validation without affecting other providers.
+
+```pseudocode
+{
+  anthropic: { cache_control: { type: "ephemeral", ttl: "1h" } },
+  openai: { strict: true }
+}
+```
+
+| Provider | Namespace | Supported Options |
+|----------|-----------|-------------------|
+| Anthropic | `anthropic` | `cache_control: { type: "ephemeral", ttl?: "5m" \| "1h" }` |
+| OpenAI | `openai` | `strict: boolean` (stricter JSON Schema validation) |
+
+**Note:** Providers MUST ignore metadata namespaces they don't recognize. Tool metadata is passed through to the provider's native format where supported.
 
 **JSONSchema Structure (for tool parameters):**
 

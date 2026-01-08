@@ -85,6 +85,13 @@ export interface GoogleLLMParams {
    * Thinking/reasoning configuration for Gemini 3+ models
    */
   thinkingConfig?: GoogleThinkingConfig;
+
+  /**
+   * Cached content name to use for this request.
+   * Format: "cachedContents/{id}" as returned from cache creation.
+   * When set, the cached content is prepended to the request.
+   */
+  cachedContent?: string;
 }
 
 /**
@@ -133,6 +140,11 @@ export interface GoogleRequest {
   tools?: GoogleTool[];
   /** Safety filter settings to control content moderation. */
   safetySettings?: GoogleSafetySetting[];
+  /**
+   * Cached content name to use for this request.
+   * Format: "cachedContents/{id}" as returned from cache creation.
+   */
+  cachedContent?: string;
 }
 
 /**
@@ -276,6 +288,8 @@ export interface GoogleResponse {
     candidatesTokenCount: number;
     /** Total tokens (prompt + candidates). */
     totalTokenCount: number;
+    /** Number of tokens read from cached content. */
+    cachedContentTokenCount?: number;
   };
 }
 
@@ -333,5 +347,87 @@ export interface GoogleStreamChunk {
     candidatesTokenCount: number;
     /** Total tokens consumed so far. */
     totalTokenCount: number;
+    /** Number of tokens read from cached content. */
+    cachedContentTokenCount?: number;
   };
+}
+
+// ============================================
+// Caching API Types
+// ============================================
+
+/**
+ * Request body for creating a cached content entry.
+ *
+ * @see {@link https://ai.google.dev/api/caching Google Caching API docs}
+ */
+export interface GoogleCacheCreateRequest {
+  /** Model to use with this cache (format: models/{model}) */
+  model: string;
+  /** Optional display name for the cache (max 128 chars) */
+  displayName?: string;
+  /** Content to cache (immutable after creation) */
+  contents?: GoogleContent[];
+  /** System instruction to cache (text-only, immutable after creation) */
+  systemInstruction?: {
+    role?: 'user';
+    parts: Array<{ text: string }>;
+  };
+  /** Tool declarations to cache (immutable after creation) */
+  tools?: GoogleTool[];
+  /** Tool configuration to cache (immutable after creation) */
+  toolConfig?: {
+    functionCallingConfig?: {
+      mode?: 'AUTO' | 'ANY' | 'NONE' | 'VALIDATED';
+      allowedFunctionNames?: string[];
+    };
+  };
+  /** Absolute expiration time (RFC 3339 format, mutually exclusive with ttl) */
+  expireTime?: string;
+  /** Time-to-live duration (e.g., "300s", "3600s", mutually exclusive with expireTime) */
+  ttl?: string;
+}
+
+/**
+ * Response from creating or retrieving a cached content entry.
+ */
+export interface GoogleCacheResponse {
+  /** Cache identifier in format "cachedContents/{id}" - use this in requests */
+  name: string;
+  /** Model this cache is associated with */
+  model: string;
+  /** Display name for the cache */
+  displayName?: string;
+  /** When the cache was created (RFC 3339 format) */
+  createTime: string;
+  /** When the cache was last updated (RFC 3339 format) */
+  updateTime: string;
+  /** When the cache expires (RFC 3339 format) */
+  expireTime: string;
+  /** Token usage metadata */
+  usageMetadata?: {
+    /** Total tokens in the cached content */
+    totalTokenCount: number;
+  };
+}
+
+/**
+ * Request body for updating a cached content entry.
+ * Only expiration can be updated; all other fields are immutable.
+ */
+export interface GoogleCacheUpdateRequest {
+  /** New absolute expiration time (RFC 3339 format, mutually exclusive with ttl) */
+  expireTime?: string;
+  /** New time-to-live duration (e.g., "3600s", mutually exclusive with expireTime) */
+  ttl?: string;
+}
+
+/**
+ * Response from listing cached content entries.
+ */
+export interface GoogleCacheListResponse {
+  /** Array of cached content entries */
+  cachedContents?: GoogleCacheResponse[];
+  /** Token for fetching the next page of results */
+  nextPageToken?: string;
 }

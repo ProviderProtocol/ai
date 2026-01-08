@@ -22,6 +22,19 @@ import type {
 } from './types.ts';
 
 /**
+ * Normalizes system prompt to string.
+ * Converts array format to concatenated string since xAI Messages API only supports string.
+ */
+function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
+  if (!system) return undefined;
+  if (typeof system === 'string') return system;
+  return (system as Array<{ text?: string }>)
+    .map((block) => block.text ?? '')
+    .filter((text) => text.length > 0)
+    .join('\n\n');
+}
+
+/**
  * Transforms a UPP LLM request to the xAI Messages API format (Anthropic-compatible).
  *
  * All params are spread directly to enable pass-through of xAI API fields
@@ -36,6 +49,7 @@ export function transformRequest(
   modelId: string
 ): XAIMessagesRequest {
   const params = request.params ?? ({} as XAIMessagesParams);
+  const normalizedSystem = normalizeSystem(request.system);
 
   const xaiRequest: XAIMessagesRequest = {
     ...params,
@@ -43,8 +57,8 @@ export function transformRequest(
     messages: request.messages.map(transformMessage),
   };
 
-  if (request.system) {
-    xaiRequest.system = request.system;
+  if (normalizedSystem) {
+    xaiRequest.system = normalizedSystem;
   }
 
   if (request.tools && request.tools.length > 0) {
@@ -259,6 +273,8 @@ export function transformResponse(data: XAIMessagesResponse): LLMResponse {
     inputTokens: data.usage.input_tokens,
     outputTokens: data.usage.output_tokens,
     totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+    cacheReadTokens: data.usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
   };
 
   return {
@@ -288,6 +304,10 @@ export interface MessagesStreamState {
   inputTokens: number;
   /** Total output tokens */
   outputTokens: number;
+  /** Number of tokens read from cache */
+  cacheReadTokens: number;
+  /** Number of tokens written to cache */
+  cacheWriteTokens: number;
   /** Current content block index (xAI may omit index in delta events) */
   currentIndex: number;
 }
@@ -305,6 +325,8 @@ export function createStreamState(): MessagesStreamState {
     stopReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     currentIndex: 0,
   };
 }
@@ -327,6 +349,8 @@ export function transformStreamEvent(
       state.messageId = event.message.id;
       state.model = event.message.model;
       state.inputTokens = event.message.usage.input_tokens;
+      state.cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
+      state.cacheWriteTokens = event.message.usage.cache_creation_input_tokens ?? 0;
       return { type: 'message_start', index: 0, delta: {} };
 
     case 'content_block_start':
@@ -459,6 +483,8 @@ export function buildResponseFromState(state: MessagesStreamState): LLMResponse 
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: state.cacheWriteTokens,
   };
 
   return {

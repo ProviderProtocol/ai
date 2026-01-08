@@ -29,6 +29,7 @@ import type {
   OpenRouterCompletionsResponse,
   OpenRouterCompletionsStreamChunk,
   OpenRouterToolCall,
+  OpenRouterCacheControl,
 } from './types.ts';
 
 /**
@@ -91,20 +92,25 @@ export function transformRequest(
  * Handles system prompts, user messages, assistant messages, and tool results.
  * Tool result messages are expanded into individual tool messages.
  *
+ * System prompts support both string and array formats:
+ * - String: Simple text system prompt
+ * - Array: Content blocks with optional cache_control for Anthropic/Gemini models
+ *
  * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt to prepend
+ * @param system - Optional system prompt (string or array with cache_control)
  * @returns Array of OpenRouter-formatted messages
  */
 function transformMessages(
   messages: Message[],
-  system?: string
+  system?: string | unknown[]
 ): OpenRouterCompletionsMessage[] {
   const result: OpenRouterCompletionsMessage[] = [];
 
   if (system) {
+    // Pass through directly - OpenRouter supports both string and array formats
     result.push({
       role: 'system',
-      content: system,
+      content: system as string | Array<{type: 'text'; text: string; cache_control?: {type: 'ephemeral'; ttl?: '1h'}}>,
     });
   }
 
@@ -134,7 +140,27 @@ function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
 }
 
 /**
+ * Extracts cache control configuration from message metadata.
+ *
+ * @param message - The message to extract cache control from
+ * @returns The cache control configuration if present, undefined otherwise
+ */
+function extractCacheControl(message: Message): OpenRouterCacheControl | undefined {
+  const openrouterMeta = message.metadata?.openrouter as
+    | { cache_control?: OpenRouterCacheControl }
+    | undefined;
+  return openrouterMeta?.cache_control;
+}
+
+/**
  * Transforms a single UPP message to OpenRouter Chat Completions format.
+ *
+ * Cache control can be specified via message metadata:
+ * ```typescript
+ * new UserMessage(content, {
+ *   metadata: { openrouter: { cache_control: { type: "ephemeral" } } }
+ * })
+ * ```
  *
  * @param message - The UPP message to transform
  * @returns The transformed OpenRouter message, or null if the message type is unsupported
@@ -142,6 +168,23 @@ function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
 function transformMessage(message: Message): OpenRouterCompletionsMessage | null {
   if (isUserMessage(message)) {
     const validContent = filterValidContent(message.content);
+    const cacheControl = extractCacheControl(message);
+
+    // If cache_control is present, always use array format to attach it
+    if (cacheControl) {
+      const content = validContent.map(transformContentBlock);
+      // Apply cache_control to the last text content block
+      for (let i = content.length - 1; i >= 0; i--) {
+        const block = content[i];
+        if (block?.type === 'text') {
+          content[i] = { type: 'text', text: block.text, cache_control: cacheControl };
+          break;
+        }
+      }
+      return { role: 'user', content };
+    }
+
+    // No cache_control: use string shortcut for single text block
     if (validContent.length === 1 && validContent[0]?.type === 'text') {
       return {
         role: 'user',
@@ -357,6 +400,8 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
     inputTokens: data.usage.prompt_tokens,
     outputTokens: data.usage.completion_tokens,
     totalTokens: data.usage.total_tokens,
+    cacheReadTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';
@@ -404,6 +449,8 @@ export interface CompletionsStreamState {
   inputTokens: number;
   /** Output token count from usage */
   outputTokens: number;
+  /** Number of tokens read from cache */
+  cacheReadTokens: number;
 }
 
 /**
@@ -420,6 +467,7 @@ export function createStreamState(): CompletionsStreamState {
     finishReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
   };
 }
 
@@ -499,6 +547,7 @@ export function transformStreamEvent(
   if (chunk.usage) {
     state.inputTokens = chunk.usage.prompt_tokens;
     state.outputTokens = chunk.usage.completion_tokens;
+    state.cacheReadTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
   }
 
   return events;
@@ -560,6 +609,8 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';

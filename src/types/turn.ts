@@ -15,7 +15,7 @@ import type { ToolExecution } from './tool.ts';
  * Token usage information for an inference request.
  *
  * Tracks input and output tokens across all inference cycles,
- * with optional per-cycle breakdown.
+ * with optional per-cycle breakdown and cache metrics.
  *
  * @example
  * ```typescript
@@ -23,6 +23,8 @@ import type { ToolExecution } from './tool.ts';
  *   inputTokens: 150,
  *   outputTokens: 50,
  *   totalTokens: 200,
+ *   cacheReadTokens: 100,
+ *   cacheWriteTokens: 50,
  *   cycles: [
  *     { inputTokens: 100, outputTokens: 30 },
  *     { inputTokens: 50, outputTokens: 20 }
@@ -39,6 +41,18 @@ export interface TokenUsage {
 
   /** Sum of input and output tokens */
   totalTokens: number;
+
+  /**
+   * Tokens read from cache (cache hits).
+   * Returns 0 for providers that don't support or report cache metrics.
+   */
+  cacheReadTokens: number;
+
+  /**
+   * Tokens written to cache (cache misses that were cached).
+   * Only Anthropic reports this metric; returns 0 for other providers.
+   */
+  cacheWriteTokens: number;
 
   /** Per-cycle token breakdown (if multiple cycles occurred) */
   cycles?: Array<{
@@ -149,7 +163,7 @@ export function createTurn<TData = unknown>(
  * @example
  * ```typescript
  * const usage = emptyUsage();
- * // { inputTokens: 0, outputTokens: 0, totalTokens: 0, cycles: [] }
+ * // { inputTokens: 0, outputTokens: 0, totalTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, cycles: [] }
  * ```
  */
 export function emptyUsage(): TokenUsage {
@@ -157,6 +171,8 @@ export function emptyUsage(): TokenUsage {
     inputTokens: 0,
     outputTokens: 0,
     totalTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
     cycles: [],
   };
 }
@@ -169,20 +185,24 @@ export function emptyUsage(): TokenUsage {
  *
  * @example
  * ```typescript
- * const cycle1 = { inputTokens: 100, outputTokens: 30, totalTokens: 130 };
- * const cycle2 = { inputTokens: 150, outputTokens: 40, totalTokens: 190 };
+ * const cycle1 = { inputTokens: 100, outputTokens: 30, totalTokens: 130, cacheReadTokens: 50, cacheWriteTokens: 0 };
+ * const cycle2 = { inputTokens: 150, outputTokens: 40, totalTokens: 190, cacheReadTokens: 100, cacheWriteTokens: 0 };
  * const total = aggregateUsage([cycle1, cycle2]);
- * // { inputTokens: 250, outputTokens: 70, totalTokens: 320, cycles: [...] }
+ * // { inputTokens: 250, outputTokens: 70, totalTokens: 320, cacheReadTokens: 150, cacheWriteTokens: 0, cycles: [...] }
  * ```
  */
 export function aggregateUsage(usages: TokenUsage[]): TokenUsage {
   const cycles: TokenUsage['cycles'] = [];
   let inputTokens = 0;
   let outputTokens = 0;
+  let cacheReadTokens = 0;
+  let cacheWriteTokens = 0;
 
   for (const usage of usages) {
     inputTokens += usage.inputTokens;
     outputTokens += usage.outputTokens;
+    cacheReadTokens += usage.cacheReadTokens;
+    cacheWriteTokens += usage.cacheWriteTokens;
     cycles.push({
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
@@ -193,6 +213,8 @@ export function aggregateUsage(usages: TokenUsage[]): TokenUsage {
     inputTokens,
     outputTokens,
     totalTokens: inputTokens + outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
     cycles,
   };
 }

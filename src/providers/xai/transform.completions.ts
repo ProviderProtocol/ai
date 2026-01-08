@@ -76,22 +76,36 @@ export function transformRequest(
 }
 
 /**
+ * Normalizes system prompt to string.
+ * Converts array format to concatenated string for providers that only support strings.
+ */
+function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
+  if (!system) return undefined;
+  if (typeof system === 'string') return system;
+  return (system as Array<{text?: string}>)
+    .map(block => block.text ?? '')
+    .filter(text => text.length > 0)
+    .join('\n\n');
+}
+
+/**
  * Transforms UPP messages to xAI Chat Completions message format.
  *
  * @param messages - The array of UPP messages
- * @param system - Optional system prompt
+ * @param system - Optional system prompt (string or array, normalized to string)
  * @returns Array of xAI-formatted messages
  */
 function transformMessages(
   messages: Message[],
-  system?: string
+  system?: string | unknown[]
 ): XAICompletionsMessage[] {
   const result: XAICompletionsMessage[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-  if (system) {
+  if (normalizedSystem) {
     result.push({
       role: 'system',
-      content: system,
+      content: normalizedSystem,
     });
   }
 
@@ -346,6 +360,8 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
     inputTokens: data.usage.prompt_tokens,
     outputTokens: data.usage.completion_tokens,
     totalTokens: data.usage.total_tokens,
+    cacheReadTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';
@@ -396,6 +412,8 @@ export interface CompletionsStreamState {
   inputTokens: number;
   /** Total output tokens (from usage chunk) */
   outputTokens: number;
+  /** Number of tokens read from cache */
+  cacheReadTokens: number;
   /** Whether a refusal message was received */
   hadRefusal: boolean;
 }
@@ -414,6 +432,7 @@ export function createStreamState(): CompletionsStreamState {
     finishReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
     hadRefusal: false,
   };
 }
@@ -502,6 +521,7 @@ export function transformStreamEvent(
   if (chunk.usage) {
     state.inputTokens = chunk.usage.prompt_tokens;
     state.outputTokens = chunk.usage.completion_tokens;
+    state.cacheReadTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
   }
 
   return events;
@@ -563,6 +583,8 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';

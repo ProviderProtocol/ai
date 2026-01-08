@@ -55,6 +55,7 @@ export type {
   Tool,
   ToolCall,
   ToolResult,
+  ToolMetadata,
   ToolUseStrategy,
   BeforeCallResult,
   AfterCallResult,

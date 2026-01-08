@@ -116,6 +116,19 @@ export function transformRequest(
 }
 
 /**
+ * Normalizes system prompt to string.
+ * Converts array format to concatenated string for providers that only support strings.
+ */
+function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
+  if (!system) return undefined;
+  if (typeof system === 'string') return system;
+  return (system as Array<{text?: string}>)
+    .map(block => block.text ?? '')
+    .filter(text => text.length > 0)
+    .join('\n\n');
+}
+
+/**
  * Transforms UPP messages to Responses API input items.
  *
  * The Responses API accepts either a string (for simple prompts) or an array
@@ -123,20 +136,21 @@ export function transformRequest(
  * input is a single user message with text content.
  *
  * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt to prepend
+ * @param system - Optional system prompt (string or array, normalized to string)
  * @returns Either a string (for simple inputs) or array of input items
  */
 function transformInputItems(
   messages: Message[],
-  system?: string
+  system?: string | unknown[]
 ): OpenAIResponsesInputItem[] | string {
   const result: OpenAIResponsesInputItem[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-  if (system) {
+  if (normalizedSystem) {
     result.push({
       type: 'message',
       role: 'system',
-      content: system,
+      content: normalizedSystem,
     });
   }
 
@@ -311,15 +325,41 @@ function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
 }
 
 /**
+ * Extracts OpenAI-specific options from tool metadata.
+ *
+ * @param tool - The tool to extract options from
+ * @returns The OpenAI options if present (currently supports `strict`)
+ */
+function extractToolOptions(tool: Tool): { strict?: boolean } {
+  const openaiMeta = tool.metadata?.openai as
+    | { strict?: boolean }
+    | undefined;
+  return { strict: openaiMeta?.strict };
+}
+
+/**
  * Transforms a UPP tool definition to Responses API function tool format.
  *
  * The Responses API uses a flatter structure for function tools compared to
  * Chat Completions, with properties at the top level rather than nested.
  *
+ * Strict mode can be specified via tool metadata:
+ * ```typescript
+ * const tool: Tool = {
+ *   name: 'get_weather',
+ *   description: 'Get weather for a location',
+ *   parameters: {...},
+ *   metadata: { openai: { strict: true } },
+ *   run: async (params) => {...}
+ * };
+ * ```
+ *
  * @param tool - The UPP tool definition
  * @returns The transformed Responses API function tool
  */
 function transformTool(tool: Tool): OpenAIResponsesTool {
+  const { strict } = extractToolOptions(tool);
+
   return {
     type: 'function',
     name: tool.name,
@@ -332,6 +372,7 @@ function transformTool(tool: Tool): OpenAIResponsesTool {
         ? { additionalProperties: tool.parameters.additionalProperties }
         : {}),
     },
+    ...(strict !== undefined ? { strict } : {}),
   };
 }
 
@@ -427,6 +468,8 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
     inputTokens: data.usage.input_tokens,
     outputTokens: data.usage.output_tokens,
     totalTokens: data.usage.total_tokens,
+    cacheReadTokens: data.usage.input_tokens_details?.cached_tokens ?? 0,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';
@@ -478,6 +521,8 @@ export interface ResponsesStreamState {
   inputTokens: number;
   /** Output token count */
   outputTokens: number;
+  /** Number of tokens read from cache */
+  cacheReadTokens: number;
   /** Whether a refusal was encountered */
   hadRefusal: boolean;
 }
@@ -497,6 +542,7 @@ export function createStreamState(): ResponsesStreamState {
     status: 'in_progress',
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
     hadRefusal: false,
   };
 }
@@ -534,6 +580,7 @@ export function transformStreamEvent(
       if (event.response.usage) {
         state.inputTokens = event.response.usage.input_tokens;
         state.outputTokens = event.response.usage.output_tokens;
+        state.cacheReadTokens = event.response.usage.input_tokens_details?.cached_tokens ?? 0;
       }
       events.push({ type: 'message_stop', index: 0, delta: {} });
       break;
@@ -765,6 +812,8 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';

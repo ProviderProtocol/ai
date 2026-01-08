@@ -253,13 +253,25 @@ export type OpenRouterCompletionsMessage =
   | OpenRouterToolMessage;
 
 /**
+ * System content block for system messages with cache_control support.
+ */
+export interface OpenRouterSystemContent {
+  /** Content type identifier. */
+  type: 'text';
+  /** The text content. */
+  text: string;
+  /** Cache control for prompt caching. */
+  cache_control?: OpenRouterCacheControl;
+}
+
+/**
  * System message in Chat Completions format.
  */
 export interface OpenRouterSystemMessage {
   /** Message role identifier. */
   role: 'system';
-  /** System prompt content. */
-  content: string;
+  /** System prompt content - string or array with cache_control. */
+  content: string | OpenRouterSystemContent[];
   /** Optional name for the system. */
   name?: string;
 }
@@ -305,6 +317,21 @@ export interface OpenRouterToolMessage {
 }
 
 /**
+ * Cache control configuration for prompt caching.
+ *
+ * Used by Anthropic-backed and Gemini-backed models on OpenRouter to enable
+ * prompt prefix caching for cost reduction.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/best-practices/prompt-caching}
+ */
+export interface OpenRouterCacheControl {
+  /** Cache type (currently only 'ephemeral' is supported). */
+  type: 'ephemeral';
+  /** Optional TTL for extended cache retention. */
+  ttl?: '1h';
+}
+
+/**
  * Union type for user message content parts.
  */
 export type OpenRouterUserContent = OpenRouterTextContent | OpenRouterImageContent;
@@ -317,6 +344,11 @@ export interface OpenRouterTextContent {
   type: 'text';
   /** The text content. */
   text: string;
+  /**
+   * Cache control for prompt caching (Anthropic/Gemini models).
+   * Only supported on text content blocks.
+   */
+  cache_control?: OpenRouterCacheControl;
 }
 
 /**
@@ -470,6 +502,11 @@ export interface OpenRouterUsage {
   completion_tokens: number;
   /** Total tokens (prompt + completion). */
   total_tokens: number;
+  /** Details about prompt token breakdown including cache metrics. */
+  prompt_tokens_details?: {
+    cached_tokens?: number;
+    audio_tokens?: number;
+  };
 }
 
 /**
@@ -840,6 +877,10 @@ export interface OpenRouterResponsesUsage {
   output_tokens: number;
   /** Total tokens (input + output). */
   total_tokens: number;
+  /** Details about input token breakdown including cache metrics. */
+  input_tokens_details?: {
+    cached_tokens?: number;
+  };
 }
 
 /**

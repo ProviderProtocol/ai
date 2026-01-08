@@ -19,6 +19,9 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
   test('simple text generation', async () => {
     const claude = llm<AnthropicLLMParams>({
       model: anthropic('claude-3-5-haiku-latest'),
+      system: [{
+
+      }],
       params: { max_tokens: 100 },
     });
 

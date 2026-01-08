@@ -1,5 +1,14 @@
 import { createProvider } from '../../core/provider.ts';
 import { createLLMHandler } from './llm.ts';
+import { cache } from './cache.ts';
+
+const baseProvider = createProvider({
+  name: 'google',
+  version: '1.0.0',
+  modalities: {
+    llm: createLLMHandler(),
+  },
+});
 
 /**
  * Google Gemini provider for the Unified Provider Protocol (UPP).
@@ -34,14 +43,40 @@ import { createLLMHandler } from './llm.ts';
  * }
  * ```
  *
+ * @example Caching
+ * ```typescript
+ * // Create a cache for repeated context
+ * const cacheEntry = await google.cache.create({
+ *   apiKey: process.env.GOOGLE_API_KEY,
+ *   model: 'gemini-1.5-flash-001',
+ *   systemInstruction: 'You are an expert code reviewer...',
+ *   contents: [{ role: 'user', parts: [{ text: largeCodebase }] }],
+ *   ttl: '3600s',
+ * });
+ *
+ * // Use cache in requests
+ * const response = await gemini.complete({
+ *   messages: [userMessage('Review this function')],
+ *   config: { apiKey: process.env.GOOGLE_API_KEY },
+ *   params: { cachedContent: cacheEntry.name },
+ * });
+ *
+ * // Manage caches
+ * await google.cache.update(cacheEntry.name, { ttl: '7200s' }, apiKey);
+ * await google.cache.delete(cacheEntry.name, apiKey);
+ * ```
+ *
  * @see {@link GoogleLLMParams} for provider-specific configuration options
+ * @see {@link cache} for caching utilities
  */
-export const google = createProvider({
-  name: 'google',
-  version: '1.0.0',
-  modalities: {
-    llm: createLLMHandler(),
-  },
-});
+export const google = Object.assign(baseProvider, { cache });
 
-export type { GoogleLLMParams } from './types.ts';
+export { cache } from './cache.ts';
+export type { CacheCreateOptions, CacheListOptions } from './cache.ts';
+export type {
+  GoogleLLMParams,
+  GoogleCacheCreateRequest,
+  GoogleCacheResponse,
+  GoogleCacheUpdateRequest,
+  GoogleCacheListResponse,
+} from './types.ts';

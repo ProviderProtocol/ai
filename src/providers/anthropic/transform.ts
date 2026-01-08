@@ -29,6 +29,8 @@ import type {
   AnthropicTool,
   AnthropicResponse,
   AnthropicStreamEvent,
+  AnthropicCacheControl,
+  AnthropicSystemContent,
 } from './types.ts';
 
 /**
@@ -67,10 +69,13 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   };
 
   if (request.system) {
-    anthropicRequest.system = request.system;
+    // Pass through directly - accepts string or array of AnthropicSystemContent
+    // Array format enables cache_control: [{type: 'text', text: '...', cache_control: {...}}]
+    anthropicRequest.system = request.system as string | AnthropicSystemContent[];
   }
 
   if (request.tools && request.tools.length > 0) {
+    // For tool caching, use params.tools directly with native Anthropic format
     anthropicRequest.tools = request.tools.map(transformTool);
     anthropicRequest.tool_choice = { type: 'auto' };
   }
@@ -104,6 +109,19 @@ function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
 }
 
 /**
+ * Extracts cache control configuration from message metadata.
+ *
+ * @param message - The message to extract cache control from
+ * @returns The cache control configuration if present, undefined otherwise
+ */
+function extractCacheControl(message: Message): AnthropicCacheControl | undefined {
+  const anthropicMeta = message.metadata?.anthropic as
+    | { cache_control?: AnthropicCacheControl }
+    | undefined;
+  return anthropicMeta?.cache_control;
+}
+
+/**
  * Transforms a UPP Message to Anthropic's message format.
  *
  * Handles three message types:
@@ -111,30 +129,47 @@ function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
  * - AssistantMessage: Includes text and tool_use blocks
  * - ToolResultMessage: Converted to user role with tool_result content
  *
+ * Cache control can be specified via message metadata:
+ * ```typescript
+ * new UserMessage(content, {
+ *   metadata: { anthropic: { cache_control: { type: "ephemeral" } } }
+ * })
+ * ```
+ *
  * @param message - The UPP message to transform
  * @returns An AnthropicMessage with the appropriate role and content
  * @throws Error if the message type is unknown
  */
 function transformMessage(message: Message): AnthropicMessage {
+  const cacheControl = extractCacheControl(message);
+
   if (isUserMessage(message)) {
     const validContent = filterValidContent(message.content);
+    const contentBlocks = validContent.map((block, index, arr) =>
+      transformContentBlock(block, index === arr.length - 1 ? cacheControl : undefined)
+    );
     return {
       role: 'user',
-      content: validContent.map(transformContentBlock),
+      content: contentBlocks,
     };
   }
 
   if (isAssistantMessage(message)) {
     const validContent = filterValidContent(message.content);
-    const content: AnthropicContent[] = validContent.map(transformContentBlock);
+    const content: AnthropicContent[] = validContent.map((block, index, arr) =>
+      transformContentBlock(block, index === arr.length - 1 && !message.toolCalls?.length ? cacheControl : undefined)
+    );
 
     if (message.toolCalls) {
-      for (const call of message.toolCalls) {
+      for (let i = 0; i < message.toolCalls.length; i++) {
+        const call = message.toolCalls[i]!;
+        const isLast = i === message.toolCalls.length - 1;
         content.push({
           type: 'tool_use',
           id: call.toolCallId,
           name: call.toolName,
           input: call.arguments,
+          ...(isLast && cacheControl ? { cache_control: cacheControl } : {}),
         });
       }
     }
@@ -148,7 +183,7 @@ function transformMessage(message: Message): AnthropicMessage {
   if (isToolResultMessage(message)) {
     return {
       role: 'user',
-      content: message.results.map((result) => ({
+      content: message.results.map((result, index, arr) => ({
         type: 'tool_result' as const,
         tool_use_id: result.toolCallId,
         content:
@@ -156,6 +191,7 @@ function transformMessage(message: Message): AnthropicMessage {
             ? result.result
             : JSON.stringify(result.result),
         is_error: result.isError,
+        ...(index === arr.length - 1 && cacheControl ? { cache_control: cacheControl } : {}),
       })),
     };
   }
@@ -170,13 +206,21 @@ function transformMessage(message: Message): AnthropicMessage {
  * as base64, URL, or raw bytes (which are converted to base64).
  *
  * @param block - The UPP content block to transform
+ * @param cacheControl - Optional cache control to apply to the block
  * @returns An AnthropicContent object
  * @throws Error if the content type or image source type is unsupported
  */
-function transformContentBlock(block: ContentBlock): AnthropicContent {
+function transformContentBlock(
+  block: ContentBlock,
+  cacheControl?: AnthropicCacheControl
+): AnthropicContent {
   switch (block.type) {
     case 'text':
-      return { type: 'text', text: block.text };
+      return {
+        type: 'text',
+        text: block.text,
+        ...(cacheControl ? { cache_control: cacheControl } : {}),
+      };
 
     case 'image': {
       const imageBlock = block as ImageBlock;
@@ -188,6 +232,7 @@ function transformContentBlock(block: ContentBlock): AnthropicContent {
             media_type: imageBlock.mimeType,
             data: imageBlock.source.data,
           },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
         };
       }
       if (imageBlock.source.type === 'url') {
@@ -197,6 +242,7 @@ function transformContentBlock(block: ContentBlock): AnthropicContent {
             type: 'url',
             url: imageBlock.source.url,
           },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
         };
       }
       if (imageBlock.source.type === 'bytes') {
@@ -212,6 +258,7 @@ function transformContentBlock(block: ContentBlock): AnthropicContent {
             media_type: imageBlock.mimeType,
             data: base64,
           },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
         };
       }
       throw new Error(`Unknown image source type`);
@@ -223,12 +270,38 @@ function transformContentBlock(block: ContentBlock): AnthropicContent {
 }
 
 /**
+ * Extracts cache control configuration from tool metadata.
+ *
+ * @param tool - The tool to extract cache control from
+ * @returns The cache control configuration if present, undefined otherwise
+ */
+function extractToolCacheControl(tool: Tool): AnthropicCacheControl | undefined {
+  const anthropicMeta = tool.metadata?.anthropic as
+    | { cache_control?: AnthropicCacheControl }
+    | undefined;
+  return anthropicMeta?.cache_control;
+}
+
+/**
  * Transforms a UPP Tool definition to Anthropic's tool format.
+ *
+ * Cache control can be specified via tool metadata:
+ * ```typescript
+ * const tool: Tool = {
+ *   name: 'search_docs',
+ *   description: 'Search documentation',
+ *   parameters: {...},
+ *   metadata: { anthropic: { cache_control: { type: 'ephemeral' } } },
+ *   run: async (params) => {...}
+ * };
+ * ```
  *
  * @param tool - The UPP tool definition
  * @returns An AnthropicTool with the appropriate input schema
  */
 function transformTool(tool: Tool): AnthropicTool {
+  const cacheControl = extractToolCacheControl(tool);
+
   return {
     name: tool.name,
     description: tool.description,
@@ -237,6 +310,7 @@ function transformTool(tool: Tool): AnthropicTool {
       properties: tool.parameters.properties,
       required: tool.parameters.required,
     },
+    ...(cacheControl ? { cache_control: cacheControl } : {}),
   };
 }
 
@@ -291,6 +365,8 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
     inputTokens: data.usage.input_tokens,
     outputTokens: data.usage.output_tokens,
     totalTokens: data.usage.input_tokens + data.usage.output_tokens,
+    cacheReadTokens: data.usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
   };
 
   return {
@@ -320,6 +396,10 @@ export interface StreamState {
   inputTokens: number;
   /** Number of output tokens generated. */
   outputTokens: number;
+  /** Number of tokens read from cache (cache hits). */
+  cacheReadTokens: number;
+  /** Number of tokens written to cache. */
+  cacheWriteTokens: number;
 }
 
 /**
@@ -335,6 +415,8 @@ export function createStreamState(): StreamState {
     stopReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
   };
 }
 
@@ -370,6 +452,8 @@ export function transformStreamEvent(
       state.messageId = event.message.id;
       state.model = event.message.model;
       state.inputTokens = event.message.usage.input_tokens;
+      state.cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
+      state.cacheWriteTokens = event.message.usage.cache_creation_input_tokens ?? 0;
       return { type: 'message_start', index: 0, delta: {} };
 
     case 'content_block_start':
@@ -502,6 +586,8 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: state.cacheWriteTokens,
   };
 
   return {

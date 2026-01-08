@@ -291,7 +291,7 @@ function inputToMessage(input: InferenceInput): Message {
 async function executeGenerate<TParams>(
   model: BoundLLMModel<TParams>,
   config: ProviderConfig,
-  system: string | undefined,
+  system: string | unknown[] | undefined,
   params: TParams | undefined,
   tools: Tool[] | undefined,
   toolStrategy: LLMOptions<TParams>['toolStrategy'],
@@ -396,7 +396,7 @@ async function executeGenerate<TParams>(
 function executeStream<TParams>(
   model: BoundLLMModel<TParams>,
   config: ProviderConfig,
-  system: string | undefined,
+  system: string | unknown[] | undefined,
   params: TParams | undefined,
   tools: Tool[] | undefined,
   toolStrategy: LLMOptions<TParams>['toolStrategy'],

@@ -78,23 +78,37 @@ export function transformRequest(
 }
 
 /**
+ * Normalizes system prompt to string.
+ * Converts array format to concatenated string for providers that only support strings.
+ */
+function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
+  if (!system) return undefined;
+  if (typeof system === 'string') return system;
+  return (system as Array<{text?: string}>)
+    .map(block => block.text ?? '')
+    .filter(text => text.length > 0)
+    .join('\n\n');
+}
+
+/**
  * Transforms UPP messages to Responses API input items.
  *
  * @param messages - The array of UPP messages
- * @param system - Optional system prompt
+ * @param system - Optional system prompt (string or array, normalized to string)
  * @returns Array of input items or a simple string for single user messages
  */
 function transformInputItems(
   messages: Message[],
-  system?: string
+  system?: string | unknown[]
 ): XAIResponsesInputItem[] | string {
   const result: XAIResponsesInputItem[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-  if (system) {
+  if (normalizedSystem) {
     result.push({
       type: 'message',
       role: 'system',
-      content: system,
+      content: normalizedSystem,
     });
   }
 
@@ -366,6 +380,8 @@ export function transformResponse(data: XAIResponsesResponse): LLMResponse {
     inputTokens: data.usage.input_tokens,
     outputTokens: data.usage.output_tokens,
     totalTokens: data.usage.total_tokens,
+    cacheReadTokens: data.usage.input_tokens_details?.cached_tokens ?? 0,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';
@@ -414,6 +430,8 @@ export interface ResponsesStreamState {
   inputTokens: number;
   /** Total output tokens */
   outputTokens: number;
+  /** Number of tokens read from cache */
+  cacheReadTokens: number;
   /** Whether a refusal message was received */
   hadRefusal: boolean;
 }
@@ -432,6 +450,7 @@ export function createStreamState(): ResponsesStreamState {
     status: 'in_progress',
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
     hadRefusal: false,
   };
 }
@@ -468,6 +487,7 @@ export function transformStreamEvent(
       if (event.response.usage) {
         state.inputTokens = event.response.usage.input_tokens;
         state.outputTokens = event.response.usage.output_tokens;
+        state.cacheReadTokens = event.response.usage.input_tokens_details?.cached_tokens ?? 0;
       }
       events.push({ type: 'message_stop', index: 0, delta: {} });
       break;
@@ -685,6 +705,8 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';

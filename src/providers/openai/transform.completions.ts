@@ -103,6 +103,20 @@ export function transformRequest(
 }
 
 /**
+ * Normalizes system prompt to string.
+ * Converts array format to concatenated string for providers that only support strings.
+ */
+function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
+  if (!system) return undefined;
+  if (typeof system === 'string') return system;
+  // Array format: extract text from each block and join
+  return (system as Array<{text?: string}>)
+    .map(block => block.text ?? '')
+    .filter(text => text.length > 0)
+    .join('\n\n');
+}
+
+/**
  * Transforms UPP messages to OpenAI Chat Completions message format.
  *
  * Handles system prompt injection as the first message and processes
@@ -110,19 +124,20 @@ export function transformRequest(
  * into multiple OpenAI messages.
  *
  * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt to prepend
+ * @param system - Optional system prompt (string or array, normalized to string)
  * @returns Array of OpenAI-formatted messages
  */
 function transformMessages(
   messages: Message[],
-  system?: string
+  system?: string | unknown[]
 ): OpenAICompletionsMessage[] {
   const result: OpenAICompletionsMessage[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-  if (system) {
+  if (normalizedSystem) {
     result.push({
       role: 'system',
-      content: system,
+      content: normalizedSystem,
     });
   }
 
@@ -293,15 +308,41 @@ function transformContentBlock(block: ContentBlock): OpenAIUserContent {
 }
 
 /**
+ * Extracts OpenAI-specific options from tool metadata.
+ *
+ * @param tool - The tool to extract options from
+ * @returns The OpenAI options if present (currently supports `strict`)
+ */
+function extractToolOptions(tool: Tool): { strict?: boolean } {
+  const openaiMeta = tool.metadata?.openai as
+    | { strict?: boolean }
+    | undefined;
+  return { strict: openaiMeta?.strict };
+}
+
+/**
  * Transforms a UPP tool definition to OpenAI function tool format.
  *
  * OpenAI's Chat Completions API expects tools as function definitions
  * with JSON Schema parameters.
  *
+ * Strict mode can be specified via tool metadata:
+ * ```typescript
+ * const tool: Tool = {
+ *   name: 'get_weather',
+ *   description: 'Get weather for a location',
+ *   parameters: {...},
+ *   metadata: { openai: { strict: true } },
+ *   run: async (params) => {...}
+ * };
+ * ```
+ *
  * @param tool - The UPP tool definition
  * @returns The transformed OpenAI function tool
  */
 function transformTool(tool: Tool): OpenAICompletionsTool {
+  const { strict } = extractToolOptions(tool);
+
   return {
     type: 'function',
     function: {
@@ -315,6 +356,7 @@ function transformTool(tool: Tool): OpenAICompletionsTool {
           ? { additionalProperties: tool.parameters.additionalProperties }
           : {}),
       },
+      ...(strict !== undefined ? { strict } : {}),
     },
   };
 }
@@ -389,6 +431,8 @@ export function transformResponse(data: OpenAICompletionsResponse): LLMResponse 
     inputTokens: data.usage.prompt_tokens,
     outputTokens: data.usage.completion_tokens,
     totalTokens: data.usage.total_tokens,
+    cacheReadTokens: data.usage.prompt_tokens_details?.cached_tokens ?? 0,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';
@@ -440,6 +484,8 @@ export interface CompletionsStreamState {
   inputTokens: number;
   /** Output token count (from usage chunk) */
   outputTokens: number;
+  /** Number of tokens read from cache */
+  cacheReadTokens: number;
   /** Whether a refusal was encountered */
   hadRefusal: boolean;
 }
@@ -458,6 +504,7 @@ export function createStreamState(): CompletionsStreamState {
     finishReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
     hadRefusal: false,
   };
 }
@@ -547,6 +594,7 @@ export function transformStreamEvent(
   if (chunk.usage) {
     state.inputTokens = chunk.usage.prompt_tokens;
     state.outputTokens = chunk.usage.completion_tokens;
+    state.cacheReadTokens = chunk.usage.prompt_tokens_details?.cached_tokens ?? 0;
   }
 
   return events;
@@ -609,6 +657,8 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: 0,
   };
 
   let stopReason = 'end_turn';

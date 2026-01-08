@@ -59,6 +59,20 @@ export interface AnthropicLLMParams {
 }
 
 /**
+ * System content block for structured system prompts with caching support.
+ *
+ * When system is provided as an array, each block can have cache_control.
+ */
+export interface AnthropicSystemContent {
+  /** Content type discriminator. */
+  type: 'text';
+  /** The text content. */
+  text: string;
+  /** Cache control for prompt caching. */
+  cache_control?: AnthropicCacheControl;
+}
+
+/**
  * Request body structure for Anthropic's Messages API.
  *
  * This interface represents the full request payload sent to the
@@ -71,8 +85,8 @@ export interface AnthropicRequest {
   max_tokens?: number;
   /** Conversation messages in Anthropic's format. */
   messages: AnthropicMessage[];
-  /** System prompt placed before the conversation. */
-  system?: string;
+  /** System prompt - string for simple prompts, array for caching support. */
+  system?: string | AnthropicSystemContent[];
   /** Sampling temperature. */
   temperature?: number;
   /** Nucleus sampling threshold. */
@@ -120,6 +134,27 @@ export type AnthropicContent =
   | AnthropicToolResultContent;
 
 /**
+ * Cache control configuration for prompt caching.
+ *
+ * Marks content blocks for caching to reduce costs and latency
+ * on subsequent requests with the same prefix.
+ *
+ * @example
+ * ```typescript
+ * const cacheControl: AnthropicCacheControl = {
+ *   type: 'ephemeral',
+ *   ttl: '1h' // Optional: extend to 1-hour cache
+ * };
+ * ```
+ */
+export interface AnthropicCacheControl {
+  /** Cache type - only 'ephemeral' is supported */
+  type: 'ephemeral';
+  /** Optional TTL: '5m' (default) or '1h' for extended caching */
+  ttl?: '5m' | '1h';
+}
+
+/**
  * Plain text content block.
  */
 export interface AnthropicTextContent {
@@ -127,6 +162,8 @@ export interface AnthropicTextContent {
   type: 'text';
   /** The text content. */
   text: string;
+  /** Cache control for prompt caching. */
+  cache_control?: AnthropicCacheControl;
 }
 
 /**
@@ -148,6 +185,8 @@ export interface AnthropicImageContent {
     /** URL to fetch the image from. */
     url?: string;
   };
+  /** Cache control for prompt caching. */
+  cache_control?: AnthropicCacheControl;
 }
 
 /**
@@ -164,6 +203,8 @@ export interface AnthropicToolUseContent {
   name: string;
   /** Arguments passed to the tool as a JSON object. */
   input: Record<string, unknown>;
+  /** Cache control for prompt caching. */
+  cache_control?: AnthropicCacheControl;
 }
 
 /**
@@ -180,6 +221,8 @@ export interface AnthropicToolResultContent {
   content: string | AnthropicContent[];
   /** Whether the tool execution resulted in an error. */
   is_error?: boolean;
+  /** Cache control for prompt caching. */
+  cache_control?: AnthropicCacheControl;
 }
 
 /**
@@ -201,6 +244,8 @@ export interface AnthropicTool {
     /** List of required property names. */
     required?: string[];
   };
+  /** Cache control for prompt caching. */
+  cache_control?: AnthropicCacheControl;
 }
 
 /**
