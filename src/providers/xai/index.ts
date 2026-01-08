@@ -222,4 +222,5 @@ export type {
   XAIModelReference,
   XAISearchParameters,
   XAIAgentTool,
+  XAIHeaders,
 } from './types.ts';

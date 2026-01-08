@@ -79,4 +79,5 @@ export type {
   GoogleCacheResponse,
   GoogleCacheUpdateRequest,
   GoogleCacheListResponse,
+  GoogleHeaders,
 } from './types.ts';

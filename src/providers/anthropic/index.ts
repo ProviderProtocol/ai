@@ -29,4 +29,4 @@ export const anthropic = createProvider({
   },
 });
 
-export type { AnthropicLLMParams } from './types.ts';
+export type { AnthropicLLMParams, AnthropicHeaders } from './types.ts';

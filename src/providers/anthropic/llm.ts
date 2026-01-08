@@ -103,15 +103,25 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
           const baseUrl = request.config.baseUrl ?? ANTHROPIC_API_URL;
           const body = transformRequest(request, modelId);
 
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': request.config.apiVersion ?? ANTHROPIC_VERSION,
+          };
+
+          if (request.config.headers) {
+            for (const [key, value] of Object.entries(request.config.headers)) {
+              if (value !== undefined) {
+                headers[key] = value;
+              }
+            }
+          }
+
           const response = await doFetch(
             baseUrl,
             {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': request.config.apiVersion ?? ANTHROPIC_VERSION,
-              },
+              headers,
               body: JSON.stringify(body),
               signal: request.signal,
             },
@@ -147,15 +157,25 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
               const body = transformRequest(request, modelId);
               body.stream = true;
 
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': request.config.apiVersion ?? ANTHROPIC_VERSION,
+              };
+
+              if (request.config.headers) {
+                for (const [key, value] of Object.entries(request.config.headers)) {
+                  if (value !== undefined) {
+                    headers[key] = value;
+                  }
+                }
+              }
+
               const response = await doStreamFetch(
                 baseUrl,
                 {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                    'anthropic-version': request.config.apiVersion ?? ANTHROPIC_VERSION,
-                  },
+                  headers,
                   body: JSON.stringify(body),
                   signal: request.signal,
                 },

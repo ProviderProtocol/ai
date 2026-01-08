@@ -1490,3 +1490,24 @@ export const tools = {
   /** Creates an MCP tool configuration */
   mcp: mcpTool,
 };
+
+/**
+ * OpenAI-specific HTTP headers for API requests.
+ *
+ * @example
+ * ```typescript
+ * const headers: OpenAIHeaders = {
+ *   'OpenAI-Organization': 'org-abc123',
+ *   'OpenAI-Project': 'proj-xyz789',
+ * };
+ * ```
+ */
+export interface OpenAIHeaders {
+  /** Organization ID for multi-organization accounts. */
+  'OpenAI-Organization'?: string;
+  /** Project ID for project-scoped API keys. */
+  'OpenAI-Project'?: string;
+  /** Client-generated request ID for tracing. */
+  'X-Client-Request-Id'?: string;
+  [key: string]: string | undefined;
+}

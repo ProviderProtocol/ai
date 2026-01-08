@@ -435,3 +435,25 @@ export interface AnthropicErrorEvent {
     message: string;
   };
 }
+
+/**
+ * Anthropic-specific HTTP headers for API requests.
+ *
+ * @example
+ * ```typescript
+ * const headers: AnthropicHeaders = {
+ *   'anthropic-beta': 'extended-cache-ttl-2025-04-11',
+ * };
+ * ```
+ */
+export interface AnthropicHeaders {
+  /**
+   * Beta features header.
+   *
+   * Comma-separated list of beta feature flags:
+   * - `extended-cache-ttl-2025-04-11` - Enable 1-hour cache TTL
+   * - `token-efficient-tools-2025-02-19` - Token-efficient tool encoding
+   */
+  'anthropic-beta'?: string;
+  [key: string]: string | undefined;
+}

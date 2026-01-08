@@ -263,3 +263,5 @@ export {
   imageGenerationTool,
   mcpTool,
 } from './types.ts';
+
+export type { OpenAIHeaders } from './types.ts';

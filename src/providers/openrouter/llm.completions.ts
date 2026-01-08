@@ -95,14 +95,24 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenRouterCompletionsP
           const baseUrl = request.config.baseUrl ?? OPENROUTER_API_URL;
           const body = transformRequest(request, modelId);
 
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${apiKey}`,
+          };
+
+          if (request.config.headers) {
+            for (const [key, value] of Object.entries(request.config.headers)) {
+              if (value !== undefined) {
+                headers[key] = value;
+              }
+            }
+          }
+
           const response = await doFetch(
             baseUrl,
             {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-              },
+              headers,
               body: JSON.stringify(body),
               signal: request.signal,
             },
@@ -139,14 +149,24 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenRouterCompletionsP
               body.stream = true;
               body.stream_options = { include_usage: true };
 
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                Authorization: `Bearer ${apiKey}`,
+              };
+
+              if (request.config.headers) {
+                for (const [key, value] of Object.entries(request.config.headers)) {
+                  if (value !== undefined) {
+                    headers[key] = value;
+                  }
+                }
+              }
+
               const response = await doStreamFetch(
                 baseUrl,
                 {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${apiKey}`,
-                  },
+                  headers,
                   body: JSON.stringify(body),
                   signal: request.signal,
                 },

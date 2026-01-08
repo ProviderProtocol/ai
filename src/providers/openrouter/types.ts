@@ -1025,3 +1025,22 @@ export interface OpenRouterResponseErrorEvent {
     message: string;
   };
 }
+
+/**
+ * OpenRouter-specific HTTP headers for API requests.
+ *
+ * @example
+ * ```typescript
+ * const headers: OpenRouterHeaders = {
+ *   'HTTP-Referer': 'https://myapp.example.com',
+ *   'X-Title': 'My Application',
+ * };
+ * ```
+ */
+export interface OpenRouterHeaders {
+  /** Application URL for analytics and leaderboard tracking. */
+  'HTTP-Referer'?: string;
+  /** Application name for analytics display. */
+  'X-Title'?: string;
+  [key: string]: string | undefined;
+}

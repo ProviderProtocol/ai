@@ -428,3 +428,24 @@ export interface OllamaStreamChunk {
   /** Log probabilities (if requested, only on final chunk). */
   logprobs?: OllamaLogprob[];
 }
+
+/**
+ * Ollama-specific HTTP headers for API requests.
+ *
+ * Supports arbitrary headers for proxy authentication.
+ *
+ * @example
+ * ```typescript
+ * const headers: OllamaHeaders = {
+ *   'CF-Access-Client-Id': 'client-id.access',
+ *   'CF-Access-Client-Secret': 'secret-token',
+ * };
+ * ```
+ */
+export interface OllamaHeaders {
+  /** Cloudflare Access client ID for protected tunnels. */
+  'CF-Access-Client-Id'?: string;
+  /** Cloudflare Access client secret for protected tunnels. */
+  'CF-Access-Client-Secret'?: string;
+  [key: string]: string | undefined;
+}

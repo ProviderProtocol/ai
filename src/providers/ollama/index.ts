@@ -85,4 +85,4 @@ export const ollama = createProvider({
   },
 });
 
-export type { OllamaLLMParams } from './types.ts';
+export type { OllamaLLMParams, OllamaHeaders } from './types.ts';

@@ -388,6 +388,17 @@ All providers share common configuration and error handling.
 | `fetch` | Function | No | Custom fetch implementation (for logging, caching, custom TLS) |
 | `apiVersion` | String | No | API version override |
 | `retryStrategy` | RetryStrategy | No | Retry strategy for handling failures and rate limits |
+| `headers` | Map<String, String> | No | Custom HTTP headers to include in API requests |
+
+**Custom Headers:**
+
+Providers MUST support custom headers passed via `config.headers`. Custom headers allow users to:
+- Enable provider beta features (e.g., Anthropic's `anthropic-beta` header)
+- Pass organization/project identifiers (e.g., OpenAI's `OpenAI-Organization`)
+- Provide attribution metadata (e.g., OpenRouter's `HTTP-Referer` and `X-Title`)
+- Configure proxy authentication (e.g., Cloudflare Access headers for Ollama)
+
+Custom headers MUST be merged with provider-required headers (e.g., `Content-Type`, `Authorization`). If a custom header conflicts with a required header, the custom header takes precedence, allowing users to override default behavior when necessary.
 
 **Example configurations:**
 
@@ -400,6 +411,21 @@ config2 = { apiKey: () => fetchKeyFromVault() }
 
 // Key strategy
 config3 = { apiKey: RoundRobinKeys(["sk-1", "sk-2"]) }
+
+// Custom headers for Anthropic beta features
+config4 = {
+  apiKey: "sk-xxx",
+  headers: { "anthropic-beta": "extended-cache-ttl-2025-04-11" }
+}
+
+// Custom headers for OpenRouter attribution
+config5 = {
+  apiKey: "sk-xxx",
+  headers: {
+    "HTTP-Referer": "https://myapp.example.com",
+    "X-Title": "My Application"
+  }
+}
 ```
 
 #### Provider-Specific Options

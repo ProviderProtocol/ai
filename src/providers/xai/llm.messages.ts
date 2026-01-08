@@ -97,15 +97,25 @@ export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
           const baseUrl = request.config.baseUrl ?? XAI_MESSAGES_API_URL;
           const body = transformRequest(request, modelId);
 
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+          };
+
+          if (request.config.headers) {
+            for (const [key, value] of Object.entries(request.config.headers)) {
+              if (value !== undefined) {
+                headers[key] = value;
+              }
+            }
+          }
+
           const response = await doFetch(
             baseUrl,
             {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-api-key': apiKey,
-                'anthropic-version': '2023-06-01',
-              },
+              headers,
               body: JSON.stringify(body),
               signal: request.signal,
             },
@@ -141,15 +151,25 @@ export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
               const body = transformRequest(request, modelId);
               body.stream = true;
 
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+                'x-api-key': apiKey,
+                'anthropic-version': '2023-06-01',
+              };
+
+              if (request.config.headers) {
+                for (const [key, value] of Object.entries(request.config.headers)) {
+                  if (value !== undefined) {
+                    headers[key] = value;
+                  }
+                }
+              }
+
               const response = await doStreamFetch(
                 baseUrl,
                 {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey,
-                    'anthropic-version': '2023-06-01',
-                  },
+                  headers,
                   body: JSON.stringify(body),
                   signal: request.signal,
                 },

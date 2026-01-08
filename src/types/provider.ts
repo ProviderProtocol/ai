@@ -127,6 +127,24 @@ export interface ProviderConfig {
 
   /** Retry strategy for handling failures and rate limits */
   retryStrategy?: RetryStrategy;
+
+  /**
+   * Custom headers to include in API requests.
+   *
+   * Use this to pass provider-specific headers such as:
+   * - Anthropic: `anthropic-beta` for beta features
+   * - OpenAI: `OpenAI-Organization`, `OpenAI-Project`
+   * - OpenRouter: `HTTP-Referer`, `X-Title` for attribution
+   * - Ollama: Proxy authentication headers
+   *
+   * @example
+   * ```typescript
+   * const config: ProviderConfig = {
+   *   headers: { 'anthropic-beta': 'extended-cache-ttl-2025-04-11' }
+   * };
+   * ```
+   */
+  headers?: Record<string, string | undefined>;
 }
 
 /**

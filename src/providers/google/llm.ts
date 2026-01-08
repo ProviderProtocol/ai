@@ -107,13 +107,23 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
 
           const body = transformRequest(request, modelId);
 
+          const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+          };
+
+          if (request.config.headers) {
+            for (const [key, value] of Object.entries(request.config.headers)) {
+              if (value !== undefined) {
+                headers[key] = value;
+              }
+            }
+          }
+
           const response = await doFetch(
             url,
             {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-              },
+              headers,
               body: JSON.stringify(body),
               signal: request.signal,
             },
@@ -151,13 +161,23 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
 
               const body = transformRequest(request, modelId);
 
+              const headers: Record<string, string> = {
+                'Content-Type': 'application/json',
+              };
+
+              if (request.config.headers) {
+                for (const [key, value] of Object.entries(request.config.headers)) {
+                  if (value !== undefined) {
+                    headers[key] = value;
+                  }
+                }
+              }
+
               const response = await doStreamFetch(
                 url,
                 {
                   method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                  },
+                  headers,
                   body: JSON.stringify(body),
                   signal: request.signal,
                 },

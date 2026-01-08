@@ -182,6 +182,14 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
             headers['Authorization'] = `Bearer ${apiKey}`;
           }
 
+          if (request.config.headers) {
+            for (const [key, value] of Object.entries(request.config.headers)) {
+              if (value !== undefined) {
+                headers[key] = value;
+              }
+            }
+          }
+
           const response = await doFetch(
             url,
             {
@@ -235,6 +243,14 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
 
               if (apiKey) {
                 headers['Authorization'] = `Bearer ${apiKey}`;
+              }
+
+              if (request.config.headers) {
+                for (const [key, value] of Object.entries(request.config.headers)) {
+                  if (value !== undefined) {
+                    headers[key] = value;
+                  }
+                }
               }
 
               const response = await doStreamFetch(

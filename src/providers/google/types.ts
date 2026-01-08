@@ -431,3 +431,21 @@ export interface GoogleCacheListResponse {
   /** Token for fetching the next page of results */
   nextPageToken?: string;
 }
+
+/**
+ * Google Gemini-specific HTTP headers for API requests.
+ *
+ * @example
+ * ```typescript
+ * const headers: GoogleHeaders = {
+ *   'x-goog-api-client': 'myapp/1.0.0',
+ * };
+ * ```
+ */
+export interface GoogleHeaders {
+  /** Client identification header for partners and libraries. */
+  'x-goog-api-client'?: string;
+  /** Quota project ID for Vertex AI billing. */
+  'x-goog-user-project'?: string;
+  [key: string]: string | undefined;
+}

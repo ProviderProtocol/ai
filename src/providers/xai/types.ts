@@ -1174,3 +1174,19 @@ export interface XAIMessagesErrorEvent {
     message: string;
   };
 }
+
+/**
+ * xAI-specific HTTP headers for API requests.
+ *
+ * @example
+ * ```typescript
+ * const headers: XAIHeaders = {
+ *   'X-Client-Request-Id': 'trace-123',
+ * };
+ * ```
+ */
+export interface XAIHeaders {
+  /** Client-generated request ID for tracing. */
+  'X-Client-Request-Id'?: string;
+  [key: string]: string | undefined;
+}
