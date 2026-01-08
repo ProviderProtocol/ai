@@ -32,4 +32,4 @@
  */
 
 export { ollama } from '../providers/ollama/index.ts';
-export type { OllamaLLMParams } from '../providers/ollama/index.ts';
+export type { OllamaLLMParams, OllamaEmbedParams } from '../providers/ollama/index.ts';

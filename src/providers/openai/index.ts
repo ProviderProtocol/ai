@@ -30,9 +30,12 @@ import type {
   ModelReference,
   LLMHandler,
   LLMProvider,
+  EmbeddingHandler,
+  EmbeddingProvider,
 } from '../../types/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
+import { createEmbeddingHandler, type OpenAIEmbedParams } from './embed.ts';
 import type { OpenAICompletionsParams, OpenAIResponsesParams } from './types.ts';
 
 /**
@@ -113,11 +116,13 @@ export interface OpenAIProvider extends Provider<OpenAIProviderOptions> {
 
   /**
    * Supported modalities and their handlers.
-   * Currently supports LLM modality with both Responses and Completions API handlers.
+   * Supports LLM and Embedding modalities.
    */
   readonly modalities: {
     /** The LLM handler for text generation and chat completion */
     llm: LLMHandler<OpenAILLMParamsUnion>;
+    /** The embedding handler for text embeddings */
+    embedding: EmbeddingHandler<OpenAIEmbedParams>;
   };
 }
 
@@ -136,6 +141,7 @@ function createOpenAIProvider(): OpenAIProvider {
 
   const responsesHandler = createResponsesLLMHandler();
   const completionsHandler = createCompletionsLLMHandler();
+  const embeddingHandler = createEmbeddingHandler();
 
   const fn = function (
     modelId: string,
@@ -152,6 +158,7 @@ function createOpenAIProvider(): OpenAIProvider {
         ? (completionsHandler as unknown as LLMHandler<OpenAILLMParamsUnion>)
         : (responsesHandler as unknown as LLMHandler<OpenAILLMParamsUnion>);
     },
+    embedding: embeddingHandler,
   };
 
   Object.defineProperties(fn, {
@@ -176,6 +183,7 @@ function createOpenAIProvider(): OpenAIProvider {
 
   responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenAIResponsesParams>);
   completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenAICompletionsParams>);
+  embeddingHandler._setProvider?.(provider as unknown as EmbeddingProvider<OpenAIEmbedParams>);
 
   return provider;
 }
@@ -265,3 +273,5 @@ export {
 } from './types.ts';
 
 export type { OpenAIHeaders } from './types.ts';
+
+export type { OpenAIEmbedParams } from './embed.ts';

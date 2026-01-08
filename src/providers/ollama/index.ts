@@ -1,5 +1,6 @@
 import { createProvider } from '../../core/provider.ts';
 import { createLLMHandler } from './llm.ts';
+import { createEmbeddingHandler } from './embed.ts';
 
 /**
  * Ollama provider for local LLM inference.
@@ -82,7 +83,9 @@ export const ollama = createProvider({
   version: '1.0.0',
   modalities: {
     llm: createLLMHandler(),
+    embedding: createEmbeddingHandler(),
   },
 });
 
 export type { OllamaLLMParams, OllamaHeaders } from './types.ts';
+export type { OllamaEmbedParams } from './embed.ts';

@@ -128,6 +128,11 @@ export type {
   ImageHandler,
   BoundEmbeddingModel,
   BoundImageModel,
+  EmbeddingRequest,
+  EmbeddingResponse,
+  EmbeddingVector,
+  EmbeddingUsage,
+  EmbeddingInput,
 } from './provider.ts';
 
 /**
@@ -145,3 +150,18 @@ export type {
   LLMHandler,
   InferenceInput,
 } from './llm.ts';
+
+/**
+ * Embedding types for vector embedding generation.
+ * Includes options, instances, requests, and responses for embedding operations.
+ */
+export type {
+  EmbeddingOptions,
+  EmbeddingInstance,
+  EmbedOptions,
+  Embedding,
+  EmbeddingResult,
+  EmbeddingProgress,
+  EmbeddingStream,
+  EmbeddingModelInput,
+} from './embedding.ts';

@@ -34,6 +34,9 @@
 /** LLM instance factory for creating model-bound inference functions */
 export { llm } from './core/llm.ts';
 
+/** Embedding instance factory for creating model-bound embedding functions */
+export { embedding } from './core/embedding.ts';
+
 /** Factory for creating custom providers */
 export { createProvider } from './core/provider.ts';
 
@@ -41,6 +44,7 @@ export { createProvider } from './core/provider.ts';
 export { Image } from './core/image.ts';
 
 import { llm } from './core/llm.ts';
+import { embedding } from './core/embedding.ts';
 
 /**
  * UPP namespace object providing alternative import style.
@@ -58,6 +62,8 @@ import { llm } from './core/llm.ts';
 export const ai = {
   /** LLM instance factory */
   llm,
+  /** Embedding instance factory */
+  embedding,
 };
 
 export * from './types/index.ts';

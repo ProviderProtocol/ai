@@ -51,4 +51,5 @@ export type {
   OpenRouterModelOptions,
   OpenRouterModelReference,
   OpenRouterProviderPreferences,
+  OpenRouterEmbedParams,
 } from '../providers/openrouter/index.ts';

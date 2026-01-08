@@ -43,4 +43,6 @@ export type {
   GoogleToolConfig,
   GoogleGroundingMetadata,
   GoogleCodeExecutionResult,
+  GoogleEmbedParams,
+  GoogleTaskType,
 } from '../providers/google/index.ts';

@@ -3,9 +3,12 @@ import type {
   ModelReference,
   LLMHandler,
   LLMProvider,
+  EmbeddingHandler,
+  EmbeddingProvider,
 } from '../../types/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
+import { createEmbeddingHandler, type OpenRouterEmbedParams } from './embed.ts';
 import type { OpenRouterCompletionsParams, OpenRouterResponsesParams } from './types.ts';
 
 /**
@@ -73,10 +76,11 @@ export interface OpenRouterProvider extends Provider<OpenRouterProviderOptions> 
 
   /**
    * Supported modalities for this provider.
-   * OpenRouter currently only supports LLM (text generation).
+   * OpenRouter supports LLM (text generation) and Embedding.
    */
   readonly modalities: {
     llm: LLMHandler<OpenRouterLLMParamsUnion>;
+    embedding: EmbeddingHandler<OpenRouterEmbedParams>;
   };
 }
 
@@ -94,6 +98,7 @@ function createOpenRouterProvider(): OpenRouterProvider {
 
   const completionsHandler = createCompletionsLLMHandler();
   const responsesHandler = createResponsesLLMHandler();
+  const embeddingHandler = createEmbeddingHandler();
 
   const fn = function (
     modelId: string,
@@ -110,6 +115,7 @@ function createOpenRouterProvider(): OpenRouterProvider {
         ? (responsesHandler as unknown as LLMHandler<OpenRouterLLMParamsUnion>)
         : (completionsHandler as unknown as LLMHandler<OpenRouterLLMParamsUnion>);
     },
+    embedding: embeddingHandler,
   };
 
   Object.defineProperties(fn, {
@@ -134,6 +140,7 @@ function createOpenRouterProvider(): OpenRouterProvider {
 
   completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterCompletionsParams>);
   responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterResponsesParams>);
+  embeddingHandler._setProvider?.(provider as unknown as EmbeddingProvider<OpenRouterEmbedParams>);
 
   return provider;
 }
@@ -200,3 +207,5 @@ export type {
   OpenRouterImageConfig,
   OpenRouterHeaders,
 } from './types.ts';
+
+export type { OpenRouterEmbedParams } from './embed.ts';

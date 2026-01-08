@@ -1,5 +1,6 @@
 import { createProvider } from '../../core/provider.ts';
 import { createLLMHandler } from './llm.ts';
+import { createEmbeddingHandler } from './embed.ts';
 import { cache } from './cache.ts';
 
 const baseProvider = createProvider({
@@ -7,6 +8,7 @@ const baseProvider = createProvider({
   version: '1.0.0',
   modalities: {
     llm: createLLMHandler(),
+    embedding: createEmbeddingHandler(),
   },
 });
 
@@ -91,3 +93,5 @@ export type {
   GoogleGroundingMetadata,
   GoogleCodeExecutionResult,
 } from './types.ts';
+
+export type { GoogleEmbedParams, GoogleTaskType } from './embed.ts';

@@ -295,7 +295,72 @@ export interface BoundEmbeddingModel<TParams = any> {
 
   /** Output embedding dimensions */
   readonly dimensions: number;
+
+  /**
+   * Execute embedding request.
+   *
+   * @param request - The embedding request
+   * @returns Promise resolving to embedding response
+   */
+  embed(request: EmbeddingRequest<TParams>): Promise<EmbeddingResponse>;
 }
+
+/**
+ * Request passed to provider's embed method.
+ * @internal
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export interface EmbeddingRequest<TParams = any> {
+  /** Inputs to embed */
+  inputs: EmbeddingInput[];
+  /** Provider-specific parameters (passed through unchanged) */
+  params?: TParams;
+  /** Provider infrastructure config */
+  config: ProviderConfig;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
+}
+
+/**
+ * Response from provider's embed method.
+ * @internal
+ */
+export interface EmbeddingResponse {
+  /** Embedding vectors */
+  embeddings: EmbeddingVector[];
+  /** Aggregate usage */
+  usage: EmbeddingUsage;
+  /** Provider-specific response metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Single vector from provider response.
+ * @internal
+ */
+export interface EmbeddingVector {
+  /** The embedding vector (floats or base64 string) */
+  vector: number[] | string;
+  /** Index in input array */
+  index: number;
+  /** Token count for this input */
+  tokens?: number;
+  /** Provider-specific per-embedding metadata */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * Usage statistics for embedding operations.
+ */
+export interface EmbeddingUsage {
+  /** Total tokens processed */
+  totalTokens: number;
+}
+
+/**
+ * Valid input types for embedding.
+ */
+export type EmbeddingInput = string | { type: 'text'; text: string } | { type: 'image'; source: unknown; mimeType: string };
 
 /**
  * Bound image model interface.
