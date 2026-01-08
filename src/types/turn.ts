@@ -26,8 +26,8 @@ import type { ToolExecution } from './tool.ts';
  *   cacheReadTokens: 100,
  *   cacheWriteTokens: 50,
  *   cycles: [
- *     { inputTokens: 100, outputTokens: 30 },
- *     { inputTokens: 50, outputTokens: 20 }
+ *     { inputTokens: 100, outputTokens: 30, cacheReadTokens: 0, cacheWriteTokens: 50 },
+ *     { inputTokens: 50, outputTokens: 20, cacheReadTokens: 100, cacheWriteTokens: 0 }
  *   ]
  * };
  * ```
@@ -58,6 +58,8 @@ export interface TokenUsage {
   cycles?: Array<{
     inputTokens: number;
     outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
   }>;
 }
 
@@ -206,6 +208,8 @@ export function aggregateUsage(usages: TokenUsage[]): TokenUsage {
     cycles.push({
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
     });
   }
 
