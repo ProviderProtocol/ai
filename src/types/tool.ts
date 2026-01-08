@@ -125,9 +125,27 @@ export interface Tool<TParams = unknown, TResult = unknown> {
 }
 
 /**
+ * Result from onBeforeCall hook indicating whether to proceed and optionally transformed params.
+ */
+export interface BeforeCallResult {
+  /** Whether to proceed with tool execution */
+  proceed: boolean;
+  /** Transformed parameters to use instead of the original (optional) */
+  params?: unknown;
+}
+
+/**
+ * Result from onAfterCall hook optionally containing a transformed result.
+ */
+export interface AfterCallResult {
+  /** Transformed result to use instead of the original */
+  result: unknown;
+}
+
+/**
  * Strategy for controlling tool execution behavior.
  *
- * Provides hooks for monitoring and controlling the tool execution
+ * Provides hooks for monitoring, controlling, and transforming the tool execution
  * loop during LLM inference.
  *
  * @example
@@ -136,6 +154,19 @@ export interface Tool<TParams = unknown, TResult = unknown> {
  *   maxIterations: 5,
  *   onToolCall: (tool, params) => {
  *     console.log(`Calling ${tool.name} with`, params);
+ *   },
+ *   // Transform input parameters
+ *   onBeforeCall: (tool, params) => {
+ *     if (tool.name === 'search') {
+ *       return { proceed: true, params: { ...params, limit: 10 } };
+ *     }
+ *     return true;
+ *   },
+ *   // Transform output results
+ *   onAfterCall: (tool, params, result) => {
+ *     if (tool.name === 'fetch_data') {
+ *       return { result: sanitize(result) };
+ *     }
  *   },
  *   onMaxIterations: (iterations) => {
  *     console.warn(`Reached max iterations: ${iterations}`);
@@ -156,22 +187,26 @@ export interface ToolUseStrategy {
   onToolCall?(tool: Tool, params: unknown): void | Promise<void>;
 
   /**
-   * Called before tool execution.
+   * Called before tool execution. Can skip execution or transform parameters.
    *
    * @param tool - The tool about to be executed
    * @param params - The parameters for the call
-   * @returns False to skip execution, true to proceed
+   * @returns One of:
+   *   - `false` to skip execution
+   *   - `true` to proceed with original params
+   *   - `BeforeCallResult` object to control execution and optionally transform params
    */
-  onBeforeCall?(tool: Tool, params: unknown): boolean | Promise<boolean>;
+  onBeforeCall?(tool: Tool, params: unknown): boolean | BeforeCallResult | Promise<boolean | BeforeCallResult>;
 
   /**
-   * Called after tool execution completes.
+   * Called after tool execution completes. Can transform the result.
    *
    * @param tool - The tool that was executed
    * @param params - The parameters that were used
    * @param result - The result from the tool
+   * @returns Void to use original result, or `AfterCallResult` to transform it
    */
-  onAfterCall?(tool: Tool, params: unknown, result: unknown): void | Promise<void>;
+  onAfterCall?(tool: Tool, params: unknown, result: unknown): void | AfterCallResult | Promise<void | AfterCallResult>;
 
   /**
    * Called when a tool execution throws an error.

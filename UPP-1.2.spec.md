@@ -1826,7 +1826,7 @@ By default, `llm()` handles tool execution automatically:
 
 ### 10.5 ToolUseStrategy
 
-For custom control over tool execution:
+For custom control over tool execution, including input/output transformation:
 
 **ToolUseStrategy Structure:**
 
@@ -1834,10 +1834,33 @@ For custom control over tool execution:
 |-------|------|-------------|
 | `maxIterations` | Integer | Maximum tool execution rounds (default: 10) |
 | `onToolCall` | Function | Called when the model requests a tool call |
-| `onBeforeCall` | Function | Called before tool execution, return false to skip |
-| `onAfterCall` | Function | Called after tool execution |
+| `onBeforeCall` | Function | Called before tool execution; can skip or transform params |
+| `onAfterCall` | Function | Called after tool execution; can transform result |
 | `onError` | Function | Called on tool execution error |
 | `onMaxIterations` | Function | Called when max iterations reached |
+
+**BeforeCallResult Structure:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `proceed` | Boolean | Whether to proceed with tool execution |
+| `params` | Any? | Transformed parameters to use (optional) |
+
+**AfterCallResult Structure:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `result` | Any | Transformed result to return to the model |
+
+**Hook Return Types:**
+
+| Hook | Return Type | Behavior |
+|------|-------------|----------|
+| `onBeforeCall` | `false` | Skip execution |
+| `onBeforeCall` | `true` | Proceed with original params |
+| `onBeforeCall` | `BeforeCallResult` | Control execution and optionally transform params |
+| `onAfterCall` | `void` | Use original result |
+| `onAfterCall` | `AfterCallResult` | Transform result before returning to model |
 
 ### 10.6 Strategy Example
 
@@ -1847,11 +1870,12 @@ strategy = {
 
   onBeforeCall: async (tool, params) => {
     print("Calling " + tool.name + " with", params)
-    return true  // Allow execution
+    return true  // Allow execution with original params
   },
 
   onAfterCall: async (tool, params, result) => {
     await logToolUsage(tool.name, params, result)
+    // Return void to use original result
   },
 
   onError: async (tool, params, error) => {
@@ -1869,6 +1893,72 @@ claude = llm({
   tools: [getWeather, searchWeb],
   toolStrategy: strategy
 })
+```
+
+### 10.6.1 Input Transformation
+
+Transform tool parameters before execution:
+
+```pseudocode
+strategy = {
+  onBeforeCall: async (tool, params) => {
+    if (tool.name == "search") {
+      // Add default pagination
+      return {
+        proceed: true,
+        params: { ...params, limit: 10, offset: 0 }
+      }
+    }
+    // Proceed with original params for other tools
+    return true
+  }
+}
+```
+
+### 10.6.2 Output Transformation
+
+Transform tool results before returning to the model:
+
+```pseudocode
+strategy = {
+  onAfterCall: async (tool, params, result) => {
+    if (tool.name == "fetch_data") {
+      // Sanitize sensitive fields
+      return { result: redactPII(result) }
+    }
+    if (tool.name == "get_users") {
+      // Truncate large results
+      return { result: result.slice(0, 100) }
+    }
+    // Return void to use original result
+  }
+}
+```
+
+### 10.6.3 Combined Transformation
+
+Input and output transformation can be combined:
+
+```pseudocode
+strategy = {
+  onBeforeCall: async (tool, params) => {
+    // Inject authentication
+    if (tool.name == "api_call") {
+      return {
+        proceed: true,
+        params: { ...params, authToken: getAuthToken() }
+      }
+    }
+    return true
+  },
+
+  onAfterCall: async (tool, params, result) => {
+    // Remove injected auth from logged result
+    if (tool.name == "api_call") {
+      return { result: { ...result, authToken: undefined } }
+    }
+  }
+}
 ```
 
 ### 10.7 Disabling Automatic Tool Execution
@@ -2916,6 +3006,8 @@ UPP implementations SHOULD export the following types through their language's s
 - `ToolResult`
 - `Tool`
 - `ToolUseStrategy`
+- `BeforeCallResult`
+- `AfterCallResult`
 - `ToolExecution`
 
 **Turn & Thread Types:**

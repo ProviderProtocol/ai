@@ -56,6 +56,8 @@ export type {
   ToolCall,
   ToolResult,
   ToolUseStrategy,
+  BeforeCallResult,
+  AfterCallResult,
   ToolExecution,
 } from './tool.ts';
 

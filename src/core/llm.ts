@@ -18,7 +18,7 @@ import type {
 } from '../types/llm.ts';
 import type { UserMessage, AssistantMessage } from '../types/messages.ts';
 import type { ContentBlock, TextBlock } from '../types/content.ts';
-import type { Tool, ToolExecution, ToolResult } from '../types/tool.ts';
+import type { AfterCallResult, BeforeCallResult, Tool, ToolExecution, ToolResult } from '../types/tool.ts';
 import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
 import type { Thread } from '../types/thread.ts';
@@ -564,11 +564,29 @@ async function executeTools(
 
     onEvent?.(toolExecutionStart(call.toolCallId, tool.name, startTime, index));
 
-    await toolStrategy?.onToolCall?.(tool, call.arguments);
+    let effectiveParams = call.arguments;
+
+    await toolStrategy?.onToolCall?.(tool, effectiveParams);
 
     if (toolStrategy?.onBeforeCall) {
-      const shouldRun = await toolStrategy.onBeforeCall(tool, call.arguments);
-      if (!shouldRun) {
+      const beforeResult = await toolStrategy.onBeforeCall(tool, effectiveParams);
+      const isBeforeCallResult = (value: unknown): value is BeforeCallResult =>
+        typeof value === 'object' && value !== null && 'proceed' in value;
+
+      if (isBeforeCallResult(beforeResult)) {
+        if (!beforeResult.proceed) {
+          const endTime = Date.now();
+          onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, 'Tool execution skipped', true, endTime, index));
+          return {
+            toolCallId: call.toolCallId,
+            result: 'Tool execution skipped',
+            isError: true,
+          };
+        }
+        if (beforeResult.params !== undefined) {
+          effectiveParams = beforeResult.params as Record<string, unknown>;
+        }
+      } else if (!beforeResult) {
         const endTime = Date.now();
         onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, 'Tool execution skipped', true, endTime, index));
         return {
@@ -582,7 +600,7 @@ async function executeTools(
     let approved = true;
     if (tool.approval) {
       try {
-        approved = await tool.approval(call.arguments);
+        approved = await tool.approval(effectiveParams);
       } catch (error) {
         throw error;
       }
@@ -593,7 +611,7 @@ async function executeTools(
       const execution: ToolExecution = {
         toolName: tool.name,
         toolCallId: call.toolCallId,
-        arguments: call.arguments,
+        arguments: effectiveParams as Record<string, unknown>,
         result: 'Tool execution denied',
         isError: true,
         duration: endTime - startTime,
@@ -611,15 +629,23 @@ async function executeTools(
     }
 
     try {
-      const result = await tool.run(call.arguments);
+      let result = await tool.run(effectiveParams);
       const endTime = Date.now();
 
-      await toolStrategy?.onAfterCall?.(tool, call.arguments, result);
+      if (toolStrategy?.onAfterCall) {
+        const afterResult = await toolStrategy.onAfterCall(tool, effectiveParams, result);
+        const isAfterCallResult = (value: unknown): value is AfterCallResult =>
+          typeof value === 'object' && value !== null && 'result' in value;
+
+        if (isAfterCallResult(afterResult)) {
+          result = afterResult.result;
+        }
+      }
 
       const execution: ToolExecution = {
         toolName: tool.name,
         toolCallId: call.toolCallId,
-        arguments: call.arguments,
+        arguments: effectiveParams as Record<string, unknown>,
         result,
         isError: false,
         duration: endTime - startTime,
@@ -636,14 +662,14 @@ async function executeTools(
       };
     } catch (error) {
       const endTime = Date.now();
-      await toolStrategy?.onError?.(tool, call.arguments, error as Error);
+      await toolStrategy?.onError?.(tool, effectiveParams, error as Error);
 
       const errorMessage = error instanceof Error ? error.message : String(error);
 
       const execution: ToolExecution = {
         toolName: tool.name,
         toolCallId: call.toolCallId,
-        arguments: call.arguments,
+        arguments: effectiveParams as Record<string, unknown>,
         result: errorMessage,
         isError: true,
         duration: endTime - startTime,

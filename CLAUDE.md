@@ -15,6 +15,7 @@
 13. **Import management** - Do not re-export ever, the only allowed place is when it _FULLY MAKES SENSE_ to do so with index.ts files. 
 14. **Commenting** - Avoid needless comments, if you make comments they should purely be documentational not inlined model reasoning. 
 15. **Error Handling** - Prioritize pro-active error handling, use modern try catch patterns and be mindful of plausible error spots. 
+16. **Add / Update Tests** - When making changes or adding functionality ensure you add and/or update both LIVE and UNIT tests. 
 
 `.env` contains all AI provider keys.
 > Be sure to use the LSP tool to help get / understand code. 
