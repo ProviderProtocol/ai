@@ -48,7 +48,7 @@ const baseProvider = createProvider({
  * // Create a cache for repeated context
  * const cacheEntry = await google.cache.create({
  *   apiKey: process.env.GOOGLE_API_KEY,
- *   model: 'gemini-1.5-flash-001',
+ *   model: 'gemini-3-flash-preview',
  *   systemInstruction: 'You are an expert code reviewer...',
  *   contents: [{ role: 'user', parts: [{ text: largeCodebase }] }],
  *   ttl: '3600s',

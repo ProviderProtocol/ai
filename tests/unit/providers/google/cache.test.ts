@@ -37,7 +37,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T01:00:00Z',
           }),
@@ -47,7 +47,7 @@ describe('Google Cache Utilities', () => {
 
       const result = await cache.create({
         apiKey: MOCK_API_KEY,
-        model: 'gemini-1.5-flash-001',
+        model: 'gemini-3-flash-preview',
       });
 
       expect(result.name).toBe(MOCK_CACHE_NAME);
@@ -59,7 +59,7 @@ describe('Google Cache Utilities', () => {
       expect(options.method).toBe('POST');
 
       const body = JSON.parse(options.body as string);
-      expect(body.model).toBe('models/gemini-1.5-flash-001');
+      expect(body.model).toBe('models/gemini-3-flash-preview');
     });
 
     test('creates cache with full options', async () => {
@@ -67,7 +67,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             displayName: 'Test Cache',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T01:00:00Z',
@@ -79,7 +79,7 @@ describe('Google Cache Utilities', () => {
 
       const result = await cache.create({
         apiKey: MOCK_API_KEY,
-        model: 'gemini-1.5-flash-001',
+        model: 'gemini-3-flash-preview',
         displayName: 'Test Cache',
         systemInstruction: 'You are a helpful assistant.',
         contents: [{ role: 'user', parts: [{ text: 'Hello world' }] }],
@@ -113,7 +113,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T01:00:00Z',
           }),
@@ -123,7 +123,7 @@ describe('Google Cache Utilities', () => {
 
       await cache.create({
         apiKey: MOCK_API_KEY,
-        model: 'gemini-1.5-flash-001',
+        model: 'gemini-3-flash-preview',
         ttl: '3600s',
         expireTime: '2024-12-31T23:59:59Z',
       });
@@ -138,7 +138,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-12-31T23:59:59Z',
           }),
@@ -148,7 +148,7 @@ describe('Google Cache Utilities', () => {
 
       await cache.create({
         apiKey: MOCK_API_KEY,
-        model: 'gemini-1.5-flash-001',
+        model: 'gemini-3-flash-preview',
         expireTime: '2024-12-31T23:59:59Z',
       });
 
@@ -163,7 +163,7 @@ describe('Google Cache Utilities', () => {
       await expect(
         cache.create({
           apiKey: MOCK_API_KEY,
-          model: 'gemini-1.5-flash-001',
+          model: 'gemini-3-flash-preview',
         })
       ).rejects.toThrow('Failed to create cache: 400');
     });
@@ -173,7 +173,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T01:00:00Z',
           }),
@@ -183,11 +183,11 @@ describe('Google Cache Utilities', () => {
 
       await cache.create({
         apiKey: MOCK_API_KEY,
-        model: 'gemini-1.5-flash-001',
+        model: 'gemini-3-flash-preview',
       });
 
       const body = JSON.parse(getCallArgs()[1].body as string);
-      expect(body.model).toBe('models/gemini-1.5-flash-001');
+      expect(body.model).toBe('models/gemini-3-flash-preview');
     });
 
     test('preserves model name with prefix', async () => {
@@ -195,7 +195,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T01:00:00Z',
           }),
@@ -205,11 +205,11 @@ describe('Google Cache Utilities', () => {
 
       await cache.create({
         apiKey: MOCK_API_KEY,
-        model: 'models/gemini-1.5-flash-001',
+        model: 'models/gemini-3-flash-preview',
       });
 
       const body = JSON.parse(getCallArgs()[1].body as string);
-      expect(body.model).toBe('models/gemini-1.5-flash-001');
+      expect(body.model).toBe('models/gemini-3-flash-preview');
     });
   });
 
@@ -219,7 +219,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T01:00:00Z',
           }),
@@ -239,7 +239,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T01:00:00Z',
           }),
@@ -271,7 +271,7 @@ describe('Google Cache Utilities', () => {
             cachedContents: [
               {
                 name: 'cachedContents/cache1',
-                model: 'models/gemini-1.5-flash-001',
+                model: 'models/gemini-3-flash-preview',
                 createTime: '2024-01-01T00:00:00Z',
                 expireTime: '2024-01-01T01:00:00Z',
               },
@@ -299,7 +299,7 @@ describe('Google Cache Utilities', () => {
             cachedContents: [
               {
                 name: 'cachedContents/cache1',
-                model: 'models/gemini-1.5-flash-001',
+                model: 'models/gemini-3-flash-preview',
                 createTime: '2024-01-01T00:00:00Z',
                 expireTime: '2024-01-01T01:00:00Z',
               },
@@ -339,7 +339,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-01-01T02:00:00Z',
           }),
@@ -363,7 +363,7 @@ describe('Google Cache Utilities', () => {
         new Response(
           JSON.stringify({
             name: MOCK_CACHE_NAME,
-            model: 'models/gemini-1.5-flash-001',
+            model: 'models/gemini-3-flash-preview',
             createTime: '2024-01-01T00:00:00Z',
             expireTime: '2024-12-31T23:59:59Z',
           }),

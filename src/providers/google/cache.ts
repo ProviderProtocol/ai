@@ -26,7 +26,7 @@ const CACHE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/cachedC
 export interface CacheCreateOptions {
   /** API key for authentication */
   apiKey: string;
-  /** Model to associate with this cache (e.g., "gemini-1.5-flash-001") */
+  /** Model to associate with this cache (e.g., "gemini-3-flash-preview") */
   model: string;
   /** Optional display name for the cache (max 128 chars) */
   displayName?: string;
@@ -71,7 +71,7 @@ export interface CacheListOptions {
  * // Create a cache with system instruction and large context
  * const cache = await google.cache.create({
  *   apiKey: process.env.GOOGLE_API_KEY,
- *   model: 'gemini-1.5-flash-001',
+ *   model: 'gemini-3-flash-preview',
  *   displayName: 'Code Review Context',
  *   systemInstruction: 'You are an expert code reviewer...',
  *   contents: [
@@ -284,7 +284,7 @@ async function deleteCache(name: string, apiKey: string): Promise<void> {
  * // Create a cache
  * const cache = await google.cache.create({
  *   apiKey: process.env.GOOGLE_API_KEY,
- *   model: 'gemini-1.5-flash-001',
+ *   model: 'gemini-3-flash-preview',
  *   systemInstruction: 'You are an expert assistant...',
  *   contents: [{ role: 'user', parts: [{ text: largeDocument }] }],
  *   ttl: '3600s',
