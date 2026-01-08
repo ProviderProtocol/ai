@@ -1,6 +1,6 @@
 {
   "name": "@providerprotocol/ai",
-  "version": "0.0.13",
+  "version": "0.0.14",
   "description": "UPP: Unified Provider Protocol for AI inference",
   "license": "MIT",
   "homepage": "https://providerprotocol.org",
