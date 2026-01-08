@@ -1406,6 +1406,8 @@ A `Turn` represents the complete result of one inference call, including all mes
 | `inputTokens` | Integer | Input tokens across all cycles |
 | `outputTokens` | Integer | Output tokens across all cycles |
 | `totalTokens` | Integer | Total tokens |
+| `cacheReadTokens` | Integer | Tokens read from cache (cache hits). Returns 0 for providers that don't support cache metrics. |
+| `cacheWriteTokens` | Integer | Tokens written to cache. Only Anthropic reports this; returns 0 for other providers. |
 | `cycles` | List<CycleUsage>? | Per-cycle breakdown (if available) |
 
 **CycleUsage Structure:**
@@ -1414,6 +1416,8 @@ A `Turn` represents the complete result of one inference call, including all mes
 |-------|------|-------------|
 | `inputTokens` | Integer | Input tokens for this cycle |
 | `outputTokens` | Integer | Output tokens for this cycle |
+| `cacheReadTokens` | Integer | Cache read tokens for this cycle |
+| `cacheWriteTokens` | Integer | Cache write tokens for this cycle |
 
 ### 7.2 Turn Usage
 
@@ -3872,18 +3876,22 @@ Tools execute arbitrary code based on LLM-provided arguments:
     },
     "usage": {
       "type": "object",
-      "required": ["inputTokens", "outputTokens", "totalTokens"],
+      "required": ["inputTokens", "outputTokens", "totalTokens", "cacheReadTokens", "cacheWriteTokens"],
       "properties": {
         "inputTokens": { "type": "integer" },
         "outputTokens": { "type": "integer" },
         "totalTokens": { "type": "integer" },
+        "cacheReadTokens": { "type": "integer" },
+        "cacheWriteTokens": { "type": "integer" },
         "cycles": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
               "inputTokens": { "type": "integer" },
-              "outputTokens": { "type": "integer" }
+              "outputTokens": { "type": "integer" },
+              "cacheReadTokens": { "type": "integer" },
+              "cacheWriteTokens": { "type": "integer" }
             }
           }
         }
