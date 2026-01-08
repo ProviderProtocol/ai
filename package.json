@@ -64,7 +64,7 @@
     "test:unit": "bun test tests/unit",
     "test:live": "bun test tests/live",
     "typecheck": "tsc --noEmit",
-    "docgen": "typedoc --entryPoints src/index.ts --entryPoints src/anthropic/index.ts --entryPoints src/openai/index.ts --entryPoints src/google/index.ts --entryPoints src/ollama/index.ts --entryPoints src/openrouter/index.ts --entryPoints src/xai/index.ts --entryPoints src/http/index.ts --out docs --plugin typedoc-plugin-markdown",
+    "docgen": "bun run scripts/docgen.ts",
     "docs:sort": "bun run scripts/sort-docs.ts",
     "docs": "bun run docgen && bun run docs:sort",
     "docs:deploy": "bun run docs && rm -rf ../UPP-1/docs/src/content/docs/ai && cp -r docs-sorted ../UPP-1/docs/src/content/docs/ai && rm -rf ../UPP-1/docs/.astro ../UPP-1/docs/node_modules/.astro"
