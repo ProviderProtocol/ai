@@ -13,7 +13,7 @@ import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -353,14 +353,23 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
     throw new Error('No choices in OpenRouter response');
   }
 
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   let structuredData: unknown;
   if (choice.message.content) {
-    textContent.push({ type: 'text', text: choice.message.content });
+    content.push({ type: 'text', text: choice.message.content });
     try {
       structuredData = JSON.parse(choice.message.content);
     } catch {
       // Content is not JSON - acceptable for non-structured responses
+    }
+  }
+
+  if (choice.message.images && choice.message.images.length > 0) {
+    for (const image of choice.message.images) {
+      const imageBlock = parseGeneratedImage(image.image_url.url);
+      if (imageBlock) {
+        content.push(imageBlock);
+      }
     }
   }
 
@@ -382,7 +391,7 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: data.id,
@@ -429,6 +438,28 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
 }
 
 /**
+ * Parses a generated image data URL into an ImageBlock.
+ *
+ * @param dataUrl - The data URL from the image generation response
+ * @returns An ImageBlock or null if parsing fails
+ */
+function parseGeneratedImage(dataUrl: string): ImageBlock | null {
+  const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+  if (!match) {
+    return null;
+  }
+  const [, mimeType, data] = match;
+  if (!mimeType || !data) {
+    return null;
+  }
+  return {
+    type: 'image',
+    mimeType,
+    source: { type: 'base64', data },
+  };
+}
+
+/**
  * Mutable state object for accumulating streaming response data.
  *
  * Used during streaming to collect text deltas, tool call fragments,
@@ -443,6 +474,8 @@ export interface CompletionsStreamState {
   text: string;
   /** Map of tool call index to accumulated tool call data */
   toolCalls: Map<number, { id: string; name: string; arguments: string }>;
+  /** Generated image data URLs from image generation models */
+  images: string[];
   /** Final finish reason from the stream */
   finishReason: string | null;
   /** Input token count from usage */
@@ -464,6 +497,7 @@ export function createStreamState(): CompletionsStreamState {
     model: '',
     text: '',
     toolCalls: new Map(),
+    images: [],
     finishReason: null,
     inputTokens: 0,
     outputTokens: 0,
@@ -538,6 +572,12 @@ export function transformStreamEvent(
       }
     }
 
+    if (choice.delta.images) {
+      for (const image of choice.delta.images) {
+        state.images.push(image.image_url.url);
+      }
+    }
+
     if (choice.finish_reason) {
       state.finishReason = choice.finish_reason;
       events.push({ type: 'message_stop', index: 0, delta: {} });
@@ -563,14 +603,21 @@ export function transformStreamEvent(
  * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: CompletionsStreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   let structuredData: unknown;
   if (state.text) {
-    textContent.push({ type: 'text', text: state.text });
+    content.push({ type: 'text', text: state.text });
     try {
       structuredData = JSON.parse(state.text);
     } catch {
       // Content is not JSON - acceptable for non-structured responses
+    }
+  }
+
+  for (const imageUrl of state.images) {
+    const imageBlock = parseGeneratedImage(imageUrl);
+    if (imageBlock) {
+      content.push(imageBlock);
     }
   }
 
@@ -592,7 +639,7 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: state.id,

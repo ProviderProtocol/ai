@@ -15,6 +15,7 @@ import type {
   InferenceInput,
   BoundLLMModel,
   LLMCapabilities,
+  LLMHandler,
 } from '../types/llm.ts';
 import type { UserMessage, AssistantMessage } from '../types/messages.ts';
 import type { ContentBlock, TextBlock } from '../types/content.ts';
@@ -87,8 +88,9 @@ export function llm<TParams = unknown>(
     );
   }
 
-  // Bind the model
-  const boundModel = provider.modalities.llm.bind(modelRef.modelId) as BoundLLMModel<TParams>;
+  // Bind the model (cast through LLMHandler since ModelInput uses unknown for variance)
+  const llmHandler = provider.modalities.llm as LLMHandler<TParams>;
+  const boundModel = llmHandler.bind(modelRef.modelId);
 
   // Validate capabilities at bind time
   const capabilities = boundModel.capabilities;

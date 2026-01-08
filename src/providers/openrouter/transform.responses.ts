@@ -13,7 +13,7 @@ import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -31,6 +31,7 @@ import type {
   OpenRouterResponsesOutputItem,
   OpenRouterResponsesMessageOutput,
   OpenRouterResponsesFunctionCallOutput,
+  OpenRouterResponsesImageGenerationOutput,
 } from './types.ts';
 
 /**
@@ -326,7 +327,7 @@ function transformTool(tool: Tool): OpenRouterResponsesTool {
  * @returns UPP-formatted LLM response
  */
 export function transformResponse(data: OpenRouterResponsesResponse): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   const functionCallItems: Array<{
     id: string;
@@ -340,18 +341,18 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
   for (const item of data.output) {
     if (item.type === 'message') {
       const messageItem = item as OpenRouterResponsesMessageOutput;
-      for (const content of messageItem.content) {
-        if (content.type === 'output_text') {
-          textContent.push({ type: 'text', text: content.text });
+      for (const part of messageItem.content) {
+        if (part.type === 'output_text') {
+          content.push({ type: 'text', text: part.text });
           if (structuredData === undefined) {
             try {
-              structuredData = JSON.parse(content.text);
+              structuredData = JSON.parse(part.text);
             } catch {
               // Content is not JSON - acceptable for non-structured responses
             }
           }
-        } else if (content.type === 'refusal') {
-          textContent.push({ type: 'text', text: content.refusal });
+        } else if (part.type === 'refusal') {
+          content.push({ type: 'text', text: part.refusal });
           hadRefusal = true;
         }
       }
@@ -374,11 +375,20 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
         name: functionCall.name,
         arguments: functionCall.arguments,
       });
+    } else if (item.type === 'image_generation_call') {
+      const imageGen = item as OpenRouterResponsesImageGenerationOutput;
+      if (imageGen.result) {
+        content.push({
+          type: 'image',
+          mimeType: 'image/png',
+          source: { type: 'base64', data: imageGen.result },
+        } as ImageBlock);
+      }
     }
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: data.id,
@@ -443,6 +453,8 @@ export interface ResponsesStreamState {
     number,
     { itemId?: string; callId?: string; name?: string; arguments: string }
   >;
+  /** Map of output index to generated image data (base64) */
+  images: Map<number, string>;
   /** Current response status */
   status: string;
   /** Input token count from usage */
@@ -466,6 +478,7 @@ export function createStreamState(): ResponsesStreamState {
     model: '',
     textByIndex: new Map(),
     toolCalls: new Map(),
+    images: new Map(),
     status: 'in_progress',
     inputTokens: 0,
     outputTokens: 0,
@@ -585,6 +598,11 @@ export function transformStreamEvent(
             }
           }
         }
+      } else if (event.item.type === 'image_generation_call') {
+        const imageGen = event.item as OpenRouterResponsesImageGenerationOutput;
+        if (imageGen.result) {
+          state.images.set(event.output_index, imageGen.result);
+        }
       }
       events.push({
         type: 'content_block_stop',
@@ -701,12 +719,12 @@ export function transformStreamEvent(
  * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   let structuredData: unknown;
 
   for (const [, text] of state.textByIndex) {
     if (text) {
-      textContent.push({ type: 'text', text });
+      content.push({ type: 'text', text });
       if (structuredData === undefined) {
         try {
           structuredData = JSON.parse(text);
@@ -714,6 +732,16 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
           // Content is not JSON - acceptable for non-structured responses
         }
       }
+    }
+  }
+
+  for (const [, imageData] of state.images) {
+    if (imageData) {
+      content.push({
+        type: 'image',
+        mimeType: 'image/png',
+        source: { type: 'base64', data: imageData },
+      } as ImageBlock);
     }
   }
 
@@ -753,7 +781,7 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: state.id,

@@ -1404,6 +1404,7 @@ export function computerTool(options: {
 export function imageGenerationTool(options?: {
   background?: 'transparent' | 'opaque' | 'auto';
   model?: string;
+  partial_images?: number;
   quality?: 'auto' | 'high' | 'medium' | 'low';
   size?: 'auto' | '1024x1024' | '1024x1536' | '1536x1024';
   output_format?: 'png' | 'jpeg' | 'webp';

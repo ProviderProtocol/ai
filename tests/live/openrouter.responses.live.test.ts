@@ -3,9 +3,23 @@ import { llm } from '../../src/index.ts';
 import { openrouter } from '../../src/openrouter/index.ts';
 import type { OpenRouterResponsesParams } from '../../src/openrouter/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
+import type { Message } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
+import { isImageBlock } from '../../src/types/content.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+
+/** Structured output type for city information tests */
+interface CityData {
+  city: string;
+  population: number;
+  isCapital: boolean;
+}
+
+/** Tool arguments type for weather tool tests */
+interface WeatherArgs {
+  city: string;
+}
 
 // Load duck.png for vision tests
 const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
@@ -77,7 +91,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
       params: { max_output_tokens: 100 },
     });
 
-    const history: any[] = [];
+    const history: Message[] = [];
 
     // First turn
     const turn1 = await model.generate(history, 'My name is Alice.');
@@ -233,8 +247,9 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
 
     // The 'data' field should be automatically populated and typed
     expect(turn.data).toBeDefined();
-    expect((turn.data as any).city).toContain('London');
-    expect(typeof (turn.data as any).population).toBe('number');
+    const cityData = turn.data as CityData;
+    expect(cityData.city).toContain('London');
+    expect(typeof cityData.population).toBe('number');
   }, 30000);
 
   test('parallel tool execution', async () => {
@@ -258,7 +273,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
     const turn = await model.generate('What is the weather in London and Paris? Use the tool for both cities.');
 
     // Verify multiple executions occurred in the same turn
-    const cities = turn.toolExecutions.map(t => (t.arguments as any).city);
+    const cities = turn.toolExecutions.map(t => (t.arguments as unknown as WeatherArgs).city);
     expect(cities).toContain('London');
     expect(cities).toContain('Paris');
     expect(turn.toolExecutions.length).toBeGreaterThanOrEqual(2);
@@ -303,12 +318,13 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
 
     // The 'data' field should match what we accumulated
     expect(turn.data).toBeDefined();
-    expect((turn.data as any).city).toContain('Berlin');
-    expect(typeof (turn.data as any).population).toBe('number');
-    expect((turn.data as any).isCapital).toBe(true);
+    const berlinData = turn.data as CityData;
+    expect(berlinData.city).toContain('Berlin');
+    expect(typeof berlinData.population).toBe('number');
+    expect(berlinData.isCapital).toBe(true);
 
     // Verify streamed matches final
-    expect(streamedData.city).toBe((turn.data as any).city);
+    expect(streamedData.city).toBe(berlinData.city);
   });
 
   test('reasoning effort parameter', async () => {
@@ -324,6 +340,96 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
 
     expect(turn.response.text).toContain('4');
     expect(turn.usage.totalTokens).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * Image generation tests for OpenRouter Responses API
+ */
+describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Image Generation', () => {
+  const IMAGE_MODEL = 'google/gemini-2.5-flash-image';
+
+  test('basic image generation', async () => {
+    const model = llm<OpenRouterResponsesParams>({
+      model: openrouter(IMAGE_MODEL, { api: 'responses' }),
+      params: {
+        max_output_tokens: 1000,
+        modalities: ['text', 'image'],
+      },
+    });
+
+    const turn = await model.generate('Generate a simple image of a red circle on a white background.');
+
+    const images = turn.response.content.filter(isImageBlock);
+    expect(images.length).toBeGreaterThan(0);
+    if (images.length > 1) {
+      console.log(`[Responses API] Multi-image response: received ${images.length} images`);
+    }
+
+    const image = images[0]!;
+    expect(image.type).toBe('image');
+    expect(image.mimeType).toMatch(/^image\//);
+    expect(image.source.type).toBe('base64');
+    if (image.source.type === 'base64') {
+      expect(image.source.data.length).toBeGreaterThan(100);
+    }
+  }, 60000);
+
+  test('image generation with text response', async () => {
+    const model = llm<OpenRouterResponsesParams>({
+      model: openrouter(IMAGE_MODEL, { api: 'responses' }),
+      params: {
+        max_output_tokens: 1000,
+        modalities: ['text', 'image'],
+      },
+    });
+
+    const turn = await model.generate('Create an image of a blue square, and describe what you created.');
+
+    const images = turn.response.content.filter(isImageBlock);
+    expect(images.length).toBeGreaterThan(0);
+    if (images.length > 1) {
+      console.log(`[Responses API] Multi-image response: received ${images.length} images`);
+    }
+
+    expect(turn.response.text.length).toBeGreaterThan(0);
+    expect(turn.usage.totalTokens).toBeGreaterThan(0);
+  }, 60000);
+
+  test('streaming image generation', async () => {
+    const model = llm<OpenRouterResponsesParams>({
+      model: openrouter(IMAGE_MODEL, { api: 'responses' }),
+      params: {
+        max_output_tokens: 1000,
+        modalities: ['text', 'image'],
+      },
+    });
+
+    const stream = model.stream('Generate an image of a green triangle.');
+
+    const events: string[] = [];
+    for await (const event of stream) {
+      events.push(event.type);
+    }
+
+    const turn = await stream.turn;
+
+    expect(events).toContain('message_start');
+    expect(events).toContain('message_stop');
+
+    const images = turn.response.content.filter(isImageBlock);
+    expect(images.length).toBeGreaterThan(0);
+    if (images.length > 1) {
+      console.log(`[Responses API Streaming] Multi-image response: received ${images.length} images`);
+    }
+  }, 60000);
+
+  test('imageOutput capability is enabled', () => {
+    const model = llm<OpenRouterResponsesParams>({
+      model: openrouter(IMAGE_MODEL, { api: 'responses' }),
+    });
+
+    expect(model.capabilities.imageOutput).toBe(true);
   });
 });
 

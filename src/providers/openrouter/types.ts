@@ -70,6 +70,20 @@ export interface OpenRouterCompletionsParams {
   response_format?: OpenRouterResponseFormat;
 
   /**
+   * Output modalities for multimodal generation.
+   * Set to `['text', 'image']` to enable image generation with compatible models.
+   * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/image-generation}
+   */
+  modalities?: Array<'text' | 'image'>;
+
+  /**
+   * Image generation configuration for Gemini models.
+   * Only applies when `modalities` includes 'image'.
+   * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/image-generation}
+   */
+  image_config?: OpenRouterImageConfig;
+
+  /**
    * Prompt transforms to apply
    * See: https://openrouter.ai/docs/guides/features/message-transforms
    */
@@ -110,6 +124,29 @@ export interface OpenRouterCompletionsParams {
 }
 
 /**
+ * Image generation configuration for OpenRouter.
+ *
+ * Used with Gemini image generation models to control output dimensions.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/image-generation}
+ */
+export interface OpenRouterImageConfig {
+  /**
+   * Aspect ratio for generated images.
+   * Supported values range from '1:1' (1024×1024) to '21:9' (1536×672).
+   */
+  aspect_ratio?: string;
+
+  /**
+   * Resolution level for generated images.
+   * - '1K': Standard resolution
+   * - '2K': Higher resolution
+   * - '4K': Highest resolution
+   */
+  image_size?: '1K' | '2K' | '4K';
+}
+
+/**
  * Parameters for OpenRouter's Responses API (beta).
  *
  * These parameters are passed through to the `/api/v1/responses` endpoint.
@@ -137,6 +174,20 @@ export interface OpenRouterResponsesParams {
   reasoning?: {
     effort?: 'low' | 'medium' | 'high';
   };
+
+  /**
+   * Output modalities for multimodal generation.
+   * Set to `['text', 'image']` to enable image generation with compatible models.
+   * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/image-generation}
+   */
+  modalities?: Array<'text' | 'image'>;
+
+  /**
+   * Image generation configuration.
+   * Only applies when `modalities` includes 'image'.
+   * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/image-generation}
+   */
+  image_config?: OpenRouterImageConfig;
 }
 
 /**
@@ -233,6 +284,9 @@ export interface OpenRouterCompletionsRequest {
     type: 'content';
     content: string;
   };
+  // Multimodal generation
+  modalities?: Array<'text' | 'image'>;
+  image_config?: OpenRouterImageConfig;
   // OpenRouter-specific
   transforms?: string[];
   models?: string[];
@@ -300,6 +354,24 @@ export interface OpenRouterAssistantMessage {
   name?: string;
   /** Tool calls made by the assistant. */
   tool_calls?: OpenRouterToolCall[];
+  /**
+   * Generated images from image generation models.
+   * Present when the request included `modalities: ['text', 'image']`.
+   */
+  images?: OpenRouterGeneratedImage[];
+}
+
+/**
+ * Generated image from an image generation model response.
+ */
+export interface OpenRouterGeneratedImage {
+  /** Content type identifier. */
+  type: 'image_url';
+  /** Image URL configuration. */
+  image_url: {
+    /** Base64-encoded data URL of the generated image. */
+    url: string;
+  };
 }
 
 /**
@@ -553,6 +625,10 @@ export interface OpenRouterCompletionsStreamDelta {
   content?: string | null;
   /** Tool call deltas. */
   tool_calls?: OpenRouterStreamToolCall[];
+  /**
+   * Generated images (typically sent in final chunk for image generation models).
+   */
+  images?: OpenRouterGeneratedImage[];
 }
 
 /**
@@ -824,7 +900,22 @@ export interface OpenRouterResponsesResponse {
  */
 export type OpenRouterResponsesOutputItem =
   | OpenRouterResponsesMessageOutput
-  | OpenRouterResponsesFunctionCallOutput;
+  | OpenRouterResponsesFunctionCallOutput
+  | OpenRouterResponsesImageGenerationOutput;
+
+/**
+ * Image generation output item from Responses API.
+ */
+export interface OpenRouterResponsesImageGenerationOutput {
+  /** Item type identifier. */
+  type: 'image_generation_call';
+  /** Unique identifier for this output item. */
+  id: string;
+  /** Base64-encoded image data, or null if generation is in progress. */
+  result?: string | null;
+  /** Generation status. */
+  status: 'in_progress' | 'completed' | 'generating' | 'failed';
+}
 
 /**
  * Message output item from Responses API.

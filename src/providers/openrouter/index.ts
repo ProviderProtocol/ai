@@ -197,5 +197,6 @@ export type {
   OpenRouterModelOptions,
   OpenRouterModelReference,
   OpenRouterProviderPreferences,
+  OpenRouterImageConfig,
   OpenRouterHeaders,
 } from './types.ts';

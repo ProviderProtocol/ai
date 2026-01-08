@@ -21,6 +21,23 @@ import type {
 import type { Thread } from './thread.ts';
 
 /**
+ * Structural type for model input that accepts any ModelReference.
+ * Uses structural typing to avoid generic variance issues with Provider generics.
+ * The nested types use `unknown` to accept any provider parameter types.
+ */
+type ModelInput = {
+  readonly modelId: string;
+  readonly provider: {
+    readonly name: string;
+    readonly version: string;
+    readonly modalities: {
+      // Use unknown for the handler to accept any LLMHandler regardless of TParams
+      llm?: unknown;
+    };
+  };
+};
+
+/**
  * LLM capabilities declare what a provider's API supports.
  *
  * These are API-level capabilities, not individual model capabilities.
@@ -59,6 +76,9 @@ export interface LLMCapabilities {
 
   /** Provider API supports audio input in messages */
   audioInput: boolean;
+
+  /** Provider API supports image generation output (via modalities or built-in tools) */
+  imageOutput?: boolean;
 }
 
 /**
@@ -89,8 +109,7 @@ export type InferenceInput = string | Message | ContentBlock;
  */
 export interface LLMOptions<TParams = unknown> {
   /** A model reference from a provider factory */
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  model: ModelReference<any>;
+  model: ModelInput;
 
   /** Provider infrastructure configuration (optional - uses env vars if omitted) */
   config?: ProviderConfig;

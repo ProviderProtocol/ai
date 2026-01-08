@@ -38,6 +38,7 @@ const OPENROUTER_CAPABILITIES: LLMCapabilities = {
   tools: true,
   structuredOutput: true,
   imageInput: true,
+  imageOutput: true,
   videoInput: false,
   audioInput: false,
 };
