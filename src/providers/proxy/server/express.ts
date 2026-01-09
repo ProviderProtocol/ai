@@ -7,31 +7,6 @@
  * @module providers/proxy/server/express
  */
 
-/**
- * @example
- * ```typescript
- * import express from 'express';
- * import { llm, anthropic } from '@providerprotocol/ai';
- * import { parseBody, bindTools } from '@providerprotocol/ai/proxy';
- * import { express as expressAdapter } from '@providerprotocol/ai/proxy/server';
- *
- * const app = express();
- * app.use(express.json());
- *
- * app.post('/api/ai', async (req, res) => {
- *   const { messages, system, params } = parseBody(req.body);
- *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
- *
- *   if (req.headers.accept?.includes('text/event-stream')) {
- *     expressAdapter.streamSSE(instance.stream(messages), res);
- *   } else {
- *     const turn = await instance.generate(messages);
- *     expressAdapter.sendJSON(turn, res);
- *   }
- * });
- * ```
- */
-
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
 import { serializeTurn, serializeStreamEvent } from '../serialization.ts';
@@ -113,6 +88,29 @@ export function sendError(message: string, status: number, res: ExpressResponse)
 
 /**
  * Express adapter utilities.
+ *
+ * @example
+ * ```typescript
+ * import express from 'express';
+ * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { parseBody, bindTools } from '@providerprotocol/ai/proxy';
+ * import { express as expressAdapter } from '@providerprotocol/ai/proxy/server';
+ *
+ * const app = express();
+ * app.use(express.json());
+ *
+ * app.post('/api/ai', async (req, res) => {
+ *   const { messages, system, params } = parseBody(req.body);
+ *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
+ *
+ *   if (req.headers.accept?.includes('text/event-stream')) {
+ *     expressAdapter.streamSSE(instance.stream(messages), res);
+ *   } else {
+ *     const turn = await instance.generate(messages);
+ *     expressAdapter.sendJSON(turn, res);
+ *   }
+ * });
+ * ```
  */
 export const express = {
   sendJSON,

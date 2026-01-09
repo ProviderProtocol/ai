@@ -7,26 +7,6 @@
  * @module providers/openai
  */
 
-/**
- * @example
- * ```typescript
- * import { openai } from './providers/openai';
- * import { llm } from './core/llm';
- *
- * // Using the modern Responses API (default)
- * const model = llm({
- *   model: openai('gpt-4o'),
- *   params: { max_output_tokens: 1000 }
- * });
- *
- * // Using the legacy Chat Completions API
- * const legacyModel = llm({
- *   model: openai('gpt-4o', { api: 'completions' }),
- *   params: { max_tokens: 1000 }
- * });
- * ```
- */
-
 import type {
   Provider,
   ModelReference,

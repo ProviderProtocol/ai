@@ -7,30 +7,6 @@
  * @module providers/proxy/server/fastify
  */
 
-/**
- * @example
- * ```typescript
- * import Fastify from 'fastify';
- * import { llm, anthropic } from '@providerprotocol/ai';
- * import { parseBody } from '@providerprotocol/ai/proxy';
- * import { fastify as fastifyAdapter } from '@providerprotocol/ai/proxy/server';
- *
- * const app = Fastify();
- *
- * app.post('/api/ai', async (request, reply) => {
- *   const { messages, system, params } = parseBody(request.body);
- *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
- *
- *   if (request.headers.accept?.includes('text/event-stream')) {
- *     return fastifyAdapter.streamSSE(instance.stream(messages), reply);
- *   } else {
- *     const turn = await instance.generate(messages);
- *     return fastifyAdapter.sendJSON(turn, reply);
- *   }
- * });
- * ```
- */
-
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
 import { serializeTurn, serializeStreamEvent } from '../serialization.ts';
@@ -120,6 +96,28 @@ export function sendError(message: string, status: number, reply: FastifyReply):
 
 /**
  * Fastify adapter utilities.
+ *
+ * @example
+ * ```typescript
+ * import Fastify from 'fastify';
+ * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { parseBody } from '@providerprotocol/ai/proxy';
+ * import { fastify as fastifyAdapter } from '@providerprotocol/ai/proxy/server';
+ *
+ * const app = Fastify();
+ *
+ * app.post('/api/ai', async (request, reply) => {
+ *   const { messages, system, params } = parseBody(request.body);
+ *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
+ *
+ *   if (request.headers.accept?.includes('text/event-stream')) {
+ *     return fastifyAdapter.streamSSE(instance.stream(messages), reply);
+ *   } else {
+ *     const turn = await instance.generate(messages);
+ *     return fastifyAdapter.sendJSON(turn, reply);
+ *   }
+ * });
+ * ```
  */
 export const fastify = {
   sendJSON,

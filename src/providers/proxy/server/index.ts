@@ -9,55 +9,6 @@
  * @module providers/proxy/server
  */
 
-/**
- * Express usage example.
- * @example
- * ```typescript
- * import { express } from '@providerprotocol/ai/proxy/server';
- *
- * app.post('/api/ai', async (req, res) => {
- *   const { messages } = parseBody(req.body);
- *   if (req.headers.accept?.includes('text/event-stream')) {
- *     express.streamSSE(instance.stream(messages), res);
- *   } else {
- *     express.sendJSON(await instance.generate(messages), res);
- *   }
- * });
- * ```
- */
-
-/**
- * Fastify usage example.
- * @example
- * ```typescript
- * import { fastify } from '@providerprotocol/ai/proxy/server';
- *
- * app.post('/api/ai', async (request, reply) => {
- *   const { messages } = parseBody(request.body);
- *   if (request.headers.accept?.includes('text/event-stream')) {
- *     return fastify.streamSSE(instance.stream(messages), reply);
- *   }
- *   return fastify.sendJSON(await instance.generate(messages), reply);
- * });
- * ```
- */
-
-/**
- * Nuxt/Nitro/H3 usage example.
- * @example
- * ```typescript
- * import { h3 } from '@providerprotocol/ai/proxy/server';
- *
- * export default defineEventHandler(async (event) => {
- *   const { messages } = parseBody(await readBody(event));
- *   if (getHeader(event, 'accept')?.includes('text/event-stream')) {
- *     return h3.streamSSE(instance.stream(messages), event);
- *   }
- *   return h3.sendJSON(await instance.generate(messages), event);
- * });
- * ```
- */
-
 import { express } from './express.ts';
 import { fastify } from './fastify.ts';
 import { h3 } from './h3.ts';
@@ -78,6 +29,46 @@ export type {
  * Server adapters namespace.
  *
  * Contains framework-specific adapters for Web API, Express, Fastify, and H3.
+ *
+ * @example Express
+ * ```typescript
+ * import { express } from '@providerprotocol/ai/proxy/server';
+ *
+ * app.post('/api/ai', async (req, res) => {
+ *   const { messages } = parseBody(req.body);
+ *   if (req.headers.accept?.includes('text/event-stream')) {
+ *     express.streamSSE(instance.stream(messages), res);
+ *   } else {
+ *     express.sendJSON(await instance.generate(messages), res);
+ *   }
+ * });
+ * ```
+ *
+ * @example Fastify
+ * ```typescript
+ * import { fastify } from '@providerprotocol/ai/proxy/server';
+ *
+ * app.post('/api/ai', async (request, reply) => {
+ *   const { messages } = parseBody(request.body);
+ *   if (request.headers.accept?.includes('text/event-stream')) {
+ *     return fastify.streamSSE(instance.stream(messages), reply);
+ *   }
+ *   return fastify.sendJSON(await instance.generate(messages), reply);
+ * });
+ * ```
+ *
+ * @example H3/Nuxt
+ * ```typescript
+ * import { h3 } from '@providerprotocol/ai/proxy/server';
+ *
+ * export default defineEventHandler(async (event) => {
+ *   const { messages } = parseBody(await readBody(event));
+ *   if (getHeader(event, 'accept')?.includes('text/event-stream')) {
+ *     return h3.streamSSE(instance.stream(messages), event);
+ *   }
+ *   return h3.sendJSON(await instance.generate(messages), event);
+ * });
+ * ```
  */
 export const server = {
   /** Web API adapter (Bun, Deno, Next.js, Workers) */

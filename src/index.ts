@@ -10,8 +10,9 @@
  */
 
 /**
- * Basic usage example.
- * @example
+ * LLM instance factory for creating model-bound inference functions.
+ *
+ * @example Basic usage
  * ```typescript
  * import { llm, anthropic } from '@providerprotocol/ai';
  *
@@ -23,11 +24,8 @@
  * const turn = await model.generate('Hello!');
  * console.log(turn.response.text);
  * ```
- */
-
-/**
- * Streaming example.
- * @example
+ *
+ * @example Streaming
  * ```typescript
  * for await (const event of model.stream('Tell me a story')) {
  *   if (event.type === 'text') {
@@ -36,8 +34,6 @@
  * }
  * ```
  */
-
-/** LLM instance factory for creating model-bound inference functions */
 export { llm } from './core/llm.ts';
 
 /** Embedding instance factory for creating model-bound embedding functions */

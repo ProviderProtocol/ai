@@ -7,30 +7,6 @@
  * @module providers/proxy/server/h3
  */
 
-/**
- * @example
- * ```typescript
- * // Nuxt server route: server/api/ai.post.ts
- * import { llm, anthropic } from '@providerprotocol/ai';
- * import { parseBody } from '@providerprotocol/ai/proxy';
- * import { h3 as h3Adapter } from '@providerprotocol/ai/proxy/server';
- *
- * export default defineEventHandler(async (event) => {
- *   const body = await readBody(event);
- *   const { messages, system, params } = parseBody(body);
- *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
- *
- *   const wantsStream = getHeader(event, 'accept')?.includes('text/event-stream');
- *   if (wantsStream) {
- *     return h3Adapter.streamSSE(instance.stream(messages), event);
- *   } else {
- *     const turn = await instance.generate(messages);
- *     return h3Adapter.sendJSON(turn, event);
- *   }
- * });
- * ```
- */
-
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
 import { serializeTurn, serializeStreamEvent } from '../serialization.ts';
@@ -153,6 +129,28 @@ export function sendError(message: string, status: number, event: H3Event): { er
 
 /**
  * H3/Nitro/Nuxt adapter utilities.
+ *
+ * @example
+ * ```typescript
+ * // Nuxt server route: server/api/ai.post.ts
+ * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { parseBody } from '@providerprotocol/ai/proxy';
+ * import { h3 as h3Adapter } from '@providerprotocol/ai/proxy/server';
+ *
+ * export default defineEventHandler(async (event) => {
+ *   const body = await readBody(event);
+ *   const { messages, system, params } = parseBody(body);
+ *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
+ *
+ *   const wantsStream = getHeader(event, 'accept')?.includes('text/event-stream');
+ *   if (wantsStream) {
+ *     return h3Adapter.streamSSE(instance.stream(messages), event);
+ *   } else {
+ *     const turn = await instance.generate(messages);
+ *     return h3Adapter.sendJSON(turn, event);
+ *   }
+ * });
+ * ```
  */
 export const h3 = {
   sendJSON,

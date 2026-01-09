@@ -10,25 +10,6 @@
  * @module providers/proxy/server/webapi
  */
 
-/**
- * @example
- * ```typescript
- * import { llm, anthropic } from '@providerprotocol/ai';
- * import { parseBody, toJSON, toSSE } from '@providerprotocol/ai/proxy';
- *
- * // Bun.serve / Deno.serve / Next.js App Router
- * export async function POST(req: Request) {
- *   const { messages, system } = parseBody(await req.json());
- *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
- *
- *   if (req.headers.get('accept')?.includes('text/event-stream')) {
- *     return toSSE(instance.stream(messages));
- *   }
- *   return toJSON(await instance.generate(messages));
- * }
- * ```
- */
-
 import type { Message } from '../../../types/messages.ts';
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
@@ -216,6 +197,23 @@ export function bindTools(
  *
  * For use with Bun, Deno, Next.js App Router, Cloudflare Workers,
  * and other frameworks that support Web API Response.
+ *
+ * @example
+ * ```typescript
+ * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { parseBody, toJSON, toSSE } from '@providerprotocol/ai/proxy';
+ *
+ * // Bun.serve / Deno.serve / Next.js App Router
+ * export async function POST(req: Request) {
+ *   const { messages, system } = parseBody(await req.json());
+ *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
+ *
+ *   if (req.headers.get('accept')?.includes('text/event-stream')) {
+ *     return toSSE(instance.stream(messages));
+ *   }
+ *   return toJSON(await instance.generate(messages));
+ * }
+ * ```
  */
 export const webapi = {
   parseBody,
