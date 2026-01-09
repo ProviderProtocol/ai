@@ -3,10 +3,13 @@ import type {
   ModelReference,
   LLMHandler,
   LLMProvider,
+  ImageProvider,
 } from '../../types/provider.ts';
+import type { ImageHandler } from '../../types/image.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createMessagesLLMHandler } from './llm.messages.ts';
+import { createImageHandler, type XAIImageParams } from './image.ts';
 import type { XAICompletionsParams, XAIResponsesParams, XAIMessagesParams, XAIConfig, XAIAPIMode } from './types.ts';
 
 /**
@@ -68,6 +71,7 @@ export interface XAIProvider extends Provider<XAIProviderOptions> {
   /** Supported modalities */
   readonly modalities: {
     llm: LLMHandler<XAILLMParamsUnion>;
+    image: ImageHandler<XAIImageParams>;
   };
 }
 
@@ -82,6 +86,7 @@ function createXAIProvider(): XAIProvider {
   const completionsHandler = createCompletionsLLMHandler();
   const responsesHandler = createResponsesLLMHandler();
   const messagesHandler = createMessagesLLMHandler();
+  const imageHandler = createImageHandler();
 
   const fn = function (
     modelId: string,
@@ -104,6 +109,7 @@ function createXAIProvider(): XAIProvider {
           return completionsHandler as unknown as LLMHandler<XAILLMParamsUnion>;
       }
     },
+    image: imageHandler,
   };
 
   Object.defineProperties(fn, {
@@ -129,6 +135,7 @@ function createXAIProvider(): XAIProvider {
   completionsHandler._setProvider?.(provider as unknown as LLMProvider<XAICompletionsParams>);
   responsesHandler._setProvider?.(provider as unknown as LLMProvider<XAIResponsesParams>);
   messagesHandler._setProvider?.(provider as unknown as LLMProvider<XAIMessagesParams>);
+  imageHandler._setProvider?.(provider as unknown as ImageProvider<XAIImageParams>);
 
   return provider;
 }
@@ -232,3 +239,5 @@ export type {
   XAIMcpTool,
   XAIServerSideToolUsage,
 } from './types.ts';
+
+export type { XAIImageParams } from './image.ts';

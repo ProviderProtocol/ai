@@ -14,10 +14,13 @@ import type {
   LLMProvider,
   EmbeddingHandler,
   EmbeddingProvider,
+  ImageProvider,
 } from '../../types/provider.ts';
+import type { ImageHandler } from '../../types/image.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createEmbeddingHandler, type OpenAIEmbedParams } from './embed.ts';
+import { createImageHandler, type OpenAIImageParams } from './image.ts';
 import type { OpenAICompletionsParams, OpenAIResponsesParams } from './types.ts';
 
 /**
@@ -98,13 +101,15 @@ export interface OpenAIProvider extends Provider<OpenAIProviderOptions> {
 
   /**
    * Supported modalities and their handlers.
-   * Supports LLM and Embedding modalities.
+   * Supports LLM, Embedding, and Image modalities.
    */
   readonly modalities: {
     /** The LLM handler for text generation and chat completion */
     llm: LLMHandler<OpenAILLMParamsUnion>;
     /** The embedding handler for text embeddings */
     embedding: EmbeddingHandler<OpenAIEmbedParams>;
+    /** The image handler for image generation */
+    image: ImageHandler<OpenAIImageParams>;
   };
 }
 
@@ -124,6 +129,7 @@ function createOpenAIProvider(): OpenAIProvider {
   const responsesHandler = createResponsesLLMHandler();
   const completionsHandler = createCompletionsLLMHandler();
   const embeddingHandler = createEmbeddingHandler();
+  const imageHandler = createImageHandler();
 
   const fn = function (
     modelId: string,
@@ -141,6 +147,7 @@ function createOpenAIProvider(): OpenAIProvider {
         : (responsesHandler as unknown as LLMHandler<OpenAILLMParamsUnion>);
     },
     embedding: embeddingHandler,
+    image: imageHandler,
   };
 
   Object.defineProperties(fn, {
@@ -166,6 +173,7 @@ function createOpenAIProvider(): OpenAIProvider {
   responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenAIResponsesParams>);
   completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenAICompletionsParams>);
   embeddingHandler._setProvider?.(provider as unknown as EmbeddingProvider<OpenAIEmbedParams>);
+  imageHandler._setProvider?.(provider as unknown as ImageProvider<OpenAIImageParams>);
 
   return provider;
 }
@@ -257,3 +265,5 @@ export {
 export type { OpenAIHeaders } from './types.ts';
 
 export type { OpenAIEmbedParams } from './embed.ts';
+
+export type { OpenAIImageParams } from './image.ts';

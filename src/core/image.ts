@@ -1,299 +1,173 @@
 /**
- * @fileoverview Image content handling for the Universal Provider Protocol.
+ * @fileoverview Image generation instance factory for the Universal Provider Protocol.
  *
- * Provides a unified Image class for working with images across different sources
- * (file paths, URLs, raw bytes, base64). Supports conversion between formats and
- * integration with UPP message content blocks.
+ * This module provides the core functionality for creating image generation instances,
+ * including support for text-to-image generation, streaming, and image editing.
  *
  * @module core/image
  */
 
-import type { ImageSource, ImageBlock } from '../types/content.ts';
+import type {
+  ImageOptions,
+  ImageInstance,
+  ImageInput,
+  ImageEditInput,
+  ImageResult,
+  ImageStreamResult,
+  ImageStreamEvent,
+  ImageCapabilities,
+  BoundImageModel,
+  ImageHandler,
+} from '../types/image.ts';
+import type { ProviderConfig } from '../types/provider.ts';
+import { UPPError } from '../types/errors.ts';
 
 /**
- * Represents an image that can be used in UPP messages.
+ * Creates an image generation instance configured with the specified options.
  *
- * Images can be created from various sources (files, URLs, bytes, base64) and
- * converted to different formats as needed by providers. The class provides
- * a unified interface regardless of the underlying source type.
+ * This is the primary factory function for creating image generation instances.
+ * It validates provider capabilities, binds the model, and returns an instance
+ * with `generate`, `stream`, and `edit` methods.
+ *
+ * @typeParam TParams - Provider-specific parameter type for model configuration
+ * @param options - Configuration options for the image instance
+ * @returns A configured image instance ready for generation
+ * @throws {UPPError} When the provider does not support the image modality
  *
  * @example
  * ```typescript
- * // Load from file
- * const fileImage = await Image.fromPath('./photo.jpg');
+ * import { image } from 'upp';
+ * import { openai } from 'upp/providers/openai';
  *
- * // Reference by URL
- * const urlImage = Image.fromUrl('https://example.com/image.png');
+ * const dalle = image({
+ *   model: openai('dall-e-3'),
+ *   params: { size: '1024x1024', quality: 'hd' }
+ * });
  *
- * // From raw bytes
- * const bytesImage = Image.fromBytes(uint8Array, 'image/png');
- *
- * // Use in a message
- * const message = new UserMessage([image.toBlock()]);
+ * const result = await dalle.generate('A sunset over mountains');
+ * console.log(result.images.length);
  * ```
  */
-export class Image {
-  /** The underlying image source (bytes, base64, or URL) */
-  readonly source: ImageSource;
-  /** MIME type of the image (e.g., 'image/jpeg', 'image/png') */
-  readonly mimeType: string;
-  /** Image width in pixels, if known */
-  readonly width?: number;
-  /** Image height in pixels, if known */
-  readonly height?: number;
+export function image<TParams = unknown>(
+  options: ImageOptions<TParams>
+): ImageInstance<TParams> {
+  const { model: modelRef, config = {}, params } = options;
 
-  private constructor(
-    source: ImageSource,
-    mimeType: string,
-    width?: number,
-    height?: number
-  ) {
-    this.source = source;
-    this.mimeType = mimeType;
-    this.width = width;
-    this.height = height;
+  const provider = modelRef.provider;
+  if (!provider.modalities.image) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support image modality`,
+      'INVALID_REQUEST',
+      provider.name,
+      'image'
+    );
   }
 
-  /**
-   * Whether this image has data loaded in memory.
-   *
-   * Returns `false` for URL-sourced images that reference external resources.
-   * These must be fetched before their data can be accessed.
-   */
-  get hasData(): boolean {
-    return this.source.type !== 'url';
-  }
+  const imageHandler = provider.modalities.image as ImageHandler<TParams>;
+  const boundModel = imageHandler.bind(modelRef.modelId);
 
-  /**
-   * Converts the image to a base64-encoded string.
-   *
-   * @returns The image data as a base64 string
-   * @throws {Error} When the source is a URL (data must be fetched first)
-   */
-  toBase64(): string {
-    if (this.source.type === 'base64') {
-      return this.source.data;
-    }
+  const capabilities = boundModel.capabilities;
 
-    if (this.source.type === 'bytes') {
-      return btoa(
-        Array.from(this.source.data)
-          .map((b) => String.fromCharCode(b))
-          .join('')
-      );
-    }
+  const instance: ImageInstance<TParams> = {
+    model: boundModel,
+    params,
+    capabilities,
 
-    throw new Error('Cannot convert URL image to base64. Fetch the image first.');
-  }
+    async generate(input: ImageInput): Promise<ImageResult> {
+      const prompt = normalizeInput(input);
 
-  /**
-   * Converts the image to a data URL suitable for embedding in HTML or CSS.
-   *
-   * @returns A data URL in the format `data:{mimeType};base64,{data}`
-   * @throws {Error} When the source is a URL (data must be fetched first)
-   */
-  toDataUrl(): string {
-    const base64 = this.toBase64();
-    return `data:${this.mimeType};base64,${base64}`;
-  }
+      const response = await boundModel.generate({
+        prompt,
+        params,
+        config,
+      });
 
-  /**
-   * Gets the image data as raw bytes.
-   *
-   * @returns The image data as a Uint8Array
-   * @throws {Error} When the source is a URL (data must be fetched first)
-   */
-  toBytes(): Uint8Array {
-    if (this.source.type === 'bytes') {
-      return this.source.data;
-    }
+      return {
+        images: response.images,
+        metadata: response.metadata,
+        usage: response.usage,
+      };
+    },
+  };
 
-    if (this.source.type === 'base64') {
-      const binaryString = atob(this.source.data);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      return bytes;
-    }
+  if (capabilities.streaming && boundModel.stream) {
+    const boundModelWithStream = boundModel;
+    instance.stream = function (input: ImageInput): ImageStreamResult {
+      const prompt = normalizeInput(input);
 
-    throw new Error('Cannot get bytes from URL image. Fetch the image first.');
-  }
+      const abortController = new AbortController();
+      const providerStream = boundModelWithStream.stream!({
+        prompt,
+        params,
+        config,
+        signal: abortController.signal,
+      });
 
-  /**
-   * Gets the URL for URL-sourced images.
-   *
-   * @returns The image URL
-   * @throws {Error} When the source is not a URL
-   */
-  toUrl(): string {
-    if (this.source.type === 'url') {
-      return this.source.url;
-    }
+      const resultPromise = providerStream.response.then((response) => ({
+        images: response.images,
+        metadata: response.metadata,
+        usage: response.usage,
+      }));
 
-    throw new Error('This image does not have a URL source.');
-  }
-
-  /**
-   * Converts this Image to an ImageBlock for use in UPP messages.
-   *
-   * @returns An ImageBlock that can be included in message content arrays
-   */
-  toBlock(): ImageBlock {
-    return {
-      type: 'image',
-      source: this.source,
-      mimeType: this.mimeType,
-      width: this.width,
-      height: this.height,
+      return {
+        [Symbol.asyncIterator]: () => providerStream[Symbol.asyncIterator](),
+        result: resultPromise,
+        abort: () => abortController.abort(),
+      };
     };
   }
 
-  /**
-   * Creates an Image by reading a file from disk.
-   *
-   * The file is read into memory as bytes. MIME type is automatically
-   * detected from the file extension.
-   *
-   * @param path - Path to the image file
-   * @returns Promise resolving to an Image with the file contents
-   *
-   * @example
-   * ```typescript
-   * const image = await Image.fromPath('./photos/vacation.jpg');
-   * ```
-   */
-  static async fromPath(path: string): Promise<Image> {
-    // Dynamic import to avoid bundling fs in browser builds
-    const { readFile } = await import('node:fs/promises');
-    const data = await readFile(path);
-    const mimeType = detectMimeType(path);
+  if (capabilities.edit && boundModel.edit) {
+    const boundModelWithEdit = boundModel;
+    instance.edit = async function (input: ImageEditInput): Promise<ImageResult> {
+      const response = await boundModelWithEdit.edit!({
+        image: input.image,
+        mask: input.mask,
+        prompt: input.prompt,
+        params,
+        config,
+      });
 
-    return new Image(
-      { type: 'bytes', data: new Uint8Array(data) },
-      mimeType
-    );
+      return {
+        images: response.images,
+        metadata: response.metadata,
+        usage: response.usage,
+      };
+    };
   }
 
-  /**
-   * Creates an Image from a URL reference.
-   *
-   * The URL is stored as a reference and not fetched. Providers will handle
-   * URL-to-data conversion if needed. MIME type is detected from the URL
-   * path if not provided.
-   *
-   * @param url - URL pointing to the image
-   * @param mimeType - Optional MIME type override
-   * @returns An Image referencing the URL
-   *
-   * @example
-   * ```typescript
-   * const image = Image.fromUrl('https://example.com/logo.png');
-   * ```
-   */
-  static fromUrl(url: string, mimeType?: string): Image {
-    const detected = mimeType || detectMimeTypeFromUrl(url);
-    return new Image({ type: 'url', url }, detected);
-  }
-
-  /**
-   * Creates an Image from raw byte data.
-   *
-   * @param data - The image data as a Uint8Array
-   * @param mimeType - The MIME type of the image
-   * @returns An Image containing the byte data
-   *
-   * @example
-   * ```typescript
-   * const image = Image.fromBytes(pngData, 'image/png');
-   * ```
-   */
-  static fromBytes(data: Uint8Array, mimeType: string): Image {
-    return new Image({ type: 'bytes', data }, mimeType);
-  }
-
-  /**
-   * Creates an Image from a base64-encoded string.
-   *
-   * @param base64 - The base64-encoded image data (without data URL prefix)
-   * @param mimeType - The MIME type of the image
-   * @returns An Image containing the base64 data
-   *
-   * @example
-   * ```typescript
-   * const image = Image.fromBase64(base64String, 'image/jpeg');
-   * ```
-   */
-  static fromBase64(base64: string, mimeType: string): Image {
-    return new Image({ type: 'base64', data: base64 }, mimeType);
-  }
-
-  /**
-   * Creates an Image from an existing ImageBlock.
-   *
-   * Useful for converting content blocks received from providers back
-   * into Image instances for further processing.
-   *
-   * @param block - An ImageBlock from message content
-   * @returns An Image with the block's source and metadata
-   */
-  static fromBlock(block: ImageBlock): Image {
-    return new Image(
-      block.source,
-      block.mimeType,
-      block.width,
-      block.height
-    );
-  }
+  return instance;
 }
 
 /**
- * Detects the MIME type of an image based on its file extension.
+ * Normalizes ImageInput to a prompt string.
  *
- * Supports common web image formats: JPEG, PNG, GIF, WebP, SVG, BMP, ICO.
- * Returns 'application/octet-stream' for unknown extensions.
- *
- * @param path - File path or filename with extension
- * @returns The detected MIME type string
+ * @param input - Either a string prompt or object with prompt field
+ * @returns The prompt string
  */
-function detectMimeType(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase();
-
-  switch (ext) {
-    case 'jpg':
-    case 'jpeg':
-      return 'image/jpeg';
-    case 'png':
-      return 'image/png';
-    case 'gif':
-      return 'image/gif';
-    case 'webp':
-      return 'image/webp';
-    case 'svg':
-      return 'image/svg+xml';
-    case 'bmp':
-      return 'image/bmp';
-    case 'ico':
-      return 'image/x-icon';
-    default:
-      return 'application/octet-stream';
+function normalizeInput(input: ImageInput): string {
+  if (typeof input === 'string') {
+    return input;
   }
+  return input.prompt;
 }
 
 /**
- * Detects the MIME type of an image from its URL.
+ * Creates an ImageStreamResult from an async generator.
  *
- * Extracts the pathname from the URL and delegates to `detectMimeType`.
- * Returns 'application/octet-stream' if the URL cannot be parsed.
- *
- * @param url - Full URL pointing to an image
- * @returns The detected MIME type string
+ * @param generator - The async generator of stream events
+ * @param resultPromise - Promise resolving to final result
+ * @param abortController - Controller for aborting the operation
+ * @returns An ImageStreamResult
  */
-function detectMimeTypeFromUrl(url: string): string {
-  try {
-    const pathname = new URL(url).pathname;
-    return detectMimeType(pathname);
-  } catch {
-    return 'application/octet-stream';
-  }
+export function createImageStreamResult(
+  generator: AsyncGenerator<ImageStreamEvent, void, unknown>,
+  resultPromise: Promise<ImageResult>,
+  abortController: AbortController
+): ImageStreamResult {
+  return {
+    [Symbol.asyncIterator]: () => generator,
+    result: resultPromise,
+    abort: () => abortController.abort(),
+  };
 }

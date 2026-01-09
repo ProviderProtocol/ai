@@ -125,9 +125,7 @@ export type {
   EmbeddingProvider,
   ImageProvider,
   EmbeddingHandler,
-  ImageHandler,
   BoundEmbeddingModel,
-  BoundImageModel,
   EmbeddingRequest,
   EmbeddingResponse,
   EmbeddingVector,
@@ -165,3 +163,27 @@ export type {
   EmbeddingStream,
   EmbeddingModelInput,
 } from './embedding.ts';
+
+/**
+ * Image generation types for text-to-image and image editing.
+ * Includes options, instances, requests, and responses for image operations.
+ */
+export type {
+  ImageOptions,
+  ImageInstance,
+  ImageInput,
+  ImageEditInput,
+  GeneratedImage,
+  ImageUsage,
+  ImageResult,
+  ImageStreamEvent,
+  ImageStreamResult,
+  ImageCapabilities,
+  ImageRequest,
+  ImageEditRequest,
+  ImageResponse,
+  ImageProviderStreamResult,
+  BoundImageModel,
+  ImageHandler,
+  ImageModelInput,
+} from './image.ts';

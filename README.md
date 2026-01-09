@@ -160,16 +160,132 @@ embedding({
 });
 ```
 
+## Image Generation
+
+Generate images from text prompts using the unified `image()` interface.
+
+```typescript
+import { image } from '@providerprotocol/ai';
+import { openai } from '@providerprotocol/ai/openai';
+import { google } from '@providerprotocol/ai/google';
+import { xai } from '@providerprotocol/ai/xai';
+
+// Simple generation
+const dalle = image({ model: openai('dall-e-3') });
+const result = await dalle.generate('A sunset over mountains');
+console.log(result.images[0].image.toBase64());
+
+// With parameters
+const hd = image({
+  model: openai('dall-e-3'),
+  params: { size: '1792x1024', quality: 'hd', style: 'natural' },
+});
+const result = await hd.generate('A photorealistic landscape');
+
+// Multiple images (DALL-E 2)
+const batch = image({
+  model: openai('dall-e-2'),
+  params: { n: 4, size: '512x512' },
+});
+const result = await batch.generate('Abstract geometric art');
+console.log(result.images.length); // 4
+
+// Google Imagen
+const imagen = image({
+  model: google('imagen-4.0-generate-001'),
+  params: { aspectRatio: '16:9', sampleCount: 2 },
+});
+
+// xAI Aurora
+const aurora = image({
+  model: xai('grok-2-image-1212'),
+  params: { n: 2 },
+});
+```
+
+### Image Editing
+
+Edit existing images with DALL-E 2 using masks to specify regions:
+
+```typescript
+import { image, Image } from '@providerprotocol/ai';
+import { openai } from '@providerprotocol/ai/openai';
+
+const editor = image({
+  model: openai('dall-e-2'),
+  params: { size: '512x512' },
+});
+
+// Load source image and mask
+const source = await Image.fromPath('./photo.png');
+const mask = await Image.fromPath('./mask.png'); // Transparent areas = edit regions
+
+const result = await editor.edit({
+  image: source,
+  mask,
+  prompt: 'Add a rainbow in the sky',
+});
+```
+
+### Working with Generated Images
+
+```typescript
+const result = await dalle.generate('A red apple');
+const img = result.images[0].image;
+
+// Convert to different formats
+const base64 = img.toBase64();
+const bytes = img.toBytes();
+const dataUrl = img.toDataUrl();
+
+// Access metadata
+console.log(img.mimeType); // 'image/png'
+console.log(result.images[0].metadata?.revised_prompt); // DALL-E's enhanced prompt
+console.log(result.usage?.imagesGenerated); // 1
+```
+
+### Provider-Specific Parameters
+
+```typescript
+// OpenAI DALL-E 3: size, quality, style
+image({
+  model: openai('dall-e-3'),
+  params: { size: '1024x1024', quality: 'hd', style: 'vivid' },
+});
+
+// OpenAI DALL-E 2: size, n, response_format
+image({
+  model: openai('dall-e-2'),
+  params: { size: '512x512', n: 4, response_format: 'b64_json' },
+});
+
+// Google Imagen: aspectRatio, sampleCount, personGeneration
+image({
+  model: google('imagen-4.0-generate-001'),
+  params: {
+    aspectRatio: '16:9',
+    sampleCount: 4,
+    personGeneration: 'allow_adult',
+  },
+});
+
+// xAI Aurora: n, response_format
+image({
+  model: xai('grok-2-image-1212'),
+  params: { n: 2, response_format: 'b64_json' },
+});
+```
+
 ## Providers
 
-| Provider | Import | LLM | Embedding |
-|----------|--------|-----|-----------|
-| Anthropic | `@providerprotocol/ai/anthropic` | Yes | - |
-| OpenAI | `@providerprotocol/ai/openai` | Yes | Yes |
-| Google | `@providerprotocol/ai/google` | Yes | Yes |
-| Ollama | `@providerprotocol/ai/ollama` | Yes | Yes |
-| OpenRouter | `@providerprotocol/ai/openrouter` | Yes | Yes |
-| xAI (Grok) | `@providerprotocol/ai/xai` | Yes | - |
+| Provider | Import | LLM | Embedding | Image |
+|----------|--------|-----|-----------|-------|
+| Anthropic | `@providerprotocol/ai/anthropic` | Yes | - | - |
+| OpenAI | `@providerprotocol/ai/openai` | Yes | Yes | Yes |
+| Google | `@providerprotocol/ai/google` | Yes | Yes | Yes |
+| Ollama | `@providerprotocol/ai/ollama` | Yes | Yes | - |
+| OpenRouter | `@providerprotocol/ai/openrouter` | Yes | Yes | - |
+| xAI (Grok) | `@providerprotocol/ai/xai` | Yes | - | Yes |
 
 ### xAI API Modes
 

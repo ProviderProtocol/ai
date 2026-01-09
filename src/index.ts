@@ -39,14 +39,18 @@ export { llm } from './core/llm.ts';
 /** Embedding instance factory for creating model-bound embedding functions */
 export { embedding } from './core/embedding.ts';
 
+/** Image generation instance factory for creating model-bound image functions */
+export { image } from './core/image.ts';
+
 /** Factory for creating custom providers */
 export { createProvider } from './core/provider.ts';
 
 /** Image content wrapper for multimodal inputs */
-export { Image } from './core/image.ts';
+export { Image } from './core/media/Image.ts';
 
 import { llm } from './core/llm.ts';
 import { embedding } from './core/embedding.ts';
+import { image } from './core/image.ts';
 
 /**
  * UPP namespace object providing alternative import style.
@@ -66,6 +70,8 @@ export const ai = {
   llm,
   /** Embedding instance factory */
   embedding,
+  /** Image generation instance factory */
+  image,
 };
 
 export * from './types/index.ts';

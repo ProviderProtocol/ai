@@ -1,6 +1,7 @@
 import { createProvider } from '../../core/provider.ts';
 import { createLLMHandler } from './llm.ts';
 import { createEmbeddingHandler } from './embed.ts';
+import { createImageHandler } from './image.ts';
 import { cache } from './cache.ts';
 
 const baseProvider = createProvider({
@@ -9,6 +10,7 @@ const baseProvider = createProvider({
   modalities: {
     llm: createLLMHandler(),
     embedding: createEmbeddingHandler(),
+    image: createImageHandler(),
   },
 });
 
@@ -95,3 +97,5 @@ export type {
 } from './types.ts';
 
 export type { GoogleEmbedParams, GoogleTaskType } from './embed.ts';
+
+export type { GoogleImagenParams } from './image.ts';
