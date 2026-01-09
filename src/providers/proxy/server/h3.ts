@@ -130,10 +130,11 @@ export function sendError(message: string, status: number, event: H3Event): { er
 /**
  * H3/Nitro/Nuxt adapter utilities.
  *
- * @example
+ * @example Basic usage
  * ```typescript
  * // Nuxt server route: server/api/ai.post.ts
- * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
  * import { parseBody } from '@providerprotocol/ai/proxy';
  * import { h3 as h3Adapter } from '@providerprotocol/ai/proxy/server';
  *
@@ -149,6 +150,49 @@ export function sendError(message: string, status: number, event: H3Event): { er
  *     const turn = await instance.generate(messages);
  *     return h3Adapter.sendJSON(turn, event);
  *   }
+ * });
+ * ```
+ *
+ * @example API Gateway with authentication (Nuxt)
+ * ```typescript
+ * // server/api/ai.post.ts
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { ExponentialBackoff, RoundRobinKeys } from '@providerprotocol/ai/http';
+ * import { parseBody } from '@providerprotocol/ai/proxy';
+ * import { h3 as h3Adapter } from '@providerprotocol/ai/proxy/server';
+ *
+ * // Server manages AI provider keys - users never see them
+ * const claude = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   config: {
+ *     apiKey: new RoundRobinKeys([
+ *       process.env.ANTHROPIC_KEY_1!,
+ *       process.env.ANTHROPIC_KEY_2!,
+ *     ]),
+ *     retryStrategy: new ExponentialBackoff({ maxAttempts: 3 }),
+ *   },
+ * });
+ *
+ * export default defineEventHandler(async (event) => {
+ *   // Authenticate with your platform credentials
+ *   const token = getHeader(event, 'authorization')?.replace('Bearer ', '');
+ *   const user = await validatePlatformToken(token);
+ *   if (!user) {
+ *     throw createError({ statusCode: 401, message: 'Unauthorized' });
+ *   }
+ *
+ *   // Track usage per user
+ *   // await trackUsage(user.id);
+ *
+ *   const body = await readBody(event);
+ *   const { messages, system, params } = parseBody(body);
+ *
+ *   if (params?.stream) {
+ *     return h3Adapter.streamSSE(claude.stream(messages, { system }), event);
+ *   }
+ *   const turn = await claude.generate(messages, { system });
+ *   return h3Adapter.sendJSON(turn, event);
  * });
  * ```
  */

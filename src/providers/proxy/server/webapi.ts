@@ -198,9 +198,13 @@ export function bindTools(
  * For use with Bun, Deno, Next.js App Router, Cloudflare Workers,
  * and other frameworks that support Web API Response.
  *
- * @example
+ * **Security Note:** The proxy works without configuration, meaning no
+ * authentication by default. Always add your own auth layer in production.
+ *
+ * @example Basic usage
  * ```typescript
- * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
  * import { parseBody, toJSON, toSSE } from '@providerprotocol/ai/proxy';
  *
  * // Bun.serve / Deno.serve / Next.js App Router
@@ -213,6 +217,49 @@ export function bindTools(
  *   }
  *   return toJSON(await instance.generate(messages));
  * }
+ * ```
+ *
+ * @example API Gateway with authentication
+ * ```typescript
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { ExponentialBackoff, RoundRobinKeys } from '@providerprotocol/ai/http';
+ * import { parseBody, toJSON, toSSE, toError } from '@providerprotocol/ai/proxy';
+ *
+ * // Your platform's user validation
+ * async function validateToken(token: string): Promise<{ id: string } | null> {
+ *   // Verify JWT, check database, etc.
+ *   return token ? { id: 'user-123' } : null;
+ * }
+ *
+ * // Server manages AI provider keys - users never see them
+ * const claude = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   config: {
+ *     apiKey: new RoundRobinKeys([process.env.ANTHROPIC_KEY_1!, process.env.ANTHROPIC_KEY_2!]),
+ *     retryStrategy: new ExponentialBackoff({ maxAttempts: 3 }),
+ *   },
+ * });
+ *
+ * Bun.serve({
+ *   port: 3000,
+ *   async fetch(req) {
+ *     // Authenticate with YOUR platform credentials
+ *     const token = req.headers.get('Authorization')?.replace('Bearer ', '');
+ *     const user = await validateToken(token ?? '');
+ *     if (!user) return toError('Unauthorized', 401);
+ *
+ *     // Rate limit, track usage, bill user, etc.
+ *     // await trackUsage(user.id);
+ *
+ *     const { messages, system, params } = parseBody(await req.json());
+ *
+ *     if (params?.stream) {
+ *       return toSSE(claude.stream(messages, { system }));
+ *     }
+ *     return toJSON(await claude.generate(messages, { system }));
+ *   },
+ * });
  * ```
  */
 export const webapi = {

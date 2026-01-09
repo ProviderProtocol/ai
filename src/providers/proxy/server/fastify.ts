@@ -97,10 +97,11 @@ export function sendError(message: string, status: number, reply: FastifyReply):
 /**
  * Fastify adapter utilities.
  *
- * @example
+ * @example Basic usage
  * ```typescript
  * import Fastify from 'fastify';
- * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
  * import { parseBody } from '@providerprotocol/ai/proxy';
  * import { fastify as fastifyAdapter } from '@providerprotocol/ai/proxy/server';
  *
@@ -116,6 +117,51 @@ export function sendError(message: string, status: number, reply: FastifyReply):
  *     const turn = await instance.generate(messages);
  *     return fastifyAdapter.sendJSON(turn, reply);
  *   }
+ * });
+ * ```
+ *
+ * @example API Gateway with authentication
+ * ```typescript
+ * import Fastify from 'fastify';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { ExponentialBackoff, RoundRobinKeys } from '@providerprotocol/ai/http';
+ * import { parseBody } from '@providerprotocol/ai/proxy';
+ * import { fastify as fastifyAdapter } from '@providerprotocol/ai/proxy/server';
+ *
+ * const app = Fastify();
+ *
+ * // Server manages AI provider keys - users never see them
+ * const claude = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   config: {
+ *     apiKey: new RoundRobinKeys([process.env.ANTHROPIC_KEY_1!, process.env.ANTHROPIC_KEY_2!]),
+ *     retryStrategy: new ExponentialBackoff({ maxAttempts: 3 }),
+ *   },
+ * });
+ *
+ * // Auth hook for your platform
+ * app.addHook('preHandler', async (request, reply) => {
+ *   const token = request.headers.authorization?.replace('Bearer ', '');
+ *   const user = await validatePlatformToken(token);
+ *   if (!user) {
+ *     reply.status(401).send({ error: 'Unauthorized' });
+ *     return;
+ *   }
+ *   request.user = user;
+ * });
+ *
+ * app.post('/api/ai', async (request, reply) => {
+ *   // Track usage per user
+ *   // await trackUsage(request.user.id);
+ *
+ *   const { messages, system, params } = parseBody(request.body);
+ *
+ *   if (params?.stream) {
+ *     return fastifyAdapter.streamSSE(claude.stream(messages, { system }), reply);
+ *   }
+ *   const turn = await claude.generate(messages, { system });
+ *   return fastifyAdapter.sendJSON(turn, reply);
  * });
  * ```
  */

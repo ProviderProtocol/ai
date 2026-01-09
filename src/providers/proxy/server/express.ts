@@ -89,11 +89,12 @@ export function sendError(message: string, status: number, res: ExpressResponse)
 /**
  * Express adapter utilities.
  *
- * @example
+ * @example Basic usage
  * ```typescript
  * import express from 'express';
- * import { llm, anthropic } from '@providerprotocol/ai';
- * import { parseBody, bindTools } from '@providerprotocol/ai/proxy';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { parseBody } from '@providerprotocol/ai/proxy';
  * import { express as expressAdapter } from '@providerprotocol/ai/proxy/server';
  *
  * const app = express();
@@ -107,6 +108,51 @@ export function sendError(message: string, status: number, res: ExpressResponse)
  *     expressAdapter.streamSSE(instance.stream(messages), res);
  *   } else {
  *     const turn = await instance.generate(messages);
+ *     expressAdapter.sendJSON(turn, res);
+ *   }
+ * });
+ * ```
+ *
+ * @example API Gateway with authentication
+ * ```typescript
+ * import express from 'express';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { ExponentialBackoff, RoundRobinKeys } from '@providerprotocol/ai/http';
+ * import { parseBody } from '@providerprotocol/ai/proxy';
+ * import { express as expressAdapter } from '@providerprotocol/ai/proxy/server';
+ *
+ * const app = express();
+ * app.use(express.json());
+ *
+ * // Your platform's auth middleware
+ * async function authMiddleware(req, res, next) {
+ *   const token = req.headers.authorization?.replace('Bearer ', '');
+ *   const user = await validatePlatformToken(token);
+ *   if (!user) return res.status(401).json({ error: 'Unauthorized' });
+ *   req.user = user;
+ *   next();
+ * }
+ *
+ * // Server manages AI provider keys - users never see them
+ * const claude = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   config: {
+ *     apiKey: new RoundRobinKeys([process.env.ANTHROPIC_KEY_1!, process.env.ANTHROPIC_KEY_2!]),
+ *     retryStrategy: new ExponentialBackoff({ maxAttempts: 3 }),
+ *   },
+ * });
+ *
+ * app.post('/api/ai', authMiddleware, async (req, res) => {
+ *   // Track usage per user
+ *   // await trackUsage(req.user.id);
+ *
+ *   const { messages, system, params } = parseBody(req.body);
+ *
+ *   if (params?.stream) {
+ *     expressAdapter.streamSSE(claude.stream(messages, { system }), res);
+ *   } else {
+ *     const turn = await claude.generate(messages, { system });
  *     expressAdapter.sendJSON(turn, res);
  *   }
  * });

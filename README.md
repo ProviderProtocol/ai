@@ -314,42 +314,115 @@ try {
 
 **Error Codes:** `AUTHENTICATION_FAILED`, `RATE_LIMITED`, `CONTEXT_LENGTH_EXCEEDED`, `MODEL_NOT_FOUND`, `INVALID_REQUEST`, `INVALID_RESPONSE`, `CONTENT_FILTERED`, `QUOTA_EXCEEDED`, `PROVIDER_ERROR`, `NETWORK_ERROR`, `TIMEOUT`, `CANCELLED`
 
-## Proxy Server
+## API Gateway / Proxy
 
-Build backend proxies to hide API keys from clients.
+Build AI API gateways with your own authentication. Users authenticate with your platform - AI provider keys stay hidden on the server.
 
-### Server
+> **Security Note:** The proxy works without any configuration, but this means **no authentication by default**. Always add your own auth layer in production - the examples below show how.
+
+### Server (Bun/Deno/Cloudflare Workers)
 
 ```typescript
 import { llm } from '@providerprotocol/ai';
 import { anthropic } from '@providerprotocol/ai/anthropic';
-import { webapi, parseBody, toJSON, toSSE } from '@providerprotocol/ai/proxy';
+import { ExponentialBackoff, RoundRobinKeys } from '@providerprotocol/ai/http';
+import { parseBody, toJSON, toSSE, toError } from '@providerprotocol/ai/proxy';
 
-const claude = llm({ model: anthropic('claude-sonnet-4-20250514') });
+// Server manages AI provider keys - users never see them
+const claude = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  config: {
+    apiKey: new RoundRobinKeys([process.env.ANTHROPIC_KEY_1!, process.env.ANTHROPIC_KEY_2!]),
+    retryStrategy: new ExponentialBackoff({ maxAttempts: 3 }),
+  },
+});
 
 Bun.serve({
   port: 3000,
-  fetch: webapi(async (req) => {
+  async fetch(req) {
+    // Authenticate with YOUR platform credentials
+    const token = req.headers.get('Authorization')?.replace('Bearer ', '');
+    const user = await validatePlatformToken(token ?? '');
+    if (!user) return toError('Unauthorized', 401);
+
+    // Rate limit, track usage, bill user, etc.
+    await trackUsage(user.id);
+
     const { messages, system, params } = parseBody(await req.json());
 
     if (params?.stream) {
       return toSSE(claude.stream(messages, { system }));
     }
-
     return toJSON(await claude.generate(messages, { system }));
-  }),
+  },
 });
 ```
 
 ### Client
 
+Clients authenticate with your platform token. They get automatic retry on network failures to your proxy.
+
 ```typescript
 import { llm } from '@providerprotocol/ai';
 import { proxy } from '@providerprotocol/ai/proxy';
+import { ExponentialBackoff } from '@providerprotocol/ai/http';
 
-const claude = llm({ model: proxy('http://localhost:3000') });
+const claude = llm({
+  model: proxy('https://api.yourplatform.com/ai'),
+  config: {
+    headers: { 'Authorization': 'Bearer user-platform-token' },
+    retryStrategy: new ExponentialBackoff({ maxAttempts: 3 }),
+    timeout: 30000,
+  },
+});
+
 const turn = await claude.generate('Hello!');
 ```
+
+### Framework Adapters
+
+Server adapters for Express, Fastify, and Nuxt/H3:
+
+```typescript
+// Express
+import { express as expressAdapter } from '@providerprotocol/ai/proxy/server';
+app.post('/ai', authMiddleware, async (req, res) => {
+  const { messages, system, params } = parseBody(req.body);
+  if (params?.stream) {
+    expressAdapter.streamSSE(claude.stream(messages, { system }), res);
+  } else {
+    expressAdapter.sendJSON(await claude.generate(messages, { system }), res);
+  }
+});
+
+// Fastify
+import { fastify as fastifyAdapter } from '@providerprotocol/ai/proxy/server';
+app.post('/ai', async (request, reply) => {
+  const { messages, system, params } = parseBody(request.body);
+  if (params?.stream) {
+    return fastifyAdapter.streamSSE(claude.stream(messages, { system }), reply);
+  }
+  return fastifyAdapter.sendJSON(await claude.generate(messages, { system }), reply);
+});
+
+// Nuxt/H3 (server/api/ai.post.ts)
+import { h3 as h3Adapter } from '@providerprotocol/ai/proxy/server';
+export default defineEventHandler(async (event) => {
+  const { messages, system, params } = parseBody(await readBody(event));
+  if (params?.stream) {
+    return h3Adapter.streamSSE(claude.stream(messages, { system }), event);
+  }
+  return h3Adapter.sendJSON(await claude.generate(messages, { system }), event);
+});
+```
+
+**What this enables:**
+- Users auth with your platform credentials (JWT, API keys, sessions)
+- You manage/rotate AI provider keys centrally
+- Per-user rate limiting, usage tracking, billing
+- Model access control (different users get different models)
+- Request/response logging, content filtering
+- Double-layer retry: client retries to proxy, server retries to AI provider
 
 ## xAI API Modes
 

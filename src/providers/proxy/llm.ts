@@ -3,6 +3,7 @@
  *
  * Transports PP LLM requests over HTTP to a backend server.
  * Supports both synchronous completion and streaming via SSE.
+ * Full support for retry strategies, timeouts, and custom headers.
  *
  * @module providers/proxy/llm
  */
@@ -21,6 +22,8 @@ import type { TurnJSON } from '../../types/turn.ts';
 import { AssistantMessage } from '../../types/messages.ts';
 import { emptyUsage } from '../../types/turn.ts';
 import { UPPError } from '../../types/errors.ts';
+import { doFetch, doStreamFetch } from '../../http/fetch.ts';
+import { normalizeHttpError } from '../../http/errors.ts';
 import type { ProxyLLMParams, ProxyProviderOptions } from './types.ts';
 import {
   serializeMessage,
@@ -44,16 +47,31 @@ const PROXY_CAPABILITIES: LLMCapabilities = {
 /**
  * Creates a proxy LLM handler.
  *
+ * Supports full ProviderConfig options including retry strategies, timeouts,
+ * custom headers, and custom fetch implementations. This allows client-side
+ * retry logic for network failures to the proxy server.
+ *
  * @param options - Proxy configuration options
  * @returns An LLM handler that transports requests over HTTP
+ *
+ * @example
+ * ```typescript
+ * import { llm } from '@providerprotocol/ai';
+ * import { proxy } from '@providerprotocol/ai/proxy';
+ * import { ExponentialBackoff } from '@providerprotocol/ai/http';
+ *
+ * const claude = llm({
+ *   model: proxy('https://api.myplatform.com/ai'),
+ *   config: {
+ *     headers: { 'Authorization': 'Bearer user-token' },
+ *     retryStrategy: new ExponentialBackoff({ maxAttempts: 3 }),
+ *     timeout: 30000,
+ *   },
+ * });
+ * ```
  */
 export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<ProxyLLMParams> {
-  const {
-    endpoint,
-    headers: defaultHeaders = {},
-    fetch: customFetch = fetch,
-    timeout = 120000,
-  } = options;
+  const { endpoint, headers: defaultHeaders = {} } = options;
 
   let providerRef: LLMProvider<ProxyLLMParams> | null = null;
 
@@ -84,11 +102,9 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
           const body = serializeRequest(request);
           const headers = mergeHeaders(request.config.headers, defaultHeaders);
 
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-          try {
-            const response = await customFetch(endpoint, {
+          const response = await doFetch(
+            endpoint,
+            {
               method: 'POST',
               headers: {
                 ...headers,
@@ -96,37 +112,20 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
                 Accept: 'application/json',
               },
               body: JSON.stringify(body),
-              signal: request.signal
-                ? combineSignals(request.signal, controller.signal)
-                : controller.signal,
-            });
+              signal: request.signal,
+            },
+            request.config,
+            'proxy',
+            'llm'
+          );
 
-            clearTimeout(timeoutId);
-
-            if (!response.ok) {
-              const text = await response.text();
-              throw new UPPError(
-                text || `HTTP ${response.status}`,
-                'PROVIDER_ERROR',
-                'proxy',
-                'llm'
-              );
-            }
-
-            const data = (await response.json()) as TurnJSON;
-            return turnJSONToLLMResponse(data);
-          } catch (error) {
-            clearTimeout(timeoutId);
-            throw error;
-          }
+          const data = (await response.json()) as TurnJSON;
+          return turnJSONToLLMResponse(data);
         },
 
         stream(request: LLMRequest<ProxyLLMParams>): LLMStreamResult {
           const body = serializeRequest(request);
           const headers = mergeHeaders(request.config.headers, defaultHeaders);
-
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => controller.abort(), timeout);
 
           let resolveResponse: (value: LLMResponse) => void;
           let rejectResponse: (error: Error) => void;
@@ -137,29 +136,25 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
 
           const generator = async function* (): AsyncGenerator<StreamEvent> {
             try {
-              const response = await customFetch(endpoint, {
-                method: 'POST',
-                headers: {
-                  ...headers,
-                  'Content-Type': 'application/json',
-                  Accept: 'text/event-stream',
+              const response = await doStreamFetch(
+                endpoint,
+                {
+                  method: 'POST',
+                  headers: {
+                    ...headers,
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream',
+                  },
+                  body: JSON.stringify(body),
+                  signal: request.signal,
                 },
-                body: JSON.stringify(body),
-                signal: request.signal
-                  ? combineSignals(request.signal, controller.signal)
-                  : controller.signal,
-              });
-
-              clearTimeout(timeoutId);
+                request.config,
+                'proxy',
+                'llm'
+              );
 
               if (!response.ok) {
-                const text = await response.text();
-                throw new UPPError(
-                  text || `HTTP ${response.status}`,
-                  'PROVIDER_ERROR',
-                  'proxy',
-                  'llm'
-                );
+                throw await normalizeHttpError(response, 'proxy', 'llm');
               }
 
               if (!response.body) {
@@ -277,16 +272,3 @@ function turnJSONToLLMResponse(data: TurnJSON): LLMResponse {
   };
 }
 
-/**
- * Combine two AbortSignals into one.
- */
-function combineSignals(signal1: AbortSignal, signal2: AbortSignal): AbortSignal {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort();
-  signal1.addEventListener('abort', onAbort);
-  signal2.addEventListener('abort', onAbort);
-  if (signal1.aborted || signal2.aborted) {
-    controller.abort();
-  }
-  return controller.signal;
-}

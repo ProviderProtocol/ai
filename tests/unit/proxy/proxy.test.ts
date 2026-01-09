@@ -1,4 +1,4 @@
-import { test, expect, describe } from 'bun:test';
+import { test, expect, describe, spyOn } from 'bun:test';
 import {
   parseBody,
   toJSON,
@@ -7,6 +7,7 @@ import {
   serializeMessage,
   deserializeMessage,
   serializeTurn,
+  proxy,
 } from '../../../src/proxy/index.ts';
 import {
   UserMessage,
@@ -14,6 +15,9 @@ import {
   ToolResultMessage,
 } from '../../../src/types/messages.ts';
 import { createTurn, emptyUsage } from '../../../src/types/turn.ts';
+import { llm } from '../../../src/index.ts';
+import { ExponentialBackoff } from '../../../src/http/index.ts';
+import * as fetchModule from '../../../src/http/fetch.ts';
 
 describe('Proxy Serialization Utilities', () => {
   describe('serializeMessage/deserializeMessage', () => {
@@ -315,6 +319,173 @@ describe('Proxy Server Utilities', () => {
     test('returns empty array for undefined tools', () => {
       const tools = bindTools(undefined, {});
       expect(tools).toEqual([]);
+    });
+  });
+});
+
+describe('Proxy LLM Handler', () => {
+  const mockTurnJSON = {
+    messages: [
+      {
+        id: 'msg_1',
+        type: 'user',
+        content: [{ type: 'text', text: 'Hello' }],
+        timestamp: new Date().toISOString(),
+      },
+      {
+        id: 'msg_2',
+        type: 'assistant',
+        content: [{ type: 'text', text: 'Hi there!' }],
+        timestamp: new Date().toISOString(),
+      },
+    ],
+    usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    cycles: 1,
+    toolExecutions: [],
+  };
+
+  describe('config passing', () => {
+    test('passes config options to doFetch', async () => {
+      const mockResponse = new Response(JSON.stringify(mockTurnJSON), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const doFetchSpy = spyOn(fetchModule, 'doFetch').mockResolvedValue(mockResponse);
+
+      const retryStrategy = new ExponentialBackoff({ maxAttempts: 3 });
+      const proxyProvider = proxy({ endpoint: 'http://localhost:3000' });
+      const instance = llm({
+        model: proxyProvider('default'),
+        config: {
+          headers: { 'Authorization': 'Bearer test-token', 'X-Custom': 'value' },
+          timeout: 5000,
+          retryStrategy,
+        },
+      });
+
+      await instance.generate('Hello');
+
+      expect(doFetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init, config] = doFetchSpy.mock.calls[0]!;
+
+      expect(url).toBe('http://localhost:3000');
+      expect(init.method).toBe('POST');
+      expect(init.headers).toMatchObject({
+        'Authorization': 'Bearer test-token',
+        'X-Custom': 'value',
+        'Content-Type': 'application/json',
+      });
+      expect(config.timeout).toBe(5000);
+      expect(config.retryStrategy).toBe(retryStrategy);
+      expect(config.headers?.['Authorization']).toBe('Bearer test-token');
+
+      doFetchSpy.mockRestore();
+    });
+
+    test('works without config options (uses defaults)', async () => {
+      const mockResponse = new Response(JSON.stringify(mockTurnJSON), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const doFetchSpy = spyOn(fetchModule, 'doFetch').mockResolvedValue(mockResponse);
+
+      const proxyProvider = proxy({ endpoint: 'http://localhost:3000' });
+      const instance = llm({
+        model: proxyProvider('default'),
+      });
+
+      const turn = await instance.generate('Hello');
+
+      expect(doFetchSpy).toHaveBeenCalledTimes(1);
+      const [url, , config] = doFetchSpy.mock.calls[0]!;
+
+      expect(url).toBe('http://localhost:3000');
+      expect(config.retryStrategy).toBeUndefined();
+      expect(config.timeout).toBeUndefined();
+      expect(turn.response.text).toBe('Hi there!');
+
+      doFetchSpy.mockRestore();
+    });
+
+    test('merges default headers with request headers', async () => {
+      const mockResponse = new Response(JSON.stringify(mockTurnJSON), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const doFetchSpy = spyOn(fetchModule, 'doFetch').mockResolvedValue(mockResponse);
+
+      const proxyProvider = proxy({
+        endpoint: 'http://localhost:3000',
+        headers: { 'X-Default': 'default-value' },
+      });
+      const instance = llm({
+        model: proxyProvider('default'),
+        config: {
+          headers: { 'X-Request': 'request-value' },
+        },
+      });
+
+      await instance.generate('Hello');
+
+      expect(doFetchSpy).toHaveBeenCalledTimes(1);
+      const [, init] = doFetchSpy.mock.calls[0]!;
+
+      expect(init.headers).toMatchObject({
+        'X-Default': 'default-value',
+        'X-Request': 'request-value',
+      });
+
+      doFetchSpy.mockRestore();
+    });
+  });
+
+  describe('streaming', () => {
+    test('passes config options to doStreamFetch', async () => {
+      const sseData = [
+        'data: {"type":"text_delta","index":0,"delta":{"text":"Hi"}}\n\n',
+        `data: ${JSON.stringify(mockTurnJSON)}\n\n`,
+        'data: [DONE]\n\n',
+      ].join('');
+
+      const mockResponse = new Response(sseData, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      });
+
+      const doStreamFetchSpy = spyOn(fetchModule, 'doStreamFetch').mockResolvedValue(mockResponse);
+
+      const retryStrategy = new ExponentialBackoff({ maxAttempts: 2 });
+      const proxyProvider = proxy({ endpoint: 'http://localhost:3000' });
+      const instance = llm({
+        model: proxyProvider('default'),
+        config: {
+          headers: { 'Authorization': 'Bearer stream-token' },
+          timeout: 60000,
+          retryStrategy,
+        },
+      });
+
+      const stream = instance.stream('Hello');
+      const events: unknown[] = [];
+      for await (const event of stream) {
+        events.push(event);
+      }
+
+      expect(doStreamFetchSpy).toHaveBeenCalledTimes(1);
+      const [url, init, config] = doStreamFetchSpy.mock.calls[0]!;
+
+      expect(url).toBe('http://localhost:3000');
+      expect(init.headers).toMatchObject({
+        'Authorization': 'Bearer stream-token',
+        'Accept': 'text/event-stream',
+      });
+      expect(config.timeout).toBe(60000);
+      expect(config.retryStrategy).toBe(retryStrategy);
+
+      doStreamFetchSpy.mockRestore();
     });
   });
 });
