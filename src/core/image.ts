@@ -8,7 +8,6 @@
  * @module core/image
  */
 
-import { readFile } from 'node:fs/promises';
 import type { ImageSource, ImageBlock } from '../types/content.ts';
 
 /**
@@ -165,6 +164,8 @@ export class Image {
    * ```
    */
   static async fromPath(path: string): Promise<Image> {
+    // Dynamic import to avoid bundling fs in browser builds
+    const { readFile } = await import('node:fs/promises');
     const data = await readFile(path);
     const mimeType = detectMimeType(path);
 

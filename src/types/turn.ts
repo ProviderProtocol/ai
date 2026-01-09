@@ -10,6 +10,7 @@
 
 import type { Message, AssistantMessage } from './messages.ts';
 import type { ToolExecution } from './tool.ts';
+import type { MessageJSON } from './thread.ts';
 
 /**
  * Token usage information for an inference request.
@@ -109,6 +110,14 @@ export interface Turn<TData = unknown> {
    */
   readonly data?: TData;
 }
+
+/**
+ * Turn serialized to JSON format.
+ * Messages are converted to MessageJSON, response is omitted (computed from messages).
+ */
+export type TurnJSON = Omit<Turn, 'messages' | 'response'> & {
+  messages: MessageJSON[];
+};
 
 /**
  * Creates a Turn from accumulated inference data.

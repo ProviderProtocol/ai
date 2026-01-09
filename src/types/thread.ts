@@ -13,58 +13,24 @@ import {
   UserMessage,
   AssistantMessage,
   ToolResultMessage,
+  type MessageJSON,
+  type MessageType,
 } from './messages.ts';
-import type { MessageType, MessageMetadata } from './messages.ts';
-import type { ContentBlock, UserContent, AssistantContent } from './content.ts';
+import type { UserContent, AssistantContent } from './content.ts';
 import type { Turn } from './turn.ts';
-import type { ToolCall, ToolResult } from './tool.ts';
+
+// Re-export for convenience
+export type { MessageJSON };
 
 /**
- * Serialized message format for JSON storage.
- *
- * Used when persisting messages to storage or transmitting over the network.
+ * Thread serialized to JSON format.
+ * Picks id from Thread, converts dates to strings.
  */
-export interface MessageJSON {
-  /** Unique message identifier */
-  id: string;
-
-  /** Message type discriminator */
-  type: MessageType;
-
-  /** Content blocks in the message */
-  content: ContentBlock[];
-
-  /** Tool calls (for assistant messages) */
-  toolCalls?: ToolCall[];
-
-  /** Tool results (for tool result messages) */
-  results?: ToolResult[];
-
-  /** Provider-specific metadata */
-  metadata?: MessageMetadata;
-
-  /** ISO timestamp string */
-  timestamp: string;
-}
-
-/**
- * Serialized thread format for JSON storage.
- *
- * Contains all data needed to reconstruct a Thread instance.
- */
-export interface ThreadJSON {
-  /** Unique thread identifier */
-  id: string;
-
-  /** Serialized messages */
+export type ThreadJSON = Pick<Thread, 'id'> & {
   messages: MessageJSON[];
-
-  /** ISO timestamp of thread creation */
   createdAt: string;
-
-  /** ISO timestamp of last update */
   updatedAt: string;
-}
+};
 
 /**
  * Thread - A utility class for managing conversation history.

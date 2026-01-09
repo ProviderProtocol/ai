@@ -51,6 +51,11 @@
       "types": "./dist/http/index.d.ts",
       "import": "./dist/http/index.js",
       "default": "./dist/http/index.js"
+    },
+    "./proxy": {
+      "types": "./dist/proxy/index.d.ts",
+      "import": "./dist/proxy/index.js",
+      "default": "./dist/proxy/index.js"
     }
   },
   "files": [

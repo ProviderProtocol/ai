@@ -10,6 +10,7 @@ export default defineConfig({
     "openrouter/index": "src/openrouter/index.ts",
     "xai/index": "src/xai/index.ts",
     "http/index": "src/http/index.ts",
+    "proxy/index": "src/proxy/index.ts",
   },
   format: ["esm"],
   dts: true,

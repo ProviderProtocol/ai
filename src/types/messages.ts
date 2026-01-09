@@ -21,6 +21,17 @@ import type {
 import type { ToolCall, ToolResult } from './tool.ts';
 
 /**
+ * Message serialized to JSON format.
+ * Picks common fields from Message, converts timestamp to string.
+ */
+export type MessageJSON = Pick<Message, 'id' | 'type' | 'metadata'> & {
+  timestamp: string;
+  content: ContentBlock[];
+  toolCalls?: ToolCall[];
+  results?: ToolResult[];
+};
+
+/**
  * Message type discriminator.
  *
  * Used to distinguish between different message types in a conversation.

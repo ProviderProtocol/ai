@@ -1,0 +1,126 @@
+/**
+ * @fileoverview Fastify adapter for proxy server.
+ *
+ * Provides utilities for using PP proxy with Fastify servers.
+ * These adapters convert PP types to Fastify-compatible responses.
+ *
+ * @example
+ * ```typescript
+ * import Fastify from 'fastify';
+ * import { llm, anthropic } from '@providerprotocol/ai';
+ * import { parseBody } from '@providerprotocol/ai/proxy';
+ * import { fastify as fastifyAdapter } from '@providerprotocol/ai/proxy/server';
+ *
+ * const app = Fastify();
+ *
+ * app.post('/api/ai', async (request, reply) => {
+ *   const { messages, system, params } = parseBody(request.body);
+ *   const instance = llm({ model: anthropic('claude-sonnet-4-20250514'), system });
+ *
+ *   if (request.headers.accept?.includes('text/event-stream')) {
+ *     return fastifyAdapter.streamSSE(instance.stream(messages), reply);
+ *   } else {
+ *     const turn = await instance.generate(messages);
+ *     return fastifyAdapter.sendJSON(turn, reply);
+ *   }
+ * });
+ * ```
+ *
+ * @module providers/proxy/server/fastify
+ */
+
+import type { Turn } from '../../../types/turn.ts';
+import type { StreamResult } from '../../../types/stream.ts';
+import { serializeTurn, serializeStreamEvent } from '../serialization.ts';
+
+/**
+ * Fastify Reply interface (minimal type to avoid dependency).
+ */
+interface FastifyReply {
+  header(name: string, value: string): FastifyReply;
+  status(code: number): FastifyReply;
+  send(payload: unknown): FastifyReply;
+  raw: {
+    write(chunk: string): boolean;
+    end(): void;
+  };
+}
+
+/**
+ * Send a Turn as JSON response.
+ *
+ * @param turn - The completed inference turn
+ * @param reply - Fastify reply object
+ *
+ * @example
+ * ```typescript
+ * const turn = await instance.generate(messages);
+ * return fastifyAdapter.sendJSON(turn, reply);
+ * ```
+ */
+export function sendJSON(turn: Turn, reply: FastifyReply): FastifyReply {
+  return reply
+    .header('Content-Type', 'application/json')
+    .send(serializeTurn(turn));
+}
+
+/**
+ * Stream a StreamResult as Server-Sent Events.
+ *
+ * @param stream - The StreamResult from instance.stream()
+ * @param reply - Fastify reply object
+ *
+ * @example
+ * ```typescript
+ * const stream = instance.stream(messages);
+ * return fastifyAdapter.streamSSE(stream, reply);
+ * ```
+ */
+export function streamSSE(stream: StreamResult, reply: FastifyReply): FastifyReply {
+  reply
+    .header('Content-Type', 'text/event-stream')
+    .header('Cache-Control', 'no-cache')
+    .header('Connection', 'keep-alive');
+
+  const raw = reply.raw;
+
+  (async () => {
+    try {
+      for await (const event of stream) {
+        const serialized = serializeStreamEvent(event);
+        raw.write(`data: ${JSON.stringify(serialized)}\n\n`);
+      }
+
+      const turn = await stream.turn;
+      raw.write(`data: ${JSON.stringify(serializeTurn(turn))}\n\n`);
+      raw.write('data: [DONE]\n\n');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      raw.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+    } finally {
+      raw.end();
+    }
+  })();
+
+  return reply;
+}
+
+/**
+ * Send an error response.
+ *
+ * @param message - Error message
+ * @param status - HTTP status code
+ * @param reply - Fastify reply object
+ */
+export function sendError(message: string, status: number, reply: FastifyReply): FastifyReply {
+  return reply.status(status).send({ error: message });
+}
+
+/**
+ * Fastify adapter utilities.
+ */
+export const fastify = {
+  sendJSON,
+  streamSSE,
+  sendError,
+};
