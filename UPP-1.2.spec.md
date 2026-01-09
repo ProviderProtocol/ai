@@ -2962,6 +2962,10 @@ similarity = cosineSimilarity(embedding1.vector, embedding2.vector)
 
 ## 13. Image Interface
 
+The image interface provides text-to-image generation and image editing capabilities. UPP acts as a soft wrapper around provider APIs—all provider-specific parameters (size, quality, steps, guidance, etc.) are passed through unchanged via the `params` field.
+
+**Design Philosophy:** The core interface defines only what is truly universal across all image generation providers. Provider-specific features like negative prompts, seeds, reference images, and upscaling are accessed through the `params` passthrough, ensuring UPP never constrains what providers can do.
+
 ### 13.1 Function Signature
 
 ```pseudocode
@@ -2976,7 +2980,9 @@ image(options: ImageOptions) -> ImageInstance
 |-------|------|----------|-------------|
 | `model` | ModelReference | Yes | A model reference from a provider factory |
 | `config` | ProviderConfig | No | Provider infrastructure configuration |
-| `params` | Map | No | Model-specific parameters (size, quality, style, etc.) |
+| `params` | Map | No | Provider-specific parameters passed through unchanged |
+
+The `params` field is the primary mechanism for configuring image generation. All provider-specific options—dimensions, quality, style, negative prompts, seeds, guidance scales, etc.—flow through params. See §13.14 for provider-specific parameter documentation.
 
 ### 13.3 ImageInstance
 
@@ -2986,23 +2992,24 @@ image(options: ImageOptions) -> ImageInstance
 |-----------------|------|-------------|
 | `generate(input)` | Function | Generate images from a text prompt |
 | `stream(input)` | Function? | Generate with streaming progress (if supported) |
-| `edit(input)` | Function? | Edit an existing image (inpainting) |
-| `vary(input)` | Function? | Create variations of an existing image |
-| `upscale(input)` | Function? | Upscale an image to higher resolution |
+| `edit(input)` | Function? | Edit an existing image (if supported) |
 | `model` | BoundImageModel | The bound model |
 | `params` | Map? | Current parameters |
 | `capabilities` | ImageCapabilities | Model capabilities |
 
-**ImagePrompt Type:**
+**Note:** The `vary()` and `upscale()` methods from earlier drafts were removed as they only applied to specific providers (DALL-E 2 variations, Stability/Imagen upscaling). Use provider-specific endpoints via `params` or separate API calls for these features.
+
+**ImageInput Type:**
+
+The input to `generate()` accepts either a simple string prompt or an object with the prompt:
 
 ```pseudocode
-ImagePrompt = String | {
-  prompt: String,
-  negativePrompt: String?,
-  referenceImages: List<Image>?,
-  seed: Integer?
+ImageInput = String | {
+  prompt: String
 }
 ```
+
+Provider-specific generation options (negative prompts, seeds, reference images, etc.) belong in the `params` field at instance creation or as part of provider-specific request extensions, NOT in the core ImageInput type.
 
 ### 13.4 Image Results
 
@@ -3011,39 +3018,39 @@ ImagePrompt = String | {
 | Field | Type | Description |
 |-------|------|-------------|
 | `images` | List<GeneratedImage> | Generated images |
-| `metadata` | ImageMetadata? | Generation metadata |
-| `usage` | ImageUsage | Usage/billing information |
+| `metadata` | Map? | Provider-specific response metadata |
+| `usage` | ImageUsage? | Usage/billing information |
 
 **GeneratedImage Structure:**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `image` | Image | The generated image |
-| `metadata` | ImageItemMetadata? | Per-image metadata |
+| `image` | Image | The generated image (using existing Image class) |
+| `metadata` | Map? | Provider-specific per-image metadata |
 
-**ImageItemMetadata Structure:**
+The `metadata` fields are typed as `Map` rather than fixed structures because providers return vastly different metadata:
+- OpenAI: `revised_prompt`
+- xAI: `revised_prompt`
+- Stability: `seed`, `finish_reason`
+- BFL: `cost`, `input_mp`, `output_mp`
+- Google: `raiFilteredReason`, `safetyAttributes`
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `seed` | Integer? | Seed used for this image |
-| `index` | Integer? | Image index in batch |
-| `finishReason` | String? | "success" or "content_filtered" |
-
-**ImageMetadata Structure:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `seed` | Integer? | Seed used (for reproducibility) |
-| `revisedPrompt` | String? | Model's revised prompt (if applicable) |
+Implementations MUST preserve all provider metadata without truncation.
 
 **ImageUsage Structure:**
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `imagesGenerated` | Integer | Number of images generated |
-| `cost` | Float? | Provider-specific cost units |
+| `imagesGenerated` | Integer? | Number of images generated |
+| `inputTokens` | Integer? | Input tokens consumed (token-based pricing) |
+| `outputTokens` | Integer? | Output tokens consumed (token-based pricing) |
+| `cost` | Float? | Provider-reported cost (credits, dollars, etc.) |
+
+Usage fields are optional because providers report usage differently (some per-image, some per-megapixel, some token-based).
 
 ### 13.5 Streaming Generation
+
+Streaming is supported by very few providers (primarily OpenAI GPT-Image models). When available, it provides partial image previews during generation.
 
 **ImageStreamResult Interface:**
 
@@ -3056,41 +3063,33 @@ ImagePrompt = String | {
 **ImageStreamEvent Types:**
 
 ```pseudocode
-// Progress event
-{ type: "progress", percent: Integer, stage: String? }
+// Preview event - partial image available
+{ type: "preview", image: Image, index: Integer, metadata: Map? }
 
-// Preview event
-{ type: "preview", image: Image, index: Integer }
-
-// Complete event
+// Complete event - image finished
 { type: "complete", image: GeneratedImage, index: Integer }
 ```
 
+**Note:** The `progress` event with `percent` and `stage` was removed as it only applied to OpenAI's specific streaming implementation. Providers that report progress should include it in the event's `metadata` field.
+
 ### 13.6 Image Editing
+
+Image editing (inpainting) is supported by some providers. The edit interface is intentionally minimal—provider-specific edit modes, guidance scales, and other options belong in `params`.
 
 **ImageEditInput Structure:**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `image` | Image | Yes | Base image to edit |
-| `mask` | Image | No | Mask indicating edit region (white = edit area) |
+| `mask` | Image | No | Mask indicating edit region |
 | `prompt` | String | Yes | Edit instruction |
-| `negativePrompt` | String | No | What to avoid |
 
-**ImageVaryInput Structure:**
+**Mask Conventions:** Mask interpretation varies by provider:
+- OpenAI: Transparent areas (alpha=0) indicate edit regions
+- Stability: White areas indicate edit regions, black preserved
+- Google Imagen: Configurable via `maskMode` param
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `image` | Image | Yes | Source image for variations |
-| `count` | Integer | No | Number of variations to generate |
-| `strength` | Float | No | Variation strength (0-1, higher = more different) |
-
-**ImageUpscaleInput Structure:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `image` | Image | Yes | Image to upscale |
-| `scale` | Integer | No | Target scale factor (2 or 4) |
+Implementations should document their provider's mask convention. The mask is optional because some providers support prompt-only editing (e.g., FLUX Kontext) or auto-masking (e.g., Imagen semantic masks).
 
 ### 13.7 Capabilities
 
@@ -3099,18 +3098,15 @@ ImagePrompt = String | {
 | Field | Type | Description |
 |-------|------|-------------|
 | `generate` | Boolean | Supports text-to-image generation |
-| `streaming` | Boolean | Supports streaming progress |
+| `streaming` | Boolean | Supports streaming with partial previews |
 | `edit` | Boolean | Supports image editing/inpainting |
-| `vary` | Boolean | Supports variations |
-| `upscale` | Boolean | Supports upscaling |
-| `outpaint` | Boolean | Supports outpainting |
-| `imageToImage` | Boolean | Supports image-to-image |
-| `maxImages` | Integer | Maximum images per request |
-| `supportedSizes` | List<String> | Supported output sizes |
-| `supportedAspectRatios` | List<String>? | Supported aspect ratios |
-| `supportedFormats` | List<String> | Supported formats: "png", "jpeg", "webp" |
+| `maxImages` | Integer? | Maximum images per request (if known) |
+
+Capabilities are intentionally minimal. Features like upscaling, variations, outpainting, and image-to-image are provider-specific and should be accessed through provider documentation and the `params` passthrough rather than capability flags that would leak provider concepts into the core.
 
 ### 13.8 BoundImageModel
+
+The provider-level interface that implementations must provide.
 
 **BoundImageModel Structure:**
 
@@ -3119,20 +3115,15 @@ ImagePrompt = String | {
 | `modelId` | String | The model identifier |
 | `capabilities` | ImageCapabilities | Model capabilities |
 | `generate(request)` | Function | Generate images |
-| `stream(request)` | Function? | Stream generation progress (optional), returns ImageProviderStreamResult |
+| `stream(request)` | Function? | Stream generation (optional) |
 | `edit(request)` | Function? | Edit an image (optional) |
-| `vary(request)` | Function? | Create variations (optional) |
-| `upscale(request)` | Function? | Upscale an image (optional) |
 
 **ImageRequest Structure:**
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `prompt` | String | Generation prompt |
-| `negativePrompt` | String? | What to avoid |
-| `referenceImages` | List<Image>? | Reference images |
-| `seed` | Integer? | Seed for reproducibility |
-| `params` | Map? | Model-specific parameters |
+| `params` | Map? | Provider-specific parameters (passed through unchanged) |
 | `config` | ProviderConfig | Provider infrastructure config |
 | `signal` | AbortSignal? | Abort signal |
 
@@ -3141,39 +3132,17 @@ ImagePrompt = String | {
 | Field | Type | Description |
 |-------|------|-------------|
 | `images` | List<GeneratedImage> | Generated images |
-| `metadata` | ImageMetadata? | Generation metadata |
-| `usage` | ImageUsage | Usage information |
+| `metadata` | Map? | Provider-specific response metadata |
+| `usage` | ImageUsage? | Usage information |
 
 **ImageEditRequest Structure:**
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `image` | Image | Yes | Base image to edit |
-| `mask` | Image | No | Edit mask (white = edit area) |
+| `mask` | Image | No | Edit mask |
 | `prompt` | String | Yes | Edit instruction |
-| `negativePrompt` | String | No | What to avoid |
-| `params` | Map | No | Model-specific parameters |
-| `config` | ProviderConfig | Yes | Provider infrastructure config |
-| `signal` | AbortSignal | No | Abort signal |
-
-**ImageVaryRequest Structure:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `image` | Image | Yes | Source image for variations |
-| `count` | Integer | No | Number of variations to generate |
-| `strength` | Float | No | Variation strength (0-1) |
-| `params` | Map | No | Model-specific parameters |
-| `config` | ProviderConfig | Yes | Provider infrastructure config |
-| `signal` | AbortSignal | No | Abort signal |
-
-**ImageUpscaleRequest Structure:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `image` | Image | Yes | Image to upscale |
-| `scale` | Integer | No | Scale factor (2 or 4) |
-| `params` | Map | No | Model-specific parameters |
+| `params` | Map | No | Provider-specific parameters |
 | `config` | ProviderConfig | Yes | Provider infrastructure config |
 | `signal` | AbortSignal | No | Abort signal |
 
@@ -3187,6 +3156,7 @@ An async iterable of `ImageStreamEvent` objects with a `response` property that 
 import { image } from "upp"
 import openai from "upp/openai"
 
+// Provider params (size, quality) go in the params field
 dalle = image({
   model: openai("dall-e-3"),
   config: {
@@ -3194,63 +3164,64 @@ dalle = image({
   },
   params: {
     size: "1024x1024",
-    quality: "hd"
+    quality: "hd",
+    style: "natural"
   }
 })
 
-// Simple generation
+// Simple generation - just pass the prompt
 result = await dalle.generate("A sunset over mountains, oil painting style")
 
-print(result.images.length)            // 1
-print(result.metadata?.revisedPrompt)  // DALL-E's enhanced prompt
+print(result.images.length)             // 1
+print(result.metadata?.revised_prompt)  // Provider-specific metadata
 
 // Save the image
 imageData = result.images[0].image.toBytes()
 await writeFile("sunset.png", imageData)
 ```
 
-### 13.10 Advanced Generation
+### 13.10 Provider-Specific Features via Params
 
 ```pseudocode
 import { image } from "upp"
 import stability from "upp/stability"
 
+// All Stability-specific options go in params
 sd = image({
-  model: stability("stable-diffusion-xl-1024-v1-0"),
+  model: stability("sd3.5-large"),
   config: {
     apiKey: env.STABILITY_API_KEY
   },
   params: {
-    steps: 30,
-    cfg_scale: 7,
-    samples: 4
+    aspect_ratio: "16:9",
+    negative_prompt: "cartoon, drawing, illustration, low quality, blurry",
+    seed: 12345,
+    output_format: "png"
   }
 })
 
-// Generation with negative prompt
-result = await sd.generate({
-  prompt: "A photorealistic cat sitting on a windowsill, golden hour lighting",
-  negativePrompt: "cartoon, drawing, illustration, low quality, blurry",
-  seed: 12345
-})
+result = await sd.generate("A photorealistic cat on a windowsill, golden hour")
 
-print(result.images.length)   // 4
-print(result.metadata?.seed)  // 12345
-
-// Save all images
-for (i, img) in enumerate(result.images) {
-  await writeFile("cat-" + i + ".png", img.image.toBytes())
-}
+print(result.images.length)       // 1 (controlled by params)
+print(result.metadata?.seed)      // 12345 (if provider returns it)
 ```
 
 ### 13.11 Image Editing
 
 ```pseudocode
+import { image } from "upp"
+import openai from "upp/openai"
+
+gptImage = image({
+  model: openai("gpt-image-1.5"),
+  config: { apiKey: env.OPENAI_API_KEY }
+})
+
 // Check if editing is supported
-if (dalle.capabilities.edit && dalle.edit) {
-  edited = await dalle.edit({
+if (gptImage.capabilities.edit && gptImage.edit) {
+  edited = await gptImage.edit({
     image: await Image.fromPath("./photo.png"),
-    mask: await Image.fromPath("./mask.png"),  // White = edit area
+    mask: await Image.fromPath("./mask.png"),
     prompt: "Replace the sky with a starry night"
   })
 
@@ -3258,39 +3229,29 @@ if (dalle.capabilities.edit && dalle.edit) {
 }
 ```
 
-### 13.12 Image Variations
+### 13.12 Streaming (Provider-Dependent)
 
 ```pseudocode
-// Check if variations are supported
-if (dalle.capabilities.vary && dalle.vary) {
-  variations = await dalle.vary({
-    image: await Image.fromPath("./original.png"),
-    count: 3,
-    strength: 0.7  // 0 = identical, 1 = completely different
-  })
+import { image } from "upp"
+import openai from "upp/openai"
 
-  for (i, img) in enumerate(variations.images) {
-    await writeFile("variation-" + i + ".png", img.image.toBytes())
+// Only OpenAI GPT-Image models currently support streaming
+gptImage = image({
+  model: openai("gpt-image-1"),
+  config: { apiKey: env.OPENAI_API_KEY },
+  params: {
+    stream: true,
+    partial_images: 2  // OpenAI-specific: number of previews
   }
-}
-```
+})
 
-### 13.13 Streaming Progress
-
-```pseudocode
-// Check if streaming is supported
-if (sd.stream) {
-  stream = sd.stream({
-    prompt: "A cyberpunk cityscape at night, neon lights, rain"
-  })
+if (gptImage.capabilities.streaming && gptImage.stream) {
+  stream = gptImage.stream("A cyberpunk cityscape at night")
 
   for await (event in stream) {
     switch (event.type) {
-      case "progress":
-        print(event.percent + "% - " + event.stage)
-        break
       case "preview":
-        // Display low-res preview
+        // Display partial preview
         displayPreview(event.image, event.index)
         break
       case "complete":
@@ -3300,30 +3261,438 @@ if (sd.stream) {
   }
 
   finalResult = await stream.result
-  print("Generated " + finalResult.images.length + " images")
 }
+```
+
+### 13.13 Multi-Provider Patterns
+
+Different providers have different capabilities. Use params passthrough for provider-specific features:
+
+```pseudocode
+// Together AI with LoRA adapters
+flux = image({
+  model: together("black-forest-labs/FLUX.1-dev-lora"),
+  params: {
+    steps: 28,
+    width: 1024,
+    height: 768,
+    image_loras: [
+      { path: "https://huggingface.co/some/lora", scale: 0.8 }
+    ]
+  }
+})
+
+// Google Imagen with safety settings
+imagen = image({
+  model: google("imagen-3.0-generate-002"),
+  params: {
+    sampleCount: 4,
+    aspectRatio: "16:9",
+    personGeneration: "allow_adult",
+    safetySetting: "block_medium_and_above"
+  }
+})
+
+// Black Forest Labs with async polling (handled internally)
+bfl = image({
+  model: bfl("flux-2-pro"),
+  params: {
+    width: 1024,
+    height: 1024,
+    safety_tolerance: 2
+  }
+})
 ```
 
 ### 13.14 Provider-Specific Parameters
 
-Each provider exports its own parameter types (e.g., `OpenAIImageParams`, `StabilityImageParams`). Consult provider documentation for available options.
+Each provider exports its own parameter types that are passed through unchanged to the vendor API. UPP acts as a soft wrapper around these APIs—implementations MUST pass provider params through without modification or validation beyond basic type checking.
+
+#### 13.14.1 OpenAI Image Parameters
+
+**Supported Models:** `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`, `dall-e-3`, `dall-e-2`
+
+**OpenAIImageParams Structure:**
+
+| Field | Type | Default | Models | Description |
+|-------|------|---------|--------|-------------|
+| `n` | Integer | 1 | All | Number of images (1-10 for GPT Image, 1 for DALL-E 3) |
+| `size` | String | "1024x1024" | All | Output dimensions |
+| `quality` | String | "auto" | GPT Image: "low"/"medium"/"high"/"auto", DALL-E 3: "standard"/"hd" |
+| `style` | String | "vivid" | DALL-E 3 only | "vivid" or "natural" |
+| `background` | String | "auto" | GPT Image only | "transparent", "opaque", or "auto" |
+| `output_format` | String | varies | GPT Image only | "png", "jpeg", or "webp" |
+| `output_compression` | Integer | - | GPT Image only | 0-100 for webp/jpeg |
+| `response_format` | String | "url" | DALL-E only | "url" or "b64_json" |
+| `moderation` | String | "auto" | GPT Image only | "auto" or "low" |
+| `stream` | Boolean | false | GPT Image only | Enable streaming with partial images |
+| `partial_images` | Integer | 0 | GPT Image only | 0-3 partial previews during streaming |
+| `user` | String | - | All | End-user identifier |
+
+**Size Options by Model:**
+- GPT Image: "1024x1024", "1536x1024", "1024x1536", "auto"
+- DALL-E 3: "1024x1024", "1792x1024", "1024x1792"
+- DALL-E 2: "256x256", "512x512", "1024x1024"
 
 ```pseudocode
-// OpenAI DALL-E params (OpenAIImageParams)
-{
-  size: "1024x1024" | "1792x1024" | "1024x1792",
-  quality: "standard" | "hd",
-  style: "vivid" | "natural"
+// OpenAI GPT Image params
+openaiParams: OpenAIImageParams = {
+  n: 4,
+  size: "1024x1024",
+  quality: "high",
+  background: "transparent",
+  output_format: "png",
+  stream: true,
+  partial_images: 2
 }
 
-// Stability params (StabilityImageParams)
-{
-  steps: 10-50,
-  cfg_scale: 1-35,
-  samples: 1-10,
-  style_preset: "anime" | "photographic" | "digital-art" | ...
+// OpenAI DALL-E 3 params
+dalleParams: OpenAIImageParams = {
+  size: "1792x1024",
+  quality: "hd",
+  style: "natural"
 }
 ```
+
+#### 13.14.2 Google Imagen Parameters (Vertex AI)
+
+**Supported Models:** `imagen-4.0-generate-001`, `imagen-4.0-ultra-generate-001`, `imagen-3.0-generate-002`
+
+**GoogleImagenParams Structure:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `sampleCount` | Integer | 4 | Number of images (1-4, Ultra: 1 only) |
+| `aspectRatio` | String | "1:1" | "1:1", "3:4", "4:3", "9:16", "16:9" |
+| `negativePrompt` | String | - | Content to exclude (not supported in imagen-3.0-generate-002) |
+| `seed` | Integer | - | 1-2147483647 (requires addWatermark: false) |
+| `addWatermark` | Boolean | true | Add invisible SynthID watermark |
+| `enhancePrompt` | Boolean | true | LLM-based prompt enhancement |
+| `personGeneration` | String | "allow_adult" | "dont_allow", "allow_adult", "allow_all" |
+| `safetySetting` | String | "block_medium_and_above" | Safety filter level |
+| `language` | String | "auto" | Prompt language: "auto", "en", "es", "zh", "ja", "ko", "pt", "hi" |
+| `sampleImageSize` | String | "1K" | "1K" (1024x1024) or "2K" (2048x2048) |
+| `outputOptions.mimeType` | String | "image/png" | "image/png" or "image/jpeg" |
+| `outputOptions.compressionQuality` | Integer | 75 | 0-100 for JPEG |
+| `storageUri` | String | - | GCS bucket path for output |
+
+**Edit Mode Parameters (imagen-3.0-capability-001):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `editMode` | String | "INPAINT_INSERTION", "INPAINT_REMOVAL", "BGSWAP", "OUTPAINT" |
+| `baseSteps` | Integer | Sampling steps (16-75) |
+| `guidanceScale` | Integer | Prompt adherence (0-500) |
+| `maskMode` | String | "MASK_MODE_USER_PROVIDED", "BACKGROUND", "FOREGROUND", "SEMANTIC" |
+| `dilation` | Float | Mask expansion (0-1) |
+
+```pseudocode
+// Google Imagen params
+imagenParams: GoogleImagenParams = {
+  sampleCount: 4,
+  aspectRatio: "16:9",
+  negativePrompt: "blurry, low quality",
+  personGeneration: "allow_adult",
+  safetySetting: "block_medium_and_above",
+  enhancePrompt: true,
+  outputOptions: {
+    mimeType: "image/png"
+  }
+}
+```
+
+#### 13.14.3 xAI Image Parameters
+
+**Supported Models:** `grok-2-image`, `grok-2-image-1212`
+
+**XAIImageParams Structure:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `n` | Integer | 1 | Number of images (1-10) |
+| `response_format` | String | "url" | "url" or "b64_json" |
+
+**Note:** xAI's API currently has limited parameters. Output is fixed at 1024x768 JPEG. Size, quality, and style parameters are not supported. The API automatically revises prompts through a chat model before generation.
+
+```pseudocode
+// xAI params (limited)
+xaiParams: XAIImageParams = {
+  n: 4,
+  response_format: "url"
+}
+```
+
+#### 13.14.4 Stability AI Parameters
+
+**Supported Models:** `stable-image-ultra`, `stable-image-core`, `sd3.5-large`, `sd3.5-large-turbo`, `sd3.5-medium`
+
+**StabilityImageParams Structure:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `aspect_ratio` | String | "1:1" | "16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21" |
+| `negative_prompt` | String | - | Content to exclude (max 10,000 chars) |
+| `seed` | Integer | 0 | 0-4,294,967,295 (0 = random) |
+| `output_format` | String | "png" | "jpeg", "png", "webp" |
+| `style_preset` | String | - | Style guidance (Core only) |
+
+**v1 API Legacy Parameters (SDXL):**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `height` | Integer | 1024 | 512-1024, must be divisible by 8 |
+| `width` | Integer | 1024 | 512-1024, must be divisible by 8 |
+| `cfg_scale` | Float | 7 | Prompt adherence (0-35) |
+| `steps` | Integer | 30 | Denoising steps (10-150) |
+| `samples` | Integer | 1 | Number of images (1-10) |
+| `sampler` | String | - | "DDIM", "K_EULER", "K_DPM_2", etc. |
+| `clip_guidance_preset` | String | "NONE" | "FAST_BLUE", "FAST_GREEN", etc. |
+
+**Style Presets:** "3d-model", "analog-film", "anime", "cinematic", "comic-book", "digital-art", "enhance", "fantasy-art", "isometric", "line-art", "low-poly", "neon-punk", "origami", "photographic", "pixel-art", "tile-texture"
+
+```pseudocode
+// Stability AI v2beta params
+stabilityParams: StabilityImageParams = {
+  aspect_ratio: "16:9",
+  negative_prompt: "blurry, distorted",
+  seed: 12345,
+  output_format: "png",
+  style_preset: "photographic"
+}
+
+// Stability AI v1 (SDXL) params
+sdxlParams: StabilityImageParams = {
+  width: 1024,
+  height: 1024,
+  cfg_scale: 7,
+  steps: 30,
+  samples: 4,
+  sampler: "K_EULER"
+}
+```
+
+#### 13.14.5 Together AI Parameters
+
+**Supported Models:** `black-forest-labs/FLUX.1-schnell`, `black-forest-labs/FLUX.1-dev`, `black-forest-labs/FLUX.1-pro`, `black-forest-labs/FLUX.1-dev-lora`, `stabilityai/stable-diffusion-xl-base-1.0`
+
+**TogetherImageParams Structure:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `steps` | Integer | 20 | Generation steps |
+| `n` | Integer | 1 | Number of images |
+| `width` | Integer | 1024 | Image width (128-2048) |
+| `height` | Integer | 1024 | Image height (128-2048) |
+| `seed` | Integer | - | Random seed |
+| `negative_prompt` | String | - | Content to exclude |
+| `guidance_scale` | Float | 3.5 | Prompt adherence (1-10) |
+| `response_format` | String | "url" | "url" or "base64" |
+| `output_format` | String | "jpeg" | "jpeg" or "png" |
+| `image_loras` | List | - | LoRA adapters for FLUX.1-dev-lora |
+| `disable_safety_checker` | Boolean | false | Disable NSFW filter |
+
+**LoRA Object Structure (image_loras):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `path` | String | URL to .safetensors file (HuggingFace, CivitAI, etc.) |
+| `scale` | Float | Strength multiplier (0.3-1.2) |
+
+```pseudocode
+// Together AI FLUX params
+togetherParams: TogetherImageParams = {
+  steps: 28,
+  n: 4,
+  width: 1024,
+  height: 768,
+  guidance_scale: 3.5,
+  output_format: "png"
+}
+
+// Together AI with LoRA
+loraParams: TogetherImageParams = {
+  steps: 33,
+  width: 1280,
+  height: 832,
+  image_loras: [
+    { path: "https://huggingface.co/multimodalart/flux-tarot-v1", scale: 1.0 },
+    { path: "https://huggingface.co/Shakker-Labs/FLUX.1-dev-LoRA-add-details", scale: 0.8 }
+  ]
+}
+```
+
+#### 13.14.6 Replicate Parameters
+
+Replicate uses a prediction-based API where parameters vary by model. Common parameters across popular image models:
+
+**ReplicateImageParams Structure (Common):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `prompt` | String | Image description |
+| `negative_prompt` | String | Content to exclude |
+| `width` | Integer | Output width (model-dependent) |
+| `height` | Integer | Output height (model-dependent) |
+| `num_outputs` | Integer | Number of images (1-4 typical) |
+| `guidance_scale` | Float | Prompt adherence |
+| `num_inference_steps` | Integer | Denoising steps |
+| `seed` | Integer | Random seed |
+| `scheduler` | String | Sampling algorithm |
+
+**FLUX 1.1 Pro Specific:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `aspect_ratio` | String | "1:1", "16:9", "3:2", "4:3", "9:16", etc. |
+| `output_format` | String | "webp", "jpg", "png" |
+| `output_quality` | Integer | 0-100 |
+| `safety_tolerance` | Integer | 1-6 |
+| `prompt_upsampling` | Boolean | Auto-enhance prompt |
+
+**SDXL Specific:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `refine` | String | "no_refiner", "expert_ensemble_refiner", "base_image_refiner" |
+| `high_noise_frac` | Float | Fraction for base model (0-1) |
+| `refine_steps` | Integer | Additional refiner steps |
+
+```pseudocode
+// Replicate FLUX params
+replicateParams: ReplicateImageParams = {
+  aspect_ratio: "16:9",
+  output_format: "webp",
+  output_quality: 80,
+  safety_tolerance: 2,
+  prompt_upsampling: false
+}
+```
+
+#### 13.14.7 Black Forest Labs Parameters (FLUX Direct API)
+
+**Supported Models:** `flux-2-max`, `flux-2-pro`, `flux-2-flex`, `flux-pro-1.1`, `flux-pro-1.1-ultra`, `flux-kontext-pro`
+
+**BFLImageParams Structure:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `width` | Integer | 1024 | Output width (64-2048, multiple of 16) |
+| `height` | Integer | 1024 | Output height (64-2048, multiple of 16) |
+| `seed` | Integer | - | Random seed |
+| `safety_tolerance` | Integer | 2 | 0 (strict) to 5-6 (permissive) |
+| `output_format` | String | "jpeg" | "jpeg" or "png" |
+
+**FLUX.2 [flex] Exclusive:**
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `steps` | Integer | 50 | 1-50 inference steps |
+| `guidance` | Float | 4.5 | 1.5-10 prompt adherence |
+
+**FLUX1.1 [pro] Ultra:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `aspect_ratio` | String | Output aspect ratio |
+| `raw` | Boolean | Enable candid photography aesthetic |
+| `image_prompt` | String | Base64 image for visual context |
+| `image_prompt_strength` | Float | Influence strength (0-1) |
+| `prompt_upsampling` | Boolean | Enhance prompt |
+
+**Multi-Reference Editing (FLUX.2):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `input_image` | String | Primary reference (base64 or URL) |
+| `input_image_2` through `input_image_8` | String | Additional references |
+
+**Note:** BFL uses an async task-based API. Signed URLs expire after 10 minutes.
+
+```pseudocode
+// BFL FLUX.2 params
+bflParams: BFLImageParams = {
+  width: 1024,
+  height: 1024,
+  safety_tolerance: 2,
+  output_format: "png"
+}
+
+// BFL FLUX.2 [flex] params
+flexParams: BFLImageParams = {
+  width: 1024,
+  height: 768,
+  steps: 30,
+  guidance: 5.0,
+  output_format: "jpeg"
+}
+```
+
+#### 13.14.8 OpenRouter Parameters
+
+OpenRouter routes image generation through its unified chat completions endpoint. Image generation requires the `modalities` parameter.
+
+**OpenRouterImageParams Structure:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `modalities` | List<String> | Yes | Must include "image" and "text" |
+| `image_config` | Object | No | Gemini-only configuration |
+
+**image_config Object (Gemini models only):**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `aspect_ratio` | String | "1:1", "2:3", "3:2", "4:3", "9:16", "16:9", "21:9" |
+| `image_size` | String | "1K", "2K", "4K" |
+
+**Provider Routing:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `provider.order` | List<String> | Preferred providers |
+| `provider.allow_fallbacks` | Boolean | Enable automatic fallback |
+| `provider.sort` | String | "price", "throughput", "latency" |
+
+```pseudocode
+// OpenRouter image generation params
+openrouterParams: OpenRouterImageParams = {
+  modalities: ["image", "text"],
+  image_config: {
+    aspect_ratio: "16:9",
+    image_size: "2K"
+  },
+  provider: {
+    order: ["google"],
+    allow_fallbacks: true
+  }
+}
+```
+
+#### 13.14.9 Provider Capability Matrix
+
+| Provider | Generate | Edit | Vary | Upscale | Stream | Max Images |
+|----------|----------|------|------|---------|--------|------------|
+| OpenAI (GPT Image) | ✓ | ✓ | - | - | ✓ | 10 |
+| OpenAI (DALL-E 3) | ✓ | - | - | - | - | 1 |
+| OpenAI (DALL-E 2) | ✓ | ✓ | ✓ | - | - | 10 |
+| Google Imagen | ✓ | ✓ | - | ✓ | - | 4 |
+| xAI | ✓ | - | - | - | - | 10 |
+| Stability AI | ✓ | ✓ | - | ✓ | - | 10 |
+| Together AI | ✓ | ✓* | - | - | - | varies |
+| Replicate | ✓ | ✓* | ✓* | ✓* | - | model-specific |
+| BFL FLUX | ✓ | ✓ | - | - | - | 1 |
+| OpenRouter | ✓ | - | - | - | ✓* | model-specific |
+
+*Capability depends on specific model selected
+
+#### 13.14.10 Providers Without Image Generation
+
+The following providers do NOT support image generation:
+
+- **Anthropic**: Vision/image input only. Claude models can analyze images but cannot generate them.
+- **Ollama**: LLM-focused platform without native image generation. Third-party integrations (OllamaDiffuser, ComfyUI) can provide this separately.
+
+Implementations MUST NOT include image handlers in these providers' `modalities` objects
 
 ### 13.15 Capability Detection
 
