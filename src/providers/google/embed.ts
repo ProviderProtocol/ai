@@ -47,6 +47,8 @@ export interface GoogleEmbedParams {
   title?: string;
   /** Output dimensionality */
   outputDimensionality?: number;
+  /** Whether to automatically truncate inputs exceeding token limits (default: true) */
+  autoTruncate?: boolean;
 }
 
 /**
@@ -146,6 +148,9 @@ export function createEmbeddingHandler(): EmbeddingHandler<GoogleEmbedParams> {
             }
             if (request.params?.outputDimensionality !== undefined) {
               embedRequest.outputDimensionality = request.params.outputDimensionality;
+            }
+            if (request.params?.autoTruncate !== undefined) {
+              embedRequest.autoTruncate = request.params.autoTruncate;
             }
 
             return embedRequest;

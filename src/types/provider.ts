@@ -178,8 +178,7 @@ export interface ModelReference<TOptions = unknown> {
  * @typeParam TParams - Provider-specific parameter type
  * @internal
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface LLMHandler<TParams = any> {
+export interface LLMHandler<TParams = unknown> {
   /**
    * Binds a model ID to create an executable model instance.
    *
@@ -206,8 +205,7 @@ export interface LLMHandler<TParams = any> {
  * @typeParam TParams - Provider-specific parameter type
  * @internal
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface EmbeddingHandler<TParams = any> {
+export interface EmbeddingHandler<TParams = unknown> {
   /** Supported input types for embeddings */
   readonly supportedInputs: ('text' | 'image')[];
 
@@ -236,8 +234,7 @@ export interface EmbeddingHandler<TParams = any> {
  * @typeParam TParams - Provider-specific parameter type
  * @internal
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface ImageHandler<TParams = any> {
+export interface ImageHandler<TParams = unknown> {
   /**
    * Binds a model ID to create an executable image model.
    *
@@ -262,8 +259,7 @@ export interface ImageHandler<TParams = any> {
  *
  * @typeParam TParams - Provider-specific parameter type
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface BoundLLMModel<TParams = any> {
+export interface BoundLLMModel<TParams = unknown> {
   /** The model identifier */
   readonly modelId: string;
 
@@ -279,8 +275,7 @@ export interface BoundLLMModel<TParams = any> {
  *
  * @typeParam TParams - Provider-specific parameter type
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface BoundEmbeddingModel<TParams = any> {
+export interface BoundEmbeddingModel<TParams = unknown> {
   /** The model identifier */
   readonly modelId: string;
 
@@ -309,8 +304,7 @@ export interface BoundEmbeddingModel<TParams = any> {
  * Request passed to provider's embed method.
  * @internal
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface EmbeddingRequest<TParams = any> {
+export interface EmbeddingRequest<TParams = unknown> {
   /** Inputs to embed */
   inputs: EmbeddingInput[];
   /** Provider-specific parameters (passed through unchanged) */
@@ -369,8 +363,7 @@ export type EmbeddingInput = string | { type: 'text'; text: string } | { type: '
  *
  * @typeParam TParams - Provider-specific parameter type
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export interface BoundImageModel<TParams = any> {
+export interface BoundImageModel<TParams = unknown> {
   /** The model identifier */
   readonly modelId: string;
 
@@ -431,8 +424,7 @@ export interface Provider<TOptions = unknown> {
  * @typeParam TParams - Model-specific parameters type
  * @typeParam TOptions - Provider-specific options type
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type LLMProvider<TParams = any, TOptions = unknown> = Provider<TOptions> & {
+export type LLMProvider<TParams = unknown, TOptions = unknown> = Provider<TOptions> & {
   readonly modalities: { llm: LLMHandler<TParams> };
 };
 
@@ -444,8 +436,7 @@ export type LLMProvider<TParams = any, TOptions = unknown> = Provider<TOptions> 
  * @typeParam TParams - Model-specific parameters type
  * @typeParam TOptions - Provider-specific options type
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type EmbeddingProvider<TParams = any, TOptions = unknown> = Provider<TOptions> & {
+export type EmbeddingProvider<TParams = unknown, TOptions = unknown> = Provider<TOptions> & {
   readonly modalities: { embedding: EmbeddingHandler<TParams> };
 };
 
@@ -457,7 +448,6 @@ export type EmbeddingProvider<TParams = any, TOptions = unknown> = Provider<TOpt
  * @typeParam TParams - Model-specific parameters type
  * @typeParam TOptions - Provider-specific options type
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type ImageProvider<TParams = any, TOptions = unknown> = Provider<TOptions> & {
+export type ImageProvider<TParams = unknown, TOptions = unknown> = Provider<TOptions> & {
   readonly modalities: { image: ImageHandler<TParams> };
 };
