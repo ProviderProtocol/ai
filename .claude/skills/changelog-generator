@@ -1,0 +1,12 @@
+---
+name: changelog-generator
+description: Helpful guide on how to generate and structure a changelog for app releases. 
+---
+
+# Implementation Review
+
+## Instructions
+Generate a changelog from last git tag to now. 
+The changelog should be a simple checklist. 
+Avoid un-needed code or comments. 
+When a change requires or adds developer attentive changes / additions write brief, compliant, code samples/examples. 
