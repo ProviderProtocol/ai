@@ -6,7 +6,12 @@
  * modern frameworks like Bun, Deno, and Next.js App Router. These adapters
  * provide native integration for Express, Fastify, and H3/Nuxt.
  *
- * @example Express
+ * @module providers/proxy/server
+ */
+
+/**
+ * Express usage example.
+ * @example
  * ```typescript
  * import { express } from '@providerprotocol/ai/proxy/server';
  *
@@ -19,8 +24,11 @@
  *   }
  * });
  * ```
- *
- * @example Fastify
+ */
+
+/**
+ * Fastify usage example.
+ * @example
  * ```typescript
  * import { fastify } from '@providerprotocol/ai/proxy/server';
  *
@@ -32,8 +40,11 @@
  *   return fastify.sendJSON(await instance.generate(messages), reply);
  * });
  * ```
- *
- * @example Nuxt/Nitro/H3
+ */
+
+/**
+ * Nuxt/Nitro/H3 usage example.
+ * @example
  * ```typescript
  * import { h3 } from '@providerprotocol/ai/proxy/server';
  *
@@ -45,8 +56,6 @@
  *   return h3.sendJSON(await instance.generate(messages), event);
  * });
  * ```
- *
- * @module providers/proxy/server
  */
 
 import { express } from './express.ts';

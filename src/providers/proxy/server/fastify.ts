@@ -4,6 +4,10 @@
  * Provides utilities for using PP proxy with Fastify servers.
  * These adapters convert PP types to Fastify-compatible responses.
  *
+ * @module providers/proxy/server/fastify
+ */
+
+/**
  * @example
  * ```typescript
  * import Fastify from 'fastify';
@@ -25,8 +29,6 @@
  *   }
  * });
  * ```
- *
- * @module providers/proxy/server/fastify
  */
 
 import type { Turn } from '../../../types/turn.ts';

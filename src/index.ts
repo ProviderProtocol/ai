@@ -5,7 +5,13 @@
  * Anthropic, OpenAI, Google, Ollama, OpenRouter, and xAI. The library handles provider-specific
  * transformations, streaming, tool execution, and error handling.
  *
- * @example Basic usage
+ * @module @providerprotocol/ai
+ * @packageDocumentation
+ */
+
+/**
+ * Basic usage example.
+ * @example
  * ```typescript
  * import { llm, anthropic } from '@providerprotocol/ai';
  *
@@ -17,8 +23,11 @@
  * const turn = await model.generate('Hello!');
  * console.log(turn.response.text);
  * ```
- *
- * @example Streaming
+ */
+
+/**
+ * Streaming example.
+ * @example
  * ```typescript
  * for await (const event of model.stream('Tell me a story')) {
  *   if (event.type === 'text') {
@@ -26,9 +35,6 @@
  *   }
  * }
  * ```
- *
- * @module @providerprotocol/ai
- * @packageDocumentation
  */
 
 /** LLM instance factory for creating model-bound inference functions */

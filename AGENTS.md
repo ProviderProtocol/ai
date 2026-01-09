@@ -19,7 +19,7 @@
 
 `.env` contains all AI provider keys.
 > Be sure to use the LSP tool to help get / understand code. 
-> Code documentation MUST use TSDoc style. 
+> Code documentation MUST use TSDoc style. When using TSDoc consider what tags are stripped by TSDoc, and if stripped don't put user valuable information in them - only relevant knowledge for developers or code skimmers belongs there. 
 
 Default to using Bun instead of Node.js.
 

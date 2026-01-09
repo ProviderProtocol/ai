@@ -4,6 +4,10 @@
  * Provides utilities for using PP proxy with Express.js or Connect-based servers.
  * These adapters convert PP types to Express-compatible responses.
  *
+ * @module providers/proxy/server/express
+ */
+
+/**
  * @example
  * ```typescript
  * import express from 'express';
@@ -26,8 +30,6 @@
  *   }
  * });
  * ```
- *
- * @module providers/proxy/server/express
  */
 
 import type { Turn } from '../../../types/turn.ts';

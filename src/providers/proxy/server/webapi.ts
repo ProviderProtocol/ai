@@ -7,6 +7,10 @@
  * These utilities return standard Web API Response objects that work
  * directly with modern runtimes.
  *
+ * @module providers/proxy/server/webapi
+ */
+
+/**
  * @example
  * ```typescript
  * import { llm, anthropic } from '@providerprotocol/ai';
@@ -23,8 +27,6 @@
  *   return toJSON(await instance.generate(messages));
  * }
  * ```
- *
- * @module providers/proxy/server/webapi
  */
 
 import type { Message } from '../../../types/messages.ts';

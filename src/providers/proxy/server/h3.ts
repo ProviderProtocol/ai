@@ -4,6 +4,10 @@
  * Provides utilities for using PP proxy with H3-based servers
  * (Nuxt, Nitro, or standalone H3).
  *
+ * @module providers/proxy/server/h3
+ */
+
+/**
  * @example
  * ```typescript
  * // Nuxt server route: server/api/ai.post.ts
@@ -25,8 +29,6 @@
  *   }
  * });
  * ```
- *
- * @module providers/proxy/server/h3
  */
 
 import type { Turn } from '../../../types/turn.ts';

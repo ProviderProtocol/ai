@@ -4,6 +4,10 @@
  * This module provides the main OpenAI provider implementation that supports both
  * the modern Responses API (default) and the legacy Chat Completions API.
  *
+ * @module providers/openai
+ */
+
+/**
  * @example
  * ```typescript
  * import { openai } from './providers/openai';
@@ -21,8 +25,6 @@
  *   params: { max_tokens: 1000 }
  * });
  * ```
- *
- * @module providers/openai
  */
 
 import type {
