@@ -9,7 +9,6 @@ export default defineConfig({
     "ollama/index": "src/ollama/index.ts",
     "openrouter/index": "src/openrouter/index.ts",
     "xai/index": "src/xai/index.ts",
-    "vertex/index": "src/providers/vertex/index.ts",
     "http/index": "src/http/index.ts",
     "proxy/index": "src/proxy/index.ts",
   },

@@ -47,11 +47,6 @@
       "import": "./dist/xai/index.js",
       "default": "./dist/xai/index.js"
     },
-    "./vertex": {
-      "types": "./dist/vertex/index.d.ts",
-      "import": "./dist/vertex/index.js",
-      "default": "./dist/vertex/index.js"
-    },
     "./http": {
       "types": "./dist/http/index.d.ts",
       "import": "./dist/http/index.js",
