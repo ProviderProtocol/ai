@@ -154,7 +154,7 @@ export function transformMaaSResponse(data: VertexMaaSResponse): LLMResponse {
       try {
         args = JSON.parse(call.function.arguments);
       } catch {
-        // Invalid JSON
+        args = { _raw: call.function.arguments };
       }
       toolCalls.push({
         toolCallId: call.id,
@@ -319,7 +319,7 @@ export function buildMaaSResponseFromState(state: MaaSStreamState): LLMResponse 
     try {
       args = JSON.parse(call.arguments);
     } catch {
-      // Invalid JSON
+      args = { _raw: call.arguments };
     }
     toolCalls.push({
       toolCallId: call.id,

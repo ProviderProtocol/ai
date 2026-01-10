@@ -23,6 +23,7 @@ import {
   createMaaSStreamState,
   buildMaaSResponseFromState,
 } from './transform.maas.ts';
+import { getProjectId, getLocationStrict, mergeCustomHeaders } from './config.ts';
 
 /**
  * Builds the Vertex AI MaaS endpoint URL.
@@ -82,20 +83,8 @@ export function createMaaSLLMHandler(): LLMHandler<VertexMaaSParams> {
             'llm'
           );
 
-          const projectId = (request.config as { projectId?: string }).projectId
-            ?? process.env.GOOGLE_CLOUD_PROJECT
-            ?? process.env.GCLOUD_PROJECT;
-
-          if (!projectId) {
-            throw new UPPError(
-              'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-              'INVALID_REQUEST',
-              'vertex',
-              'llm'
-            );
-          }
-
-          const location = (request.config as { location?: string }).location ?? 'us-central1';
+          const projectId = getProjectId(request.config, true);
+          const location = getLocationStrict(request.config, 'us-central1');
           const url = buildMaaSUrl(projectId, location);
           const body = transformMaaSRequest(request, modelId);
 
@@ -103,14 +92,7 @@ export function createMaaSLLMHandler(): LLMHandler<VertexMaaSParams> {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`,
           };
-
-          if (request.config.headers) {
-            for (const [key, value] of Object.entries(request.config.headers)) {
-              if (value !== undefined) {
-                headers[key] = value;
-              }
-            }
-          }
+          mergeCustomHeaders(headers, request.config);
 
           const response = await doFetch(
             url,
@@ -148,20 +130,8 @@ export function createMaaSLLMHandler(): LLMHandler<VertexMaaSParams> {
                 'llm'
               );
 
-              const projectId = (request.config as { projectId?: string }).projectId
-                ?? process.env.GOOGLE_CLOUD_PROJECT
-                ?? process.env.GCLOUD_PROJECT;
-
-              if (!projectId) {
-                throw new UPPError(
-                  'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-                  'INVALID_REQUEST',
-                  'vertex',
-                  'llm'
-                );
-              }
-
-              const location = (request.config as { location?: string }).location ?? 'us-central1';
+              const projectId = getProjectId(request.config, true);
+              const location = getLocationStrict(request.config, 'us-central1');
               const url = buildMaaSUrl(projectId, location);
               const body = transformMaaSRequest(request, modelId);
               body.stream = true;
@@ -171,14 +141,7 @@ export function createMaaSLLMHandler(): LLMHandler<VertexMaaSParams> {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${accessToken}`,
               };
-
-              if (request.config.headers) {
-                for (const [key, value] of Object.entries(request.config.headers)) {
-                  if (value !== undefined) {
-                    headers[key] = value;
-                  }
-                }
-              }
+              mergeCustomHeaders(headers, request.config);
 
               const response = await doStreamFetch(
                 url,

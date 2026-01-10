@@ -141,6 +141,23 @@ export interface VertexGeminiParams {
    * ```
    */
   toolConfig?: VertexGeminiToolConfig;
+
+  /**
+   * Built-in tools for Gemini models (Google Search, Code Execution, etc.)
+   *
+   * @example
+   * ```typescript
+   * import { vertexTools } from '@providerprotocol/ai/vertex';
+   *
+   * const params: VertexGeminiParams = {
+   *   builtInTools: [
+   *     vertexTools.googleSearch(),
+   *     vertexTools.codeExecution(),
+   *   ],
+   * };
+   * ```
+   */
+  builtInTools?: VertexGeminiBuiltInTool[];
 }
 
 /**
@@ -203,8 +220,8 @@ export interface VertexGeminiRequest {
     logprobs?: number;
     thinkingConfig?: VertexGeminiThinkingConfig;
   };
-  /** Tools for function calling */
-  tools?: VertexGeminiTool[];
+  /** Tools for function calling and built-in tools */
+  tools?: (VertexGeminiTool | VertexGeminiBuiltInTool)[];
   /** Safety settings */
   safetySettings?: VertexGeminiSafetySetting[];
   /** Cached content reference */
@@ -396,9 +413,24 @@ export interface VertexClaudeRequest {
   service_tier?: 'auto' | 'standard_only';
 }
 
+/**
+ * Cache control configuration for Vertex Claude prompt caching.
+ *
+ * Marks content blocks for caching to reduce costs and latency
+ * on subsequent requests with the same prefix.
+ */
+export interface VertexClaudeCacheControl {
+  /** Cache type - only 'ephemeral' is supported */
+  type: 'ephemeral';
+  /** Optional TTL: '5m' (default) or '1h' for extended caching */
+  ttl?: '5m' | '1h';
+}
+
 export interface VertexClaudeSystemContent {
   type: 'text';
   text: string;
+  /** Cache control for prompt caching */
+  cache_control?: VertexClaudeCacheControl;
 }
 
 export interface VertexClaudeMessage {
@@ -415,6 +447,8 @@ export type VertexClaudeContent =
 export interface VertexClaudeTextContent {
   type: 'text';
   text: string;
+  /** Cache control for prompt caching */
+  cache_control?: VertexClaudeCacheControl;
 }
 
 export interface VertexClaudeImageContent {
@@ -424,6 +458,8 @@ export interface VertexClaudeImageContent {
     media_type: string;
     data: string;
   };
+  /** Cache control for prompt caching */
+  cache_control?: VertexClaudeCacheControl;
 }
 
 export interface VertexClaudeToolUseContent {
@@ -431,6 +467,8 @@ export interface VertexClaudeToolUseContent {
   id: string;
   name: string;
   input: Record<string, unknown>;
+  /** Cache control for prompt caching */
+  cache_control?: VertexClaudeCacheControl;
 }
 
 export interface VertexClaudeToolResultContent {
@@ -438,6 +476,8 @@ export interface VertexClaudeToolResultContent {
   tool_use_id: string;
   content: string | VertexClaudeContent[];
   is_error?: boolean;
+  /** Cache control for prompt caching */
+  cache_control?: VertexClaudeCacheControl;
 }
 
 export interface VertexClaudeTool {
@@ -448,6 +488,8 @@ export interface VertexClaudeTool {
     properties: Record<string, unknown>;
     required?: string[];
   };
+  /** Cache control for prompt caching */
+  cache_control?: VertexClaudeCacheControl;
 }
 
 /**
@@ -464,6 +506,10 @@ export interface VertexClaudeResponse {
   usage: {
     input_tokens: number;
     output_tokens: number;
+    /** Tokens used to create cache entries */
+    cache_creation_input_tokens?: number;
+    /** Tokens read from cache */
+    cache_read_input_tokens?: number;
   };
 }
 
@@ -884,3 +930,324 @@ export interface VertexHeaders {
   'x-goog-user-project'?: string;
   [key: string]: string | undefined;
 }
+
+// ============================================
+// Gemini Context Caching Types
+// ============================================
+
+/**
+ * Request body for creating a Vertex AI cached content entry.
+ */
+export interface VertexCacheCreateRequest {
+  /** Full model resource name */
+  model: string;
+  /** Display name for the cache */
+  displayName?: string;
+  /** Content to cache */
+  contents?: VertexGeminiContent[];
+  /** System instruction to cache */
+  systemInstruction?: { parts: VertexGeminiPart[] };
+  /** Tools to cache */
+  tools?: VertexGeminiTool[];
+  /** Tool configuration to cache */
+  toolConfig?: VertexGeminiToolConfig;
+  /** Time-to-live (e.g., "3600s") */
+  ttl?: string;
+  /** Absolute expiration time (RFC 3339) */
+  expireTime?: string;
+}
+
+/**
+ * Response from Vertex AI cached content operations.
+ */
+export interface VertexCacheResponse {
+  /** Full resource name (projects/.../cachedContents/{id}) */
+  name: string;
+  /** Model this cache is associated with */
+  model: string;
+  /** Display name */
+  displayName?: string;
+  /** Creation timestamp (RFC 3339) */
+  createTime: string;
+  /** Last update timestamp (RFC 3339) */
+  updateTime: string;
+  /** Expiration timestamp (RFC 3339) */
+  expireTime: string;
+  /** Token usage metadata */
+  usageMetadata?: {
+    totalTokenCount: number;
+  };
+}
+
+/**
+ * Request body for updating a cached content entry.
+ */
+export interface VertexCacheUpdateRequest {
+  /** New TTL duration */
+  ttl?: string;
+  /** New expiration time (RFC 3339) */
+  expireTime?: string;
+}
+
+/**
+ * Response from listing cached content entries.
+ */
+export interface VertexCacheListResponse {
+  /** List of cache entries */
+  cachedContents?: VertexCacheResponse[];
+  /** Token for fetching the next page */
+  nextPageToken?: string;
+}
+
+// ============================================
+// Gemini Built-in Tools
+// ============================================
+
+/**
+ * Google Search grounding tool for Gemini.
+ *
+ * Enables the model to search Google for up-to-date information.
+ */
+export interface VertexGoogleSearchTool {
+  googleSearch: {
+    /** Domains to exclude from search results */
+    excludeDomains?: string[];
+  };
+}
+
+/**
+ * Code execution tool for Gemini.
+ *
+ * Enables the model to generate and run Python code.
+ */
+export interface VertexCodeExecutionTool {
+  codeExecution: Record<string, never>;
+}
+
+/**
+ * URL context tool for Gemini.
+ *
+ * Enables the model to fetch and analyze content from URLs.
+ */
+export interface VertexUrlContextTool {
+  urlContext: Record<string, never>;
+}
+
+/**
+ * Google Maps grounding tool for Gemini.
+ *
+ * Enables the model to search and display places from Google Maps.
+ */
+export interface VertexGoogleMapsTool {
+  googleMaps: {
+    /** Enable interactive map widget */
+    enableWidget?: boolean;
+  };
+}
+
+/**
+ * Enterprise web search tool for Gemini (Vertex AI exclusive).
+ *
+ * Uses a more limited web index for compliance in regulated industries.
+ */
+export interface VertexEnterpriseWebSearchTool {
+  enterpriseWebSearch: Record<string, never>;
+}
+
+/**
+ * Vertex AI Search retrieval tool for grounding with enterprise data.
+ */
+export interface VertexAISearchTool {
+  retrieval: {
+    vertexAiSearch: {
+      /** Data store resource name */
+      datastore: string;
+    };
+  };
+}
+
+/**
+ * Union type for all Vertex Gemini built-in tools.
+ */
+export type VertexGeminiBuiltInTool =
+  | VertexGoogleSearchTool
+  | VertexCodeExecutionTool
+  | VertexUrlContextTool
+  | VertexGoogleMapsTool
+  | VertexEnterpriseWebSearchTool
+  | VertexAISearchTool;
+
+/**
+ * Retrieval configuration for built-in search tools.
+ */
+export interface VertexRetrievalConfig {
+  /** User location for localizing search results */
+  latLng?: {
+    latitude: number;
+    longitude: number;
+  };
+  /** Language code for results */
+  languageCode?: string;
+}
+
+// ============================================
+// Gemini Built-in Tool Helpers
+// ============================================
+
+/**
+ * Creates a Google Search grounding tool configuration.
+ *
+ * @param options - Optional configuration
+ * @returns A Google Search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * import { vertexTools } from 'provider-protocol/vertex';
+ *
+ * const params = {
+ *   tools: [vertexTools.googleSearch()],
+ * };
+ * ```
+ */
+export function googleSearchTool(options?: {
+  excludeDomains?: string[];
+}): VertexGoogleSearchTool {
+  return {
+    googleSearch: options ?? {},
+  };
+}
+
+/**
+ * Creates a code execution tool configuration.
+ *
+ * @returns A code execution tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const params = {
+ *   tools: [vertexTools.codeExecution()],
+ * };
+ * ```
+ */
+export function codeExecutionTool(): VertexCodeExecutionTool {
+  return {
+    codeExecution: {},
+  };
+}
+
+/**
+ * Creates a URL context tool configuration.
+ *
+ * @returns A URL context tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const params = {
+ *   tools: [vertexTools.urlContext()],
+ * };
+ * ```
+ */
+export function urlContextTool(): VertexUrlContextTool {
+  return {
+    urlContext: {},
+  };
+}
+
+/**
+ * Creates a Google Maps grounding tool configuration.
+ *
+ * @param options - Optional configuration
+ * @returns A Google Maps tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const params = {
+ *   tools: [vertexTools.googleMaps({ enableWidget: true })],
+ * };
+ * ```
+ */
+export function googleMapsTool(options?: {
+  enableWidget?: boolean;
+}): VertexGoogleMapsTool {
+  return {
+    googleMaps: options ?? {},
+  };
+}
+
+/**
+ * Creates an enterprise web search tool configuration.
+ *
+ * @returns An enterprise web search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const params = {
+ *   tools: [vertexTools.enterpriseWebSearch()],
+ * };
+ * ```
+ */
+export function enterpriseWebSearchTool(): VertexEnterpriseWebSearchTool {
+  return {
+    enterpriseWebSearch: {},
+  };
+}
+
+/**
+ * Creates a Vertex AI Search retrieval tool configuration.
+ *
+ * @param datastore - The data store resource name
+ * @returns A Vertex AI Search tool configuration object
+ *
+ * @example
+ * ```typescript
+ * const params = {
+ *   tools: [vertexTools.vertexAiSearch({
+ *     datastore: 'projects/my-project/locations/us/collections/default_collection/dataStores/my-store'
+ *   })],
+ * };
+ * ```
+ */
+export function vertexAiSearchTool(options: {
+  datastore: string;
+}): VertexAISearchTool {
+  return {
+    retrieval: {
+      vertexAiSearch: {
+        datastore: options.datastore,
+      },
+    },
+  };
+}
+
+/**
+ * Namespace object containing all Vertex Gemini built-in tool helpers.
+ *
+ * @example
+ * ```typescript
+ * import { vertex, vertexTools } from 'provider-protocol/vertex';
+ *
+ * const model = llm({
+ *   model: vertex('gemini-2.5-flash'),
+ *   params: {
+ *     builtInTools: [
+ *       vertexTools.googleSearch(),
+ *       vertexTools.codeExecution(),
+ *     ],
+ *   },
+ * });
+ * ```
+ */
+export const vertexTools = {
+  /** Creates a Google Search grounding tool */
+  googleSearch: googleSearchTool,
+  /** Creates a code execution tool */
+  codeExecution: codeExecutionTool,
+  /** Creates a URL context tool */
+  urlContext: urlContextTool,
+  /** Creates a Google Maps grounding tool */
+  googleMaps: googleMapsTool,
+  /** Creates an enterprise web search tool */
+  enterpriseWebSearch: enterpriseWebSearchTool,
+  /** Creates a Vertex AI Search retrieval tool */
+  vertexAiSearch: vertexAiSearchTool,
+};

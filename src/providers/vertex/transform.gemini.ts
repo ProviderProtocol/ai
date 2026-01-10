@@ -33,7 +33,7 @@ export function transformGeminiRequest<TParams extends VertexGeminiParams>(
   _modelId: string
 ): VertexGeminiRequest {
   const params = (request.params ?? {}) as VertexGeminiParams;
-  const { toolConfig, ...generationParams } = params;
+  const { toolConfig, builtInTools, ...generationParams } = params;
 
   const geminiRequest: VertexGeminiRequest = {
     contents: request.messages.map(transformMessage),
@@ -79,6 +79,10 @@ export function transformGeminiRequest<TParams extends VertexGeminiParams>(
     };
 
     geminiRequest.tools = [...(geminiRequest.tools ?? []), structuredTool];
+  }
+
+  if (builtInTools && builtInTools.length > 0) {
+    geminiRequest.tools = [...(geminiRequest.tools ?? []), ...builtInTools];
   }
 
   if (toolConfig) {

@@ -193,7 +193,7 @@ export function transformMistralResponse(data: VertexMistralResponse): LLMRespon
       try {
         args = JSON.parse(call.function.arguments);
       } catch {
-        // Invalid JSON
+        args = { _raw: call.function.arguments };
       }
       toolCalls.push({
         toolCallId: call.id,
@@ -346,7 +346,7 @@ export function buildMistralResponseFromState(state: MistralStreamState): LLMRes
     try {
       args = JSON.parse(call.arguments);
     } catch {
-      // Invalid JSON
+      args = { _raw: call.arguments };
     }
     toolCalls.push({
       toolCallId: call.id,

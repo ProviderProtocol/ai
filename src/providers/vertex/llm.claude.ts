@@ -5,11 +5,11 @@
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
-import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { UPPError } from '../../types/errors.ts';
 import type { VertexClaudeParams, VertexClaudeResponse, VertexClaudeStreamEvent } from './types.ts';
 import {
   transformClaudeRequest,
@@ -18,6 +18,7 @@ import {
   createClaudeStreamState,
   buildClaudeResponseFromState,
 } from './transform.claude.ts';
+import { getProjectId, getLocation, mergeCustomHeaders } from './config.ts';
 
 /**
  * Builds the Vertex AI Claude endpoint URL.
@@ -84,20 +85,8 @@ export function createClaudeLLMHandler(): LLMHandler<VertexClaudeParams> {
             'llm'
           );
 
-          const projectId = (request.config as { projectId?: string }).projectId
-            ?? process.env.GOOGLE_CLOUD_PROJECT
-            ?? process.env.GCLOUD_PROJECT;
-
-          if (!projectId) {
-            throw new UPPError(
-              'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-              'INVALID_REQUEST',
-              'vertex',
-              'llm'
-            );
-          }
-
-          const location = (request.config as { location?: string }).location ?? 'us-central1';
+          const projectId = getProjectId(request.config, true);
+          const location = getLocation(request.config, 'us-central1');
           const url = buildClaudeUrl(projectId, location, modelId, false);
           const body = transformClaudeRequest(request, modelId);
 
@@ -105,14 +94,7 @@ export function createClaudeLLMHandler(): LLMHandler<VertexClaudeParams> {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`,
           };
-
-          if (request.config.headers) {
-            for (const [key, value] of Object.entries(request.config.headers)) {
-              if (value !== undefined) {
-                headers[key] = value;
-              }
-            }
-          }
+          mergeCustomHeaders(headers, request.config);
 
           const response = await doFetch(
             url,
@@ -150,20 +132,8 @@ export function createClaudeLLMHandler(): LLMHandler<VertexClaudeParams> {
                 'llm'
               );
 
-              const projectId = (request.config as { projectId?: string }).projectId
-                ?? process.env.GOOGLE_CLOUD_PROJECT
-                ?? process.env.GCLOUD_PROJECT;
-
-              if (!projectId) {
-                throw new UPPError(
-                  'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-                  'INVALID_REQUEST',
-                  'vertex',
-                  'llm'
-                );
-              }
-
-              const location = (request.config as { location?: string }).location ?? 'us-central1';
+              const projectId = getProjectId(request.config, true);
+              const location = getLocation(request.config, 'us-central1');
               const url = buildClaudeUrl(projectId, location, modelId, true);
               const body = transformClaudeRequest(request, modelId);
               body.stream = true;
@@ -172,14 +142,7 @@ export function createClaudeLLMHandler(): LLMHandler<VertexClaudeParams> {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${accessToken}`,
               };
-
-              if (request.config.headers) {
-                for (const [key, value] of Object.entries(request.config.headers)) {
-                  if (value !== undefined) {
-                    headers[key] = value;
-                  }
-                }
-              }
+              mergeCustomHeaders(headers, request.config);
 
               const response = await doStreamFetch(
                 url,

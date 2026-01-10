@@ -18,6 +18,7 @@ import {
   createGeminiStreamState,
   buildGeminiResponseFromState,
 } from './transform.gemini.ts';
+import { getProjectId, getLocation, mergeCustomHeaders } from './config.ts';
 
 /**
  * Authentication mode for Vertex AI Gemini.
@@ -121,36 +122,14 @@ export function createGeminiLLMHandler(): LLMHandler<VertexGeminiParams> {
               'llm'
             );
 
-            const projectId = (request.config as { projectId?: string }).projectId
-              ?? process.env.GOOGLE_CLOUD_PROJECT
-              ?? process.env.GCLOUD_PROJECT;
-
-            if (!projectId) {
-              throw new UPPError(
-                'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-                'INVALID_REQUEST',
-                'vertex',
-                'llm'
-              );
-            }
-
-            const location = (request.config as { location?: string }).location
-              ?? process.env.GOOGLE_CLOUD_LOCATION
-              ?? process.env.VERTEX_LOCATION
-              ?? 'global';
+            const projectId = getProjectId(request.config, true);
+            const location = getLocation(request.config, 'global');
             url = buildGeminiUrl(modelId, false, 'oauth', undefined, projectId, location);
             headers['Authorization'] = `Bearer ${accessToken}`;
           }
 
           const body = transformGeminiRequest(request, modelId);
-
-          if (request.config.headers) {
-            for (const [key, value] of Object.entries(request.config.headers)) {
-              if (value !== undefined) {
-                headers[key] = value;
-              }
-            }
-          }
+          mergeCustomHeaders(headers, request.config);
 
           const response = await doFetch(
             url,
@@ -204,36 +183,14 @@ export function createGeminiLLMHandler(): LLMHandler<VertexGeminiParams> {
                   'llm'
                 );
 
-                const projectId = (request.config as { projectId?: string }).projectId
-                  ?? process.env.GOOGLE_CLOUD_PROJECT
-                  ?? process.env.GCLOUD_PROJECT;
-
-                if (!projectId) {
-                  throw new UPPError(
-                    'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-                    'INVALID_REQUEST',
-                    'vertex',
-                    'llm'
-                  );
-                }
-
-                const location = (request.config as { location?: string }).location
-              ?? process.env.GOOGLE_CLOUD_LOCATION
-              ?? process.env.VERTEX_LOCATION
-              ?? 'global';
+                const projectId = getProjectId(request.config, true);
+                const location = getLocation(request.config, 'global');
                 url = buildGeminiUrl(modelId, true, 'oauth', undefined, projectId, location);
                 headers['Authorization'] = `Bearer ${accessToken}`;
               }
 
               const body = transformGeminiRequest(request, modelId);
-
-              if (request.config.headers) {
-                for (const [key, value] of Object.entries(request.config.headers)) {
-                  if (value !== undefined) {
-                    headers[key] = value;
-                  }
-                }
-              }
+              mergeCustomHeaders(headers, request.config);
 
               const response = await doStreamFetch(
                 url,

@@ -18,6 +18,7 @@ import {
   createMistralStreamState,
   buildMistralResponseFromState,
 } from './transform.mistral.ts';
+import { getProjectId, getLocationStrict, mergeCustomHeaders } from './config.ts';
 
 /**
  * Builds the Vertex AI Mistral endpoint URL.
@@ -78,20 +79,8 @@ export function createMistralLLMHandler(): LLMHandler<VertexMistralParams> {
             'llm'
           );
 
-          const projectId = (request.config as { projectId?: string }).projectId
-            ?? process.env.GOOGLE_CLOUD_PROJECT
-            ?? process.env.GCLOUD_PROJECT;
-
-          if (!projectId) {
-            throw new UPPError(
-              'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-              'INVALID_REQUEST',
-              'vertex',
-              'llm'
-            );
-          }
-
-          const location = (request.config as { location?: string }).location ?? 'us-central1';
+          const projectId = getProjectId(request.config, true);
+          const location = getLocationStrict(request.config, 'us-central1');
           const url = buildMistralUrl(projectId, location, modelId, false);
           const body = transformMistralRequest(request, modelId);
 
@@ -99,14 +88,7 @@ export function createMistralLLMHandler(): LLMHandler<VertexMistralParams> {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${accessToken}`,
           };
-
-          if (request.config.headers) {
-            for (const [key, value] of Object.entries(request.config.headers)) {
-              if (value !== undefined) {
-                headers[key] = value;
-              }
-            }
-          }
+          mergeCustomHeaders(headers, request.config);
 
           const response = await doFetch(
             url,
@@ -144,20 +126,8 @@ export function createMistralLLMHandler(): LLMHandler<VertexMistralParams> {
                 'llm'
               );
 
-              const projectId = (request.config as { projectId?: string }).projectId
-                ?? process.env.GOOGLE_CLOUD_PROJECT
-                ?? process.env.GCLOUD_PROJECT;
-
-              if (!projectId) {
-                throw new UPPError(
-                  'Google Cloud project ID is required. Set config.projectId or GOOGLE_CLOUD_PROJECT env var.',
-                  'INVALID_REQUEST',
-                  'vertex',
-                  'llm'
-                );
-              }
-
-              const location = (request.config as { location?: string }).location ?? 'us-central1';
+              const projectId = getProjectId(request.config, true);
+              const location = getLocationStrict(request.config, 'us-central1');
               const url = buildMistralUrl(projectId, location, modelId, true);
               const body = transformMistralRequest(request, modelId);
               body.stream = true;
@@ -166,14 +136,7 @@ export function createMistralLLMHandler(): LLMHandler<VertexMistralParams> {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${accessToken}`,
               };
-
-              if (request.config.headers) {
-                for (const [key, value] of Object.entries(request.config.headers)) {
-                  if (value !== undefined) {
-                    headers[key] = value;
-                  }
-                }
-              }
+              mergeCustomHeaders(headers, request.config);
 
               const response = await doStreamFetch(
                 url,

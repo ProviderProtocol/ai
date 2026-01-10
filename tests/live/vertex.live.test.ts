@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
-import { vertex } from '../../src/providers/vertex/index.ts';
+import { vertex, vertexTools, cache } from '../../src/providers/vertex/index.ts';
 import type {
   VertexGeminiParams,
   VertexClaudeParams,
@@ -373,6 +373,155 @@ describe.skipIf(!hasPartnerAuth)('Vertex AI MaaS Live API', () => {
 
     // Either streaming or final response should have content
     expect(text.length > 0 || turn.response.text.length > 0).toBe(true);
+  });
+});
+
+/**
+ * Live API tests for Vertex AI Gemini built-in tools.
+ */
+describe.skipIf(!hasGeminiAuth)('Vertex AI Gemini Built-in Tools', () => {
+  test('Google Search grounding', async () => {
+    const gemini = llm<VertexGeminiParams>({
+      model: vertex('gemini-3-flash-preview'),
+      params: {
+        maxOutputTokens: 200,
+        builtInTools: [vertexTools.googleSearch()],
+      },
+    });
+
+    const turn = await gemini.generate('What is the current price of Bitcoin in USD?');
+
+    expect(turn.response.text.length).toBeGreaterThan(0);
+    expect(turn.cycles).toBe(1);
+  });
+
+  test('Code execution tool', async () => {
+    const gemini = llm<VertexGeminiParams>({
+      model: vertex('gemini-3-flash-preview'),
+      params: {
+        maxOutputTokens: 500,
+        builtInTools: [vertexTools.codeExecution()],
+      },
+    });
+
+    const turn = await gemini.generate('Calculate the factorial of 10 using Python code.');
+
+    // Accept either format: 3628800 or 3,628,800
+    expect(turn.response.text.replace(/,/g, '')).toContain('3628800');
+    expect(turn.cycles).toBe(1);
+  });
+
+  test('Google Search with excluded domains', async () => {
+    const gemini = llm<VertexGeminiParams>({
+      model: vertex('gemini-3-flash-preview'),
+      params: {
+        maxOutputTokens: 200,
+        builtInTools: [
+          vertexTools.googleSearch({ excludeDomains: ['wikipedia.org'] }),
+        ],
+      },
+    });
+
+    const turn = await gemini.generate('What is the capital of France?');
+
+    expect(turn.response.text.length).toBeGreaterThan(0);
+    expect(turn.cycles).toBe(1);
+  });
+});
+
+/**
+ * Live API tests for Vertex AI Gemini caching.
+ * Requires OAuth authentication.
+ *
+ * Note: Caching requires the Vertex AI API to be enabled and uses the v1beta1 endpoint.
+ */
+describe.skipIf(!hasPartnerAuth)('Vertex AI Gemini Caching', () => {
+  const accessToken = process.env.GOOGLE_ACCESS_TOKEN!;
+  const projectId = process.env.GOOGLE_CLOUD_PROJECT || process.env.GCLOUD_PROJECT!;
+  const location = process.env.GOOGLE_CLOUD_LOCATION || 'us-central1';
+
+  test('list caches (verifies API access)', async () => {
+    const result = await cache.list({
+      accessToken,
+      projectId,
+      location,
+      pageSize: 5,
+    });
+
+    expect(result).toBeDefined();
+    expect(Array.isArray(result.cachedContents) || result.cachedContents === undefined).toBe(true);
+  });
+
+  test('create and delete cache', async () => {
+    // Minimum 1024 tokens required for caching
+    const largeSystemInstruction = 'You are a helpful assistant specialized in testing software applications. '.repeat(150);
+    const cacheEntry = await cache.create({
+      accessToken,
+      projectId,
+      location,
+      model: 'gemini-3-flash-preview',
+      displayName: 'UPP Test Cache',
+      systemInstruction: largeSystemInstruction,
+      ttl: '300s',
+    });
+
+    expect(cacheEntry.name).toBeDefined();
+    expect(cacheEntry.name).toContain('cachedContents');
+    expect(cacheEntry.displayName).toBe('UPP Test Cache');
+
+    await cache.delete(cacheEntry.name, {
+      accessToken,
+      projectId,
+      location,
+    });
+  });
+
+  test('cache with contents', async () => {
+    const cacheEntry = await cache.create({
+      accessToken,
+      projectId,
+      location,
+      model: 'gemini-3-flash-preview',
+      displayName: 'UPP Content Cache Test',
+      contents: [
+        {
+          role: 'user',
+          parts: [{ text: 'This is a large document that would benefit from caching. '.repeat(100) }],
+        },
+      ],
+      ttl: '300s',
+    });
+
+    expect(cacheEntry.name).toBeDefined();
+    expect(cacheEntry.usageMetadata?.totalTokenCount).toBeGreaterThan(0);
+
+    await cache.delete(cacheEntry.name, {
+      accessToken,
+      projectId,
+      location,
+    });
+  });
+});
+
+/**
+ * Live API tests for Vertex AI Claude caching (cache_control).
+ */
+describe.skipIf(!hasPartnerAuth)('Vertex AI Claude Cache Control', () => {
+  test('tracks cache tokens in response', async () => {
+    const largeSystemPrompt = 'You are a helpful assistant. This is a large system prompt that would benefit from caching. '.repeat(50);
+    const claude = llm<VertexClaudeParams>({
+      model: vertex('claude-haiku-4-5', { endpoint: 'claude' }),
+      config: { location: 'global' } as Record<string, unknown>,
+      params: { max_tokens: 100 },
+      system: largeSystemPrompt,
+    });
+
+    const turn = await claude.generate('Hello, how are you?');
+
+    expect(turn.response.text.length).toBeGreaterThan(0);
+    expect(turn.usage.totalTokens).toBeGreaterThan(0);
+    expect(turn.usage.cacheReadTokens).toBeDefined();
+    expect(turn.usage.cacheWriteTokens).toBeDefined();
   });
 });
 

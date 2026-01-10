@@ -211,8 +211,8 @@ export function transformClaudeResponse(data: VertexClaudeResponse): LLMResponse
     inputTokens: data.usage.input_tokens,
     outputTokens: data.usage.output_tokens,
     totalTokens: data.usage.input_tokens + data.usage.output_tokens,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
+    cacheReadTokens: data.usage.cache_read_input_tokens ?? 0,
+    cacheWriteTokens: data.usage.cache_creation_input_tokens ?? 0,
   };
 
   return {
@@ -239,6 +239,8 @@ export interface ClaudeStreamState {
   stopReason: string | null;
   inputTokens: number;
   outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
 }
 
 export function createClaudeStreamState(): ClaudeStreamState {
@@ -249,6 +251,8 @@ export function createClaudeStreamState(): ClaudeStreamState {
     stopReason: null,
     inputTokens: 0,
     outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
   };
 }
 
@@ -264,6 +268,8 @@ export function transformClaudeStreamEvent(
       state.messageId = event.message.id;
       state.model = event.message.model;
       state.inputTokens = event.message.usage.input_tokens;
+      state.cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
+      state.cacheWriteTokens = event.message.usage.cache_creation_input_tokens ?? 0;
       return { type: 'message_start', index: 0, delta: {} };
 
     case 'content_block_start':
@@ -357,7 +363,7 @@ export function buildClaudeResponseFromState(state: ClaudeStreamState): LLMRespo
         try {
           args = JSON.parse(block.input);
         } catch {
-          // Invalid JSON
+          args = { _raw: block.input };
         }
       }
       if (block.name === 'json_response') {
@@ -389,8 +395,8 @@ export function buildClaudeResponseFromState(state: ClaudeStreamState): LLMRespo
     inputTokens: state.inputTokens,
     outputTokens: state.outputTokens,
     totalTokens: state.inputTokens + state.outputTokens,
-    cacheReadTokens: 0,
-    cacheWriteTokens: 0,
+    cacheReadTokens: state.cacheReadTokens,
+    cacheWriteTokens: state.cacheWriteTokens,
   };
 
   return {

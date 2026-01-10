@@ -209,9 +209,10 @@ describe('Vertex Gemini Tool Transform', () => {
     );
 
     expect(request.tools).toHaveLength(1);
-    expect(request.tools?.[0]?.functionDeclarations).toHaveLength(1);
-    expect(request.tools?.[0]?.functionDeclarations[0]?.name).toBe('getWeather');
-    expect(request.tools?.[0]?.functionDeclarations[0]?.description).toBe('Get the weather for a location');
+    const funcTool = request.tools?.[0] as { functionDeclarations: Array<{ name: string; description: string }> };
+    expect(funcTool?.functionDeclarations).toHaveLength(1);
+    expect(funcTool?.functionDeclarations[0]?.name).toBe('getWeather');
+    expect(funcTool?.functionDeclarations[0]?.description).toBe('Get the weather for a location');
   });
 
   test('transformGeminiRequest with tools and toolConfig', async () => {

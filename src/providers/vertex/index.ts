@@ -58,9 +58,9 @@
 import type {
   Provider,
   ModelReference,
-  LLMHandler,
   LLMProvider,
 } from '../../types/provider.ts';
+import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult } from '../../types/llm.ts';
 import { createGeminiLLMHandler } from './llm.gemini.ts';
 import { createClaudeLLMHandler } from './llm.claude.ts';
 import { createMistralLLMHandler } from './llm.mistral.ts';
@@ -73,6 +73,7 @@ import type {
   VertexMistralParams,
   VertexMaaSParams,
 } from './types.ts';
+import { cache } from './cache.ts';
 
 /**
  * Union type for all Vertex AI parameter types.
@@ -82,6 +83,16 @@ export type VertexLLMParams =
   | VertexClaudeParams
   | VertexMistralParams
   | VertexMaaSParams;
+
+/**
+ * Extended model reference that includes endpoint information.
+ *
+ * This is used internally to preserve the endpoint selection made when
+ * creating the model reference, ensuring static capability resolution.
+ */
+interface VertexModelReference extends ModelReference<VertexProviderOptions> {
+  readonly endpoint: VertexEndpoint;
+}
 
 /**
  * Vertex AI provider interface with configurable endpoint selection.
@@ -103,7 +114,7 @@ export interface VertexProvider extends Provider<VertexProviderOptions> {
    * @param options - Endpoint selection and configuration
    * @returns A model reference for use with llm()
    */
-  (modelId: string, options?: VertexProviderOptions): ModelReference<VertexProviderOptions>;
+  (modelId: string, options?: VertexProviderOptions): VertexModelReference;
 
   /** Provider identifier. Always 'vertex'. */
   readonly name: 'vertex';
@@ -113,10 +124,117 @@ export interface VertexProvider extends Provider<VertexProviderOptions> {
 
   /**
    * Supported modalities.
-   * LLM handler is dynamically selected based on endpoint option.
+   * LLM handler delegates to endpoint-specific handlers based on the model's endpoint.
    */
   readonly modalities: {
     llm: LLMHandler<VertexLLMParams>;
+  };
+
+  /**
+   * Cache utilities for Gemini models.
+   *
+   * @see {@link cache} for detailed documentation
+   */
+  readonly cache: typeof cache;
+}
+
+/**
+ * Registry for tracking model endpoint associations.
+ *
+ * Maps modelId to endpoint for lookup during handler binding.
+ * Uses WeakRef-like pattern to avoid memory leaks in long-running processes.
+ */
+const modelEndpointRegistry = new Map<string, VertexEndpoint>();
+
+/**
+ * Common interface for bound LLM models, abstracting away the parameter type.
+ * This allows us to work with any endpoint's bound model without union type issues.
+ */
+interface BoundModelProxy {
+  readonly modelId: string;
+  readonly capabilities: import('../../types/llm.ts').LLMCapabilities;
+  complete(request: LLMRequest<VertexLLMParams>): Promise<LLMResponse>;
+  stream(request: LLMRequest<VertexLLMParams>): LLMStreamResult;
+}
+
+/**
+ * Creates a proxy that adapts a typed BoundLLMModel to the common interface.
+ */
+function createBoundModelProxy<TParams>(
+  model: BoundLLMModel<TParams>
+): BoundModelProxy {
+  return {
+    modelId: model.modelId,
+    capabilities: model.capabilities,
+    complete(request: LLMRequest<VertexLLMParams>): Promise<LLMResponse> {
+      return model.complete(request as LLMRequest<TParams>);
+    },
+    stream(request: LLMRequest<VertexLLMParams>): LLMStreamResult {
+      return model.stream(request as LLMRequest<TParams>);
+    },
+  };
+}
+
+/**
+ * Creates a unified LLM handler that delegates to endpoint-specific handlers.
+ *
+ * This handler resolves the appropriate endpoint handler at bind time based
+ * on the model's registered endpoint, ensuring capabilities are static for
+ * each bound model instance.
+ */
+function createUnifiedLLMHandler(
+  geminiHandler: LLMHandler<VertexGeminiParams>,
+  claudeHandler: LLMHandler<VertexClaudeParams>,
+  mistralHandler: LLMHandler<VertexMistralParams>,
+  maasHandler: LLMHandler<VertexMaaSParams>,
+  getProvider: () => LLMProvider<VertexLLMParams>
+): LLMHandler<VertexLLMParams> {
+  return {
+    bind(modelId: string): BoundLLMModel<VertexLLMParams> {
+      const endpoint = modelEndpointRegistry.get(modelId) ?? 'gemini';
+
+      let proxy: BoundModelProxy;
+
+      switch (endpoint) {
+        case 'claude':
+          proxy = createBoundModelProxy(claudeHandler.bind(modelId));
+          break;
+        case 'mistral':
+          proxy = createBoundModelProxy(mistralHandler.bind(modelId));
+          break;
+        case 'maas':
+          proxy = createBoundModelProxy(maasHandler.bind(modelId));
+          break;
+        case 'gemini':
+        default:
+          proxy = createBoundModelProxy(geminiHandler.bind(modelId));
+          break;
+      }
+
+      return {
+        modelId: proxy.modelId,
+        capabilities: proxy.capabilities,
+
+        get provider(): LLMProvider<VertexLLMParams> {
+          return getProvider();
+        },
+
+        complete(request: LLMRequest<VertexLLMParams>): Promise<LLMResponse> {
+          return proxy.complete(request);
+        },
+
+        stream(request: LLMRequest<VertexLLMParams>): LLMStreamResult {
+          return proxy.stream(request);
+        },
+      };
+    },
+
+    _setProvider(provider: LLMProvider<VertexLLMParams>): void {
+      geminiHandler._setProvider?.(provider as LLMProvider<VertexGeminiParams>);
+      claudeHandler._setProvider?.(provider as LLMProvider<VertexClaudeParams>);
+      mistralHandler._setProvider?.(provider as LLMProvider<VertexMistralParams>);
+      maasHandler._setProvider?.(provider as LLMProvider<VertexMaaSParams>);
+    },
   };
 }
 
@@ -124,35 +242,32 @@ export interface VertexProvider extends Provider<VertexProviderOptions> {
  * Factory function to create the Vertex AI provider singleton.
  */
 function createVertexProvider(): VertexProvider {
-  let currentEndpoint: VertexEndpoint = 'gemini';
-
   const geminiHandler = createGeminiLLMHandler();
   const claudeHandler = createClaudeLLMHandler();
   const mistralHandler = createMistralLLMHandler();
   const maasHandler = createMaaSLLMHandler();
 
+  let providerRef: VertexProvider;
+
+  const unifiedHandler = createUnifiedLLMHandler(
+    geminiHandler,
+    claudeHandler,
+    mistralHandler,
+    maasHandler,
+    () => providerRef as LLMProvider<VertexLLMParams>
+  );
+
   const fn = function (
     modelId: string,
     options?: VertexProviderOptions
-  ): ModelReference<VertexProviderOptions> {
-    currentEndpoint = options?.endpoint ?? 'gemini';
-    return { modelId, provider };
+  ): VertexModelReference {
+    const endpoint = options?.endpoint ?? 'gemini';
+    modelEndpointRegistry.set(modelId, endpoint);
+    return { modelId, provider: providerRef, endpoint };
   };
 
-  const modalities = {
-    get llm(): LLMHandler<VertexLLMParams> {
-      switch (currentEndpoint) {
-        case 'claude':
-          return claudeHandler as unknown as LLMHandler<VertexLLMParams>;
-        case 'mistral':
-          return mistralHandler as unknown as LLMHandler<VertexLLMParams>;
-        case 'maas':
-          return maasHandler as unknown as LLMHandler<VertexLLMParams>;
-        case 'gemini':
-        default:
-          return geminiHandler as unknown as LLMHandler<VertexLLMParams>;
-      }
-    },
+  const modalities: { llm: LLMHandler<VertexLLMParams> } = {
+    llm: unifiedHandler,
   };
 
   Object.defineProperties(fn, {
@@ -171,16 +286,18 @@ function createVertexProvider(): VertexProvider {
       writable: false,
       configurable: true,
     },
+    cache: {
+      value: cache,
+      writable: false,
+      configurable: true,
+    },
   });
 
-  const provider = fn as VertexProvider;
+  providerRef = fn as VertexProvider;
 
-  geminiHandler._setProvider?.(provider as unknown as LLMProvider<VertexGeminiParams>);
-  claudeHandler._setProvider?.(provider as unknown as LLMProvider<VertexClaudeParams>);
-  mistralHandler._setProvider?.(provider as unknown as LLMProvider<VertexMistralParams>);
-  maasHandler._setProvider?.(provider as unknown as LLMProvider<VertexMaaSParams>);
+  unifiedHandler._setProvider?.(providerRef as LLMProvider<VertexLLMParams>);
 
-  return provider;
+  return providerRef;
 }
 
 /**
@@ -250,14 +367,44 @@ function createVertexProvider(): VertexProvider {
  */
 export const vertex = createVertexProvider();
 
+export { cache } from './cache.ts';
+export type {
+  VertexCacheCreateOptions,
+  VertexCacheListOptions,
+  VertexCacheOptions,
+} from './cache.ts';
+
+export {
+  vertexTools,
+  googleSearchTool,
+  codeExecutionTool,
+  urlContextTool,
+  googleMapsTool,
+  enterpriseWebSearchTool,
+  vertexAiSearchTool,
+} from './types.ts';
+
 export type {
   VertexProviderOptions,
   VertexEndpoint,
   VertexGeminiParams,
   VertexGeminiToolConfig,
   VertexClaudeParams,
+  VertexClaudeCacheControl,
   VertexMistralParams,
   VertexMaaSParams,
   VertexAuthConfig,
   VertexHeaders,
+  VertexCacheCreateRequest,
+  VertexCacheResponse,
+  VertexCacheUpdateRequest,
+  VertexCacheListResponse,
+  VertexGoogleSearchTool,
+  VertexCodeExecutionTool,
+  VertexUrlContextTool,
+  VertexGoogleMapsTool,
+  VertexEnterpriseWebSearchTool,
+  VertexAISearchTool,
+  VertexGeminiBuiltInTool,
+  VertexRetrievalConfig,
 } from './types.ts';
