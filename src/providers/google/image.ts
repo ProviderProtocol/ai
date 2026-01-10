@@ -178,19 +178,7 @@ async function executeGenerate(
  * Build parameters object for the API.
  */
 function buildParameters(params?: GoogleImagenParams): Record<string, unknown> {
-  const parameters: Record<string, unknown> = {};
-
-  if (!params) return parameters;
-
-  if (params.sampleCount !== undefined) parameters.sampleCount = params.sampleCount;
-  if (params.imageSize !== undefined) parameters.imageSize = params.imageSize;
-  if (params.aspectRatio !== undefined) parameters.aspectRatio = params.aspectRatio;
-  if (params.personGeneration !== undefined) parameters.personGeneration = params.personGeneration;
-  if (params.safetyFilterLevel !== undefined) parameters.safetyFilterLevel = params.safetyFilterLevel;
-  if (params.addWatermark !== undefined) parameters.addWatermark = params.addWatermark;
-  if (params.negativePrompt !== undefined) parameters.negativePrompt = params.negativePrompt;
-
-  return parameters;
+  return params ? { ...params } : {};
 }
 
 /**

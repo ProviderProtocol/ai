@@ -135,23 +135,10 @@ export function createEmbeddingHandler(): EmbeddingHandler<GoogleEmbedParams> {
             }
 
             const embedRequest: Record<string, unknown> = {
+              ...request.params,
               model: `models/${modelId}`,
               content: { parts: [{ text }] },
             };
-
-            // Pass through Google-specific params
-            if (request.params?.taskType !== undefined) {
-              embedRequest.taskType = request.params.taskType;
-            }
-            if (request.params?.title !== undefined) {
-              embedRequest.title = request.params.title;
-            }
-            if (request.params?.outputDimensionality !== undefined) {
-              embedRequest.outputDimensionality = request.params.outputDimensionality;
-            }
-            if (request.params?.autoTruncate !== undefined) {
-              embedRequest.autoTruncate = request.params.autoTruncate;
-            }
 
             return embedRequest;
           });

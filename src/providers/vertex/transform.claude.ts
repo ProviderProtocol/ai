@@ -33,11 +33,13 @@ export function transformClaudeRequest<TParams extends VertexClaudeParams>(
   _modelId: string
 ): VertexClaudeRequest {
   const params = (request.params ?? {}) as VertexClaudeParams;
+  const { max_tokens, ...restParams } = params;
 
   const claudeRequest: VertexClaudeRequest = {
+    ...restParams,
     anthropic_version: 'vertex-2023-10-16',
     messages: request.messages.map(transformMessage),
-    max_tokens: params.max_tokens ?? 4096,
+    max_tokens: max_tokens ?? 4096,
   };
 
   if (request.system) {
@@ -47,14 +49,6 @@ export function transformClaudeRequest<TParams extends VertexClaudeParams>(
       claudeRequest.system = request.system as VertexClaudeRequest['system'];
     }
   }
-
-  if (params.temperature !== undefined) claudeRequest.temperature = params.temperature;
-  if (params.top_p !== undefined) claudeRequest.top_p = params.top_p;
-  if (params.top_k !== undefined) claudeRequest.top_k = params.top_k;
-  if (params.stop_sequences !== undefined) claudeRequest.stop_sequences = params.stop_sequences;
-  if (params.thinking !== undefined) claudeRequest.thinking = params.thinking;
-  if (params.metadata !== undefined) claudeRequest.metadata = params.metadata;
-  if (params.service_tier !== undefined) claudeRequest.service_tier = params.service_tier;
 
   if (request.tools && request.tools.length > 0) {
     claudeRequest.tools = request.tools.map(transformTool);

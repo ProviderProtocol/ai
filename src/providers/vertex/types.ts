@@ -124,6 +124,23 @@ export interface VertexGeminiParams {
 
   /** Thinking configuration for reasoning models */
   thinkingConfig?: VertexGeminiThinkingConfig;
+
+  /**
+   * Tool configuration for controlling function calling behavior.
+   *
+   * @example
+   * ```typescript
+   * const params: VertexGeminiParams = {
+   *   toolConfig: {
+   *     functionCallingConfig: {
+   *       mode: 'ANY',
+   *       allowedFunctionNames: ['getWeather', 'searchPlaces'],
+   *     },
+   *   },
+   * };
+   * ```
+   */
+  toolConfig?: VertexGeminiToolConfig;
 }
 
 /**
@@ -134,6 +151,31 @@ export interface VertexGeminiThinkingConfig {
   thinkingBudget?: number;
   /** Reasoning depth level */
   thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';
+}
+
+/**
+ * Tool configuration for controlling function calling behavior.
+ *
+ * Controls how the model uses declared functions/tools during generation.
+ */
+export interface VertexGeminiToolConfig {
+  /**
+   * Configuration for function calling behavior.
+   */
+  functionCallingConfig?: {
+    /**
+     * Function calling mode:
+     * - `'AUTO'`: Model decides when to call functions (default)
+     * - `'ANY'`: Model must call at least one function
+     * - `'NONE'`: Model cannot call any functions
+     */
+    mode?: 'AUTO' | 'ANY' | 'NONE';
+    /**
+     * Restrict which functions can be called.
+     * Only applicable when mode is 'ANY'.
+     */
+    allowedFunctionNames?: string[];
+  };
 }
 
 /**
@@ -167,6 +209,8 @@ export interface VertexGeminiRequest {
   safetySettings?: VertexGeminiSafetySetting[];
   /** Cached content reference */
   cachedContent?: string;
+  /** Tool configuration for function calling behavior */
+  toolConfig?: VertexGeminiToolConfig;
 }
 
 /**

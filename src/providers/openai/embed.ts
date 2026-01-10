@@ -137,22 +137,12 @@ export function createEmbeddingHandler(): EmbeddingHandler<OpenAIEmbedParams> {
             );
           });
 
-          // Build request body - params pass through unchanged
+          // Build request body - params spillover unchanged
           const body: Record<string, unknown> = {
+            ...request.params,
             model: modelId,
             input: inputTexts,
           };
-
-          // Pass through OpenAI-specific params
-          if (request.params?.dimensions !== undefined) {
-            body.dimensions = request.params.dimensions;
-          }
-          if (request.params?.encoding_format !== undefined) {
-            body.encoding_format = request.params.encoding_format;
-          }
-          if (request.params?.user !== undefined) {
-            body.user = request.params.user;
-          }
 
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',

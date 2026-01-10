@@ -33,6 +33,7 @@ export function transformGeminiRequest<TParams extends VertexGeminiParams>(
   _modelId: string
 ): VertexGeminiRequest {
   const params = (request.params ?? {}) as VertexGeminiParams;
+  const { toolConfig, ...generationParams } = params;
 
   const geminiRequest: VertexGeminiRequest = {
     contents: request.messages.map(transformMessage),
@@ -50,21 +51,9 @@ export function transformGeminiRequest<TParams extends VertexGeminiParams>(
     }
   }
 
-  const generationConfig: VertexGeminiRequest['generationConfig'] = {};
-  if (params.maxOutputTokens !== undefined) generationConfig.maxOutputTokens = params.maxOutputTokens;
-  if (params.temperature !== undefined) generationConfig.temperature = params.temperature;
-  if (params.topP !== undefined) generationConfig.topP = params.topP;
-  if (params.topK !== undefined) generationConfig.topK = params.topK;
-  if (params.stopSequences !== undefined) generationConfig.stopSequences = params.stopSequences;
-  if (params.candidateCount !== undefined) generationConfig.candidateCount = params.candidateCount;
-  if (params.responseMimeType !== undefined) generationConfig.responseMimeType = params.responseMimeType;
-  if (params.responseSchema !== undefined) generationConfig.responseSchema = params.responseSchema;
-  if (params.presencePenalty !== undefined) generationConfig.presencePenalty = params.presencePenalty;
-  if (params.frequencyPenalty !== undefined) generationConfig.frequencyPenalty = params.frequencyPenalty;
-  if (params.seed !== undefined) generationConfig.seed = params.seed;
-  if (params.responseLogprobs !== undefined) generationConfig.responseLogprobs = params.responseLogprobs;
-  if (params.logprobs !== undefined) generationConfig.logprobs = params.logprobs;
-  if (params.thinkingConfig !== undefined) generationConfig.thinkingConfig = params.thinkingConfig;
+  const generationConfig: VertexGeminiRequest['generationConfig'] = {
+    ...generationParams,
+  };
 
   if (Object.keys(generationConfig).length > 0) {
     geminiRequest.generationConfig = generationConfig;
@@ -90,6 +79,10 @@ export function transformGeminiRequest<TParams extends VertexGeminiParams>(
     };
 
     geminiRequest.tools = [...(geminiRequest.tools ?? []), structuredTool];
+  }
+
+  if (toolConfig) {
+    geminiRequest.toolConfig = toolConfig;
   }
 
   return geminiRequest;

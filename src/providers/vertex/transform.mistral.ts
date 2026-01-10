@@ -33,13 +33,10 @@ export function transformMistralRequest<TParams extends VertexMistralParams>(
 ): VertexMistralRequest {
   const params = (request.params ?? {}) as VertexMistralParams;
 
-  const mistralRequest: VertexMistralRequest = {
-    model: modelId,
-    messages: [],
-  };
+  const messages: VertexMistralMessage[] = [];
 
   if (request.system) {
-    mistralRequest.messages.push({
+    messages.push({
       role: 'system',
       content: typeof request.system === 'string'
         ? request.system
@@ -47,16 +44,13 @@ export function transformMistralRequest<TParams extends VertexMistralParams>(
     });
   }
 
-  mistralRequest.messages.push(...request.messages.map(transformMessage));
+  messages.push(...request.messages.map(transformMessage));
 
-  if (params.max_tokens !== undefined) mistralRequest.max_tokens = params.max_tokens;
-  if (params.temperature !== undefined) mistralRequest.temperature = params.temperature;
-  if (params.top_p !== undefined) mistralRequest.top_p = params.top_p;
-  if (params.stop !== undefined) mistralRequest.stop = params.stop;
-  if (params.random_seed !== undefined) mistralRequest.random_seed = params.random_seed;
-  if (params.response_format !== undefined) mistralRequest.response_format = params.response_format;
-  if (params.parallel_tool_calls !== undefined) mistralRequest.parallel_tool_calls = params.parallel_tool_calls;
-  if (params.safe_prompt !== undefined) mistralRequest.safe_prompt = params.safe_prompt;
+  const mistralRequest: VertexMistralRequest = {
+    ...params,
+    model: modelId,
+    messages,
+  };
 
   if (request.tools && request.tools.length > 0) {
     mistralRequest.tools = request.tools.map(transformTool);

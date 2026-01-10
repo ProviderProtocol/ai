@@ -192,23 +192,10 @@ async function executeGenerate(
     : OPENAI_IMAGES_API_URL;
 
   const body: Record<string, unknown> = {
+    ...request.params,
     model: modelId,
     prompt: request.prompt,
   };
-
-  if (request.params) {
-    const { n, size, quality, style, background, output_format, output_compression, response_format, moderation, user } = request.params;
-    if (n !== undefined) body.n = n;
-    if (size !== undefined) body.size = size;
-    if (quality !== undefined) body.quality = quality;
-    if (style !== undefined) body.style = style;
-    if (background !== undefined) body.background = background;
-    if (output_format !== undefined) body.output_format = output_format;
-    if (output_compression !== undefined) body.output_compression = output_compression;
-    if (response_format !== undefined) body.response_format = response_format;
-    if (moderation !== undefined) body.moderation = moderation;
-    if (user !== undefined) body.user = user;
-  }
 
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -329,22 +316,11 @@ function executeStream(
         : OPENAI_IMAGES_API_URL;
 
       const body: Record<string, unknown> = {
+        ...request.params,
         model: modelId,
         prompt: request.prompt,
         stream: true,
       };
-
-      if (request.params) {
-        const { n, size, quality, background, output_format, partial_images, moderation, user } = request.params;
-        if (n !== undefined) body.n = n;
-        if (size !== undefined) body.size = size;
-        if (quality !== undefined) body.quality = quality;
-        if (background !== undefined) body.background = background;
-        if (output_format !== undefined) body.output_format = output_format;
-        if (partial_images !== undefined) body.partial_images = partial_images;
-        if (moderation !== undefined) body.moderation = moderation;
-        if (user !== undefined) body.user = user;
-      }
 
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',

@@ -35,13 +35,10 @@ export function transformMaaSRequest<TParams extends VertexMaaSParams>(
 ): VertexMaaSRequest {
   const params = (request.params ?? {}) as VertexMaaSParams;
 
-  const maasRequest: VertexMaaSRequest = {
-    model: modelId,
-    messages: [],
-  };
+  const messages: VertexMaaSMessage[] = [];
 
   if (request.system) {
-    maasRequest.messages.push({
+    messages.push({
       role: 'system',
       content: typeof request.system === 'string'
         ? request.system
@@ -49,16 +46,13 @@ export function transformMaaSRequest<TParams extends VertexMaaSParams>(
     });
   }
 
-  maasRequest.messages.push(...request.messages.map(transformMessage));
+  messages.push(...request.messages.map(transformMessage));
 
-  if (params.max_tokens !== undefined) maasRequest.max_tokens = params.max_tokens;
-  if (params.temperature !== undefined) maasRequest.temperature = params.temperature;
-  if (params.top_p !== undefined) maasRequest.top_p = params.top_p;
-  if (params.frequency_penalty !== undefined) maasRequest.frequency_penalty = params.frequency_penalty;
-  if (params.presence_penalty !== undefined) maasRequest.presence_penalty = params.presence_penalty;
-  if (params.stop !== undefined) maasRequest.stop = params.stop;
-  if (params.response_format !== undefined) maasRequest.response_format = params.response_format;
-  if (params.thinking !== undefined) maasRequest.thinking = params.thinking;
+  const maasRequest: VertexMaaSRequest = {
+    ...params,
+    model: modelId,
+    messages,
+  };
 
   if (request.tools && request.tools.length > 0) {
     maasRequest.tools = request.tools.map(transformTool);

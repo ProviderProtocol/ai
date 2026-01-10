@@ -254,6 +254,7 @@ export type {
   VertexProviderOptions,
   VertexEndpoint,
   VertexGeminiParams,
+  VertexGeminiToolConfig,
   VertexClaudeParams,
   VertexMistralParams,
   VertexMaaSParams,
