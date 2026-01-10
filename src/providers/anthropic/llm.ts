@@ -14,13 +14,13 @@ import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
 import type { AnthropicLLMParams, AnthropicResponse, AnthropicStreamEvent } from './types.ts';
+import { betas } from './types.ts';
 import {
   transformRequest,
   transformResponse,
   transformStreamEvent,
   createStreamState,
   buildResponseFromState,
-  STRUCTURED_OUTPUTS_BETA,
 } from './transform.ts';
 import type { ProviderConfig } from '../../types/provider.ts';
 import type { JSONSchema } from '../../types/schema.ts';
@@ -50,7 +50,7 @@ function shouldUseNativeStructuredOutput(
   }
 
   // Beta header can contain multiple comma-separated values
-  return betaHeader.includes(STRUCTURED_OUTPUTS_BETA);
+  return betaHeader.includes(betas.structuredOutputs);
 }
 
 /** Base URL for the Anthropic Messages API. */

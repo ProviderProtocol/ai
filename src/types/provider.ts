@@ -168,6 +168,16 @@ export interface ModelReference<TOptions = unknown> {
 
   /** The provider that created this reference */
   readonly provider: Provider<TOptions>;
+
+  /**
+   * Optional provider-specific configuration that gets merged into request config.
+   *
+   * This allows providers to store options set at model reference creation time
+   * (e.g., `anthropic('model', { betas: [...] })`) that should be applied to all requests.
+   * The `llm()` factory will merge these into the request config, with explicit config
+   * values taking precedence.
+   */
+  readonly providerConfig?: Partial<ProviderConfig>;
 }
 
 /**

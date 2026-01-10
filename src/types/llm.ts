@@ -35,6 +35,11 @@ type ModelInput = {
       llm?: unknown;
     };
   };
+  /**
+   * Optional provider-specific configuration that gets merged into request config.
+   * Set when creating a model reference with provider-specific options.
+   */
+  readonly providerConfig?: Partial<ProviderConfig>;
 };
 
 /**

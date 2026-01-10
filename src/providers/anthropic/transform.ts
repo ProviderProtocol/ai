@@ -35,12 +35,6 @@ import type {
 } from './types.ts';
 
 /**
- * Beta header value for native structured outputs.
- * When this header is present, use `output_format` instead of the tool-based fallback.
- */
-export const STRUCTURED_OUTPUTS_BETA = 'structured-outputs-2025-11-13';
-
-/**
  * Transforms a UPP LLM request to Anthropic's native API format.
  *
  * Handles conversion of messages, system prompts, tools, and structured output

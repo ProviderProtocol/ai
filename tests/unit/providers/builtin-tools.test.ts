@@ -268,6 +268,150 @@ describe('Provider Index Exports', () => {
     expect(typeof tools.webSearch).toBe('function');
   });
 
+  test('anthropic exports betas namespace with all known betas', async () => {
+    const { betas } = await import('../../../src/providers/anthropic/index.ts');
+    expect(betas).toBeDefined();
+
+    // Structured Outputs
+    expect(betas.structuredOutputs).toBe('structured-outputs-2025-11-13');
+
+    // Extended Thinking / Reasoning
+    expect(betas.interleavedThinking).toBe('interleaved-thinking-2025-05-14');
+    expect(betas.effort).toBe('effort-2025-11-24');
+
+    // Computer Use
+    expect(betas.computerUse).toBe('computer-use-2025-01-24');
+    expect(betas.computerUseOpus).toBe('computer-use-2025-11-24');
+
+    // Extended Output / Context
+    expect(betas.maxTokens35Sonnet).toBe('max-tokens-3-5-sonnet-2024-07-15');
+    expect(betas.output128k).toBe('output-128k-2025-02-19');
+    expect(betas.context1m).toBe('context-1m-2025-08-07');
+
+    // Token Efficiency
+    expect(betas.tokenEfficientTools).toBe('token-efficient-tools-2025-02-19');
+    expect(betas.fineGrainedToolStreaming).toBe('fine-grained-tool-streaming-2025-05-14');
+
+    // Code Execution
+    expect(betas.codeExecution).toBe('code-execution-2025-05-22');
+
+    // Tool Search / Advanced Tool Use
+    expect(betas.toolSearch).toBe('tool-search-tool-2025-10-19');
+    expect(betas.advancedToolUse).toBe('advanced-tool-use-2025-11-20');
+
+    // Files & Documents
+    expect(betas.filesApi).toBe('files-api-2025-04-14');
+    expect(betas.pdfs).toBe('pdfs-2024-09-25');
+
+    // MCP
+    expect(betas.mcpClient).toBe('mcp-client-2025-04-04');
+    expect(betas.mcpClientLatest).toBe('mcp-client-2025-11-20');
+
+    // Caching
+    expect(betas.extendedCacheTtl).toBe('extended-cache-ttl-2025-04-11');
+
+    // Context Management
+    expect(betas.contextManagement).toBe('context-management-2025-06-27');
+
+    // Message Batches
+    expect(betas.messageBatches).toBe('message-batches-2024-09-24');
+
+    // Token Counting
+    expect(betas.tokenCounting).toBe('token-counting-2024-11-01');
+
+    // Skills
+    expect(betas.skills).toBe('skills-2025-10-02');
+  });
+
+  test('all betas values are non-empty strings', async () => {
+    const { betas } = await import('../../../src/providers/anthropic/index.ts');
+    const betaKeys = Object.keys(betas) as Array<keyof typeof betas>;
+
+    expect(betaKeys.length).toBeGreaterThanOrEqual(22);
+
+    for (const key of betaKeys) {
+      expect(typeof betas[key]).toBe('string');
+      expect(betas[key].length).toBeGreaterThan(0);
+      // Verify beta format: name-YYYY-MM-DD
+      expect(betas[key]).toMatch(/^[\w-]+-\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  test('anthropic provider accepts betas option', async () => {
+    const { anthropic, betas } = await import('../../../src/providers/anthropic/index.ts');
+
+    // Without betas
+    const basicModel = anthropic('claude-sonnet-4-20250514');
+    expect(basicModel.modelId).toBe('claude-sonnet-4-20250514');
+    expect(basicModel.providerConfig).toBeUndefined();
+
+    // With single beta
+    const modelWithBeta = anthropic('claude-sonnet-4-20250514', {
+      betas: [betas.structuredOutputs],
+    });
+    expect(modelWithBeta.providerConfig?.headers?.['anthropic-beta']).toBe('structured-outputs-2025-11-13');
+
+    // With multiple betas
+    const modelWithBetas = anthropic('claude-sonnet-4-20250514', {
+      betas: [betas.structuredOutputs, betas.interleavedThinking],
+    });
+    expect(modelWithBetas.providerConfig?.headers?.['anthropic-beta']).toBe(
+      'structured-outputs-2025-11-13,interleaved-thinking-2025-05-14'
+    );
+
+    // With custom string beta
+    const modelWithCustom = anthropic('claude-sonnet-4-20250514', {
+      betas: ['custom-beta-2025-01-01'],
+    });
+    expect(modelWithCustom.providerConfig?.headers?.['anthropic-beta']).toBe('custom-beta-2025-01-01');
+  });
+
+  test('anthropic provider with empty betas array returns undefined providerConfig', async () => {
+    const { anthropic } = await import('../../../src/providers/anthropic/index.ts');
+
+    const model = anthropic('claude-sonnet-4-20250514', { betas: [] });
+    expect(model.modelId).toBe('claude-sonnet-4-20250514');
+    expect(model.providerConfig).toBeUndefined();
+  });
+
+  test('anthropic provider preserves beta order in header', async () => {
+    const { anthropic, betas } = await import('../../../src/providers/anthropic/index.ts');
+
+    // Order should be preserved exactly as provided
+    const model = anthropic('claude-sonnet-4-20250514', {
+      betas: [betas.pdfs, betas.context1m, betas.structuredOutputs],
+    });
+
+    expect(model.providerConfig?.headers?.['anthropic-beta']).toBe(
+      'pdfs-2024-09-25,context-1m-2025-08-07,structured-outputs-2025-11-13'
+    );
+  });
+
+  test('anthropic provider handles duplicate betas in array', async () => {
+    const { anthropic, betas } = await import('../../../src/providers/anthropic/index.ts');
+
+    // Duplicates are preserved as-is (user responsibility)
+    const model = anthropic('claude-sonnet-4-20250514', {
+      betas: [betas.structuredOutputs, betas.structuredOutputs],
+    });
+
+    expect(model.providerConfig?.headers?.['anthropic-beta']).toBe(
+      'structured-outputs-2025-11-13,structured-outputs-2025-11-13'
+    );
+  });
+
+  test('anthropic provider with mixed known and custom betas', async () => {
+    const { anthropic, betas } = await import('../../../src/providers/anthropic/index.ts');
+
+    const model = anthropic('claude-sonnet-4-20250514', {
+      betas: [betas.structuredOutputs, 'my-custom-beta-2025-12-01', betas.codeExecution],
+    });
+
+    expect(model.providerConfig?.headers?.['anthropic-beta']).toBe(
+      'structured-outputs-2025-11-13,my-custom-beta-2025-12-01,code-execution-2025-05-22'
+    );
+  });
+
   test('google exports tools namespace', async () => {
     const { tools } = await import('../../../src/providers/google/index.ts');
     expect(tools).toBeDefined();

@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
-import { anthropic, STRUCTURED_OUTPUTS_BETA } from '../../src/anthropic/index.ts';
+import { anthropic, betas } from '../../src/anthropic/index.ts';
 import type { AnthropicLLMParams } from '../../src/anthropic/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
@@ -306,19 +306,17 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
 
 /**
  * Native structured outputs tests (beta feature)
- * These tests use the structured-outputs-2025-11-13 beta header
+ * These tests use the betas.structuredOutputs beta via the new betas API
  */
 describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Native Structured Outputs', () => {
-  test('native structured output with beta header', async () => {
-    // Native structured outputs require Claude 4.5 models (Sonnet 4.5, Opus 4.5, Haiku 4.5)
+  test('native structured output with betas API', async () => {
+    // Native structured outputs require Claude 4.5 models
+    // Using the new betas API instead of manual header configuration
     const claude = llm<AnthropicLLMParams>({
-      model: anthropic('claude-sonnet-4-5'),
+      model: anthropic('claude-sonnet-4-5', {
+        betas: [betas.structuredOutputs],
+      }),
       params: { max_tokens: 200 },
-      config: {
-        headers: {
-          'anthropic-beta': STRUCTURED_OUTPUTS_BETA,
-        },
-      },
       structure: {
         type: 'object',
         properties: {
@@ -347,13 +345,10 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Native Structured Out
   test('streaming with native structured output', async () => {
     // Native structured outputs require Claude 4.5 models
     const claude = llm<AnthropicLLMParams>({
-      model: anthropic('claude-sonnet-4-5'),
+      model: anthropic('claude-sonnet-4-5', {
+        betas: [betas.structuredOutputs],
+      }),
       params: { max_tokens: 200 },
-      config: {
-        headers: {
-          'anthropic-beta': STRUCTURED_OUTPUTS_BETA,
-        },
-      },
       structure: {
         type: 'object',
         properties: {
@@ -370,7 +365,6 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Native Structured Out
     // Native structured outputs stream text_delta events (not tool_call_delta)
     let accumulatedText = '';
     for await (const event of stream) {
-      console.log('Event:', event);
       if (event.type === 'text_delta' && event.delta.text) {
         accumulatedText += event.delta.text;
       }
@@ -391,6 +385,87 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Native Structured Out
 
     // Verify streamed matches final
     expect(streamedData.city).toBe((turn.data as any).city);
+  });
+
+  test('multiple betas can be combined', async () => {
+    // Test combining multiple betas - structuredOutputs + tokenEfficientTools
+    const getWeather = {
+      name: 'getWeather',
+      description: 'Get weather for a city',
+      parameters: {
+        type: 'object' as const,
+        properties: { city: { type: 'string' as const } },
+        required: ['city'],
+      },
+      run: async (params: { city: string }) => `${params.city}: 75°F and sunny`,
+    };
+
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-sonnet-4-5', {
+        betas: [betas.structuredOutputs, betas.tokenEfficientTools],
+      }),
+      params: { max_tokens: 300 },
+      tools: [getWeather],
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          temperature: { type: 'string' },
+          conditions: { type: 'string' },
+        },
+        required: ['city', 'temperature', 'conditions'],
+      },
+    });
+
+    const turn = await claude.generate('What is the weather in Tokyo? Use the tool and return structured data.');
+
+    // Should have tool executions
+    expect(turn.toolExecutions.length).toBeGreaterThan(0);
+    // Should have structured data
+    expect(turn.data).toBeDefined();
+  });
+
+  test('token efficient tools beta works with haiku', async () => {
+    // Test token efficient tools beta with Claude Haiku
+    const greet = {
+      name: 'greet',
+      description: 'Greet a person by name',
+      parameters: {
+        type: 'object' as const,
+        properties: {
+          name: { type: 'string' as const, description: 'Name to greet' },
+        },
+        required: ['name'],
+      },
+      run: async (params: { name: string }) => `Hello, ${params.name}!`,
+    };
+
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest', {
+        betas: [betas.tokenEfficientTools],
+      }),
+      params: { max_tokens: 150 },
+      tools: [greet],
+    });
+
+    const turn = await claude.generate('Greet Alice using the greet tool.');
+
+    expect(turn.toolExecutions.length).toBeGreaterThan(0);
+    expect(turn.toolExecutions[0]?.toolName).toBe('greet');
+  });
+
+  test('custom string betas are passed through', async () => {
+    // Test that arbitrary string betas work (for future/unlisted betas)
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest', {
+        betas: ['pdfs-2024-09-25'], // Using a known beta as string
+      }),
+      params: { max_tokens: 50 },
+    });
+
+    // This should work - the beta is passed through even if we don't use PDFs
+    const turn = await claude.generate('Say hello.');
+    expect(turn.response.text.toLowerCase()).toContain('hello');
   });
 });
 

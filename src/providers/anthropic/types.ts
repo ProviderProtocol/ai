@@ -5,6 +5,111 @@
  * structures, streaming events, and provider-specific parameters.
  */
 
+// ============================================
+// Beta Headers
+// ============================================
+
+/**
+ * Known Anthropic beta header values.
+ *
+ * Beta features are enabled by passing these values in the `betas` config option
+ * or via the `anthropic-beta` HTTP header. Multiple betas can be enabled simultaneously.
+ *
+ * @example
+ * ```typescript
+ * import { anthropic, betas } from 'provider-protocol/anthropic';
+ *
+ * // Using the betas config option (recommended)
+ * const provider = anthropic('claude-sonnet-4-20250514', {
+ *   betas: [betas.structuredOutputs, betas.interleavedThinking],
+ * });
+ *
+ * // Or use string values directly for new/unlisted betas
+ * const provider = anthropic('claude-sonnet-4-20250514', {
+ *   betas: ['new-beta-2025-12-01'],
+ * });
+ * ```
+ */
+export const betas = {
+  // Structured Outputs
+  /** Guaranteed JSON schema conformance for responses. Available for Claude Sonnet 4.5+. */
+  structuredOutputs: 'structured-outputs-2025-11-13',
+
+  // Extended Thinking / Reasoning
+  /** Enables Claude to think between tool calls in Claude 4 models. */
+  interleavedThinking: 'interleaved-thinking-2025-05-14',
+  /** Effort parameter for Claude Opus 4.5 - controls response thoroughness vs efficiency. */
+  effort: 'effort-2025-11-24',
+
+  // Computer Use
+  /** Computer use tool for Claude 4 models (mouse, keyboard, screenshots). */
+  computerUse: 'computer-use-2025-01-24',
+  /** Computer use tool for Claude Opus 4.5 with additional commands. */
+  computerUseOpus: 'computer-use-2025-11-24',
+
+  // Extended Output / Context
+  /** Enables up to 8,192 output tokens from Claude Sonnet 3.5. */
+  maxTokens35Sonnet: 'max-tokens-3-5-sonnet-2024-07-15',
+  /** Enables 128K token output length. */
+  output128k: 'output-128k-2025-02-19',
+  /** Enables 1 million token context window for Claude Sonnet 4. */
+  context1m: 'context-1m-2025-08-07',
+
+  // Token Efficiency
+  /** Reduces output token consumption by up to 70% for tool calls. */
+  tokenEfficientTools: 'token-efficient-tools-2025-02-19',
+  /** Streams tool use parameters without buffering/JSON validation. */
+  fineGrainedToolStreaming: 'fine-grained-tool-streaming-2025-05-14',
+
+  // Code Execution
+  /** Code execution tool for running Python/Bash in secure sandbox. */
+  codeExecution: 'code-execution-2025-05-22',
+
+  // Tool Search / Advanced Tool Use
+  /** Tool Search Tool for large tool catalogs. */
+  toolSearch: 'tool-search-tool-2025-10-19',
+  /** Advanced tool use: Tool Search, Programmatic Tool Calling, Tool Use Examples. */
+  advancedToolUse: 'advanced-tool-use-2025-11-20',
+
+  // Files & Documents
+  /** Files API for uploading and managing files. */
+  filesApi: 'files-api-2025-04-14',
+  /** PDF document support. */
+  pdfs: 'pdfs-2024-09-25',
+
+  // MCP (Model Context Protocol)
+  /** MCP connector to connect to remote MCP servers. */
+  mcpClient: 'mcp-client-2025-04-04',
+  /** Updated MCP client. */
+  mcpClientLatest: 'mcp-client-2025-11-20',
+
+  // Caching
+  /** Enables 1-hour cache TTL (vs default 5-minute). */
+  extendedCacheTtl: 'extended-cache-ttl-2025-04-11',
+
+  // Context Management
+  /** Automatic tool call clearing for context management. */
+  contextManagement: 'context-management-2025-06-27',
+
+  // Message Batches (generally available but may still need header)
+  /** Message Batches API for async processing at 50% cost. */
+  messageBatches: 'message-batches-2024-09-24',
+
+  // Token Counting (generally available)
+  /** Token counting endpoint. */
+  tokenCounting: 'token-counting-2024-11-01',
+
+  // Skills
+  /** Agent Skills for specialized tasks (PowerPoint, Excel, Word, PDF). */
+  skills: 'skills-2025-10-02',
+} as const;
+
+/** Type representing any valid beta key from the betas object. */
+export type BetaKey = keyof typeof betas;
+
+/** Type representing a beta value (either a known constant or arbitrary string). */
+export type BetaValue = (typeof betas)[BetaKey] | string;
+
 /**
  * Provider-specific parameters for Anthropic Claude models.
  *

@@ -7,7 +7,7 @@
  *
  * @example
  * ```ts
- * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { anthropic, betas } from '@providerprotocol/ai/anthropic';
  * import { llm } from '@providerprotocol/ai';
  *
  * // Create an LLM instance with Claude
@@ -19,12 +19,21 @@
  * // Generate a response
  * const turn = await model.generate('Explain quantum computing.');
  * console.log(turn.response.text);
+ *
+ * // With beta features
+ * const modelWithBetas = llm({
+ *   model: anthropic('claude-sonnet-4-20250514', {
+ *     betas: [betas.structuredOutputs],
+ *   }),
+ *   structure: { properties: { answer: { type: 'string' } } },
+ * });
  * ```
  *
  * @packageDocumentation
  */
 
-export { anthropic, tools, STRUCTURED_OUTPUTS_BETA } from '../providers/anthropic/index.ts';
+export { anthropic, tools, betas } from '../providers/anthropic/index.ts';
+export type { AnthropicModelOptions } from '../providers/anthropic/index.ts';
 export type {
   AnthropicLLMParams,
   AnthropicHeaders,
@@ -37,4 +46,6 @@ export type {
   AnthropicToolSearchTool,
   AnthropicUserLocation,
   AnthropicOutputFormat,
+  BetaKey,
+  BetaValue,
 } from '../providers/anthropic/index.ts';

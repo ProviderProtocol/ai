@@ -75,7 +75,19 @@ const DEFAULT_MAX_ITERATIONS = 10;
 export function llm<TParams = unknown>(
   options: LLMOptions<TParams>
 ): LLMInstance<TParams> {
-  const { model: modelRef, config = {}, params, system, tools, toolStrategy, structure } = options;
+  const { model: modelRef, config: explicitConfig = {}, params, system, tools, toolStrategy, structure } = options;
+
+  // Merge providerConfig from model reference with explicit config
+  // Explicit config takes precedence, with headers being deep-merged
+  const providerConfig = modelRef.providerConfig ?? {};
+  const config: ProviderConfig = {
+    ...providerConfig,
+    ...explicitConfig,
+    headers: {
+      ...providerConfig.headers,
+      ...explicitConfig.headers,
+    },
+  };
 
   // Validate that the provider supports LLM
   const provider = modelRef.provider;
