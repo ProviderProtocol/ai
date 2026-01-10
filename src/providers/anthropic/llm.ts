@@ -20,7 +20,38 @@ import {
   transformStreamEvent,
   createStreamState,
   buildResponseFromState,
+  STRUCTURED_OUTPUTS_BETA,
 } from './transform.ts';
+import type { ProviderConfig } from '../../types/provider.ts';
+import type { JSONSchema } from '../../types/schema.ts';
+
+/**
+ * Checks if native structured outputs should be used.
+ *
+ * Native structured outputs are enabled when:
+ * 1. The request includes a structure schema
+ * 2. The beta header 'structured-outputs-2025-11-13' is present
+ *
+ * @param config - The provider configuration containing headers
+ * @param structure - The structured output schema (if any)
+ * @returns True if native structured outputs should be used
+ */
+function shouldUseNativeStructuredOutput(
+  config: ProviderConfig,
+  structure: JSONSchema | undefined
+): boolean {
+  if (!structure) {
+    return false;
+  }
+
+  const betaHeader = config.headers?.['anthropic-beta'];
+  if (!betaHeader) {
+    return false;
+  }
+
+  // Beta header can contain multiple comma-separated values
+  return betaHeader.includes(STRUCTURED_OUTPUTS_BETA);
+}
 
 /** Base URL for the Anthropic Messages API. */
 const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
@@ -100,8 +131,12 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
             'llm'
           );
 
+          const useNativeStructuredOutput = shouldUseNativeStructuredOutput(
+            request.config,
+            request.structure
+          );
           const baseUrl = request.config.baseUrl ?? ANTHROPIC_API_URL;
-          const body = transformRequest(request, modelId);
+          const body = transformRequest(request, modelId, useNativeStructuredOutput);
 
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
@@ -131,11 +166,15 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
           );
 
           const data = (await response.json()) as AnthropicResponse;
-          return transformResponse(data);
+          return transformResponse(data, useNativeStructuredOutput);
         },
 
         stream(request: LLMRequest<AnthropicLLMParams>): LLMStreamResult {
           const state = createStreamState();
+          const useNativeStructuredOutput = shouldUseNativeStructuredOutput(
+            request.config,
+            request.structure
+          );
           let responseResolve: (value: LLMResponse) => void;
           let responseReject: (error: Error) => void;
 
@@ -154,7 +193,7 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
               );
 
               const baseUrl = request.config.baseUrl ?? ANTHROPIC_API_URL;
-              const body = transformRequest(request, modelId);
+              const body = transformRequest(request, modelId, useNativeStructuredOutput);
               body.stream = true;
 
               const headers: Record<string, string> = {
@@ -223,7 +262,7 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
                 }
               }
 
-              responseResolve(buildResponseFromState(state));
+              responseResolve(buildResponseFromState(state, useNativeStructuredOutput));
             } catch (error) {
               responseReject(error as Error);
               throw error;

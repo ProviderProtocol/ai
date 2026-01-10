@@ -24,7 +24,7 @@
  * @packageDocumentation
  */
 
-export { anthropic, tools } from '../providers/anthropic/index.ts';
+export { anthropic, tools, STRUCTURED_OUTPUTS_BETA } from '../providers/anthropic/index.ts';
 export type {
   AnthropicLLMParams,
   AnthropicHeaders,
@@ -36,4 +36,5 @@ export type {
   AnthropicCodeExecutionTool,
   AnthropicToolSearchTool,
   AnthropicUserLocation,
+  AnthropicOutputFormat,
 } from '../providers/anthropic/index.ts';

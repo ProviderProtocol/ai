@@ -30,6 +30,7 @@ export const anthropic = createProvider({
 });
 
 export { tools } from './types.ts';
+export { STRUCTURED_OUTPUTS_BETA } from './transform.ts';
 export type {
   AnthropicLLMParams,
   AnthropicHeaders,
@@ -41,4 +42,5 @@ export type {
   AnthropicCodeExecutionTool,
   AnthropicToolSearchTool,
   AnthropicUserLocation,
+  AnthropicOutputFormat,
 } from './types.ts';

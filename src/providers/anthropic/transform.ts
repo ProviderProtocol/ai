@@ -31,7 +31,14 @@ import type {
   AnthropicStreamEvent,
   AnthropicCacheControl,
   AnthropicSystemContent,
+  AnthropicOutputFormat,
 } from './types.ts';
+
+/**
+ * Beta header value for native structured outputs.
+ * When this header is present, use `output_format` instead of the tool-based fallback.
+ */
+export const STRUCTURED_OUTPUTS_BETA = 'structured-outputs-2025-11-13';
 
 /**
  * Transforms a UPP LLM request to Anthropic's native API format.
@@ -43,22 +50,35 @@ import type {
  * @typeParam TParams - Anthropic-specific parameters extending AnthropicLLMParams
  * @param request - The UPP-formatted LLM request
  * @param modelId - The Anthropic model identifier (e.g., 'claude-sonnet-4-20250514')
+ * @param useNativeStructuredOutput - When true, use native `output_format` instead of
+ *   tool-based fallback for structured outputs. Should be true when the request includes
+ *   the `structured-outputs-2025-11-13` beta header.
  * @returns An AnthropicRequest ready for the Messages API
  *
  * @example
  * ```typescript
+ * // Without native structured outputs (tool fallback)
  * const anthropicRequest = transformRequest({
  *   messages: [new UserMessage([{ type: 'text', text: 'Hello!' }])],
  *   config: { apiKey: 'sk-...' },
- *   params: { max_tokens: 1024, temperature: 0.7 },
- * }, 'claude-sonnet-4-20250514');
+ *   params: { max_tokens: 1024 },
+ * }, 'claude-sonnet-4-20250514', false);
+ *
+ * // With native structured outputs (requires beta header)
+ * const nativeRequest = transformRequest({
+ *   messages: [new UserMessage([{ type: 'text', text: 'Extract data' }])],
+ *   config: { apiKey: 'sk-...', headers: { 'anthropic-beta': 'structured-outputs-2025-11-13' } },
+ *   params: { max_tokens: 1024 },
+ *   structure: { properties: { name: { type: 'string' } }, required: ['name'] },
+ * }, 'claude-sonnet-4-20250514', true);
  * ```
  *
  * @see {@link transformResponse} for the reverse transformation
  */
 export function transformRequest<TParams extends AnthropicLLMParams>(
   request: LLMRequest<TParams>,
-  modelId: string
+  modelId: string,
+  useNativeStructuredOutput = false
 ): AnthropicRequest {
   const params = (request.params ?? {}) as AnthropicLLMParams;
   const { builtInTools, ...restParams } = params;
@@ -94,18 +114,33 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   }
 
   if (request.structure) {
-    const structuredTool: AnthropicTool = {
-      name: 'json_response',
-      description: 'Return the response in the specified JSON format. You MUST use this tool to provide your response.',
-      input_schema: {
-        type: 'object',
-        properties: request.structure.properties,
-        required: request.structure.required,
-      },
-    };
+    if (useNativeStructuredOutput) {
+      // Use native structured outputs with output_format parameter
+      const outputFormat: AnthropicOutputFormat = {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: request.structure.properties,
+          required: request.structure.required,
+          additionalProperties: false,
+        },
+      };
+      anthropicRequest.output_format = outputFormat;
+    } else {
+      // Fall back to tool-based structured output
+      const structuredTool: AnthropicTool = {
+        name: 'json_response',
+        description: 'Return the response in the specified JSON format. You MUST use this tool to provide your response.',
+        input_schema: {
+          type: 'object',
+          properties: request.structure.properties,
+          required: request.structure.required,
+        },
+      };
 
-    anthropicRequest.tools = [...(anthropicRequest.tools ?? []), structuredTool];
-    anthropicRequest.tool_choice = { type: 'tool', name: 'json_response' };
+      anthropicRequest.tools = [...(anthropicRequest.tools ?? []), structuredTool];
+      anthropicRequest.tool_choice = { type: 'tool', name: 'json_response' };
+    }
   }
 
   return anthropicRequest;
@@ -331,16 +366,21 @@ function transformTool(tool: Tool): AnthropicTool {
  * Transforms an Anthropic API response to UPP's LLMResponse format.
  *
  * Extracts text content, tool calls, code execution results, and structured
- * output data from Anthropic's response. The json_response tool is treated
- * specially for structured output extraction. Code execution results (stdout)
- * are appended to the text content.
+ * output data from Anthropic's response. Handles both native structured outputs
+ * (JSON in text content) and tool-based fallback (json_response tool).
+ * Code execution results (stdout) are appended to the text content.
  *
  * @param data - The raw Anthropic API response
+ * @param useNativeStructuredOutput - When true, parse text content as JSON for structured
+ *   data instead of looking for a json_response tool call.
  * @returns A UPP LLMResponse with message, usage, and optional structured data
  *
  * @see {@link transformRequest} for the request transformation
  */
-export function transformResponse(data: AnthropicResponse): LLMResponse {
+export function transformResponse(
+  data: AnthropicResponse,
+  useNativeStructuredOutput = false
+): LLMResponse {
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
@@ -348,6 +388,16 @@ export function transformResponse(data: AnthropicResponse): LLMResponse {
   for (const block of data.content) {
     if (block.type === 'text') {
       textContent.push({ type: 'text', text: block.text });
+
+      // For native structured outputs, parse the text as JSON
+      if (useNativeStructuredOutput && structuredData === undefined) {
+        try {
+          structuredData = JSON.parse(block.text);
+        } catch {
+          // Not valid JSON - this shouldn't happen with native structured outputs
+          // but we handle it gracefully by leaving structuredData undefined
+        }
+      }
     } else if (block.type === 'tool_use') {
       if (block.name === 'json_response') {
         structuredData = block.input;
@@ -603,12 +653,17 @@ export function transformStreamEvent(
  * and extracts structured output data.
  *
  * @param state - The accumulated stream state
+ * @param useNativeStructuredOutput - When true, parse text content as JSON for structured
+ *   data instead of looking for a json_response tool call.
  * @returns A complete UPP LLMResponse
  *
  * @see {@link createStreamState} for initializing state
  * @see {@link transformStreamEvent} for populating state from events
  */
-export function buildResponseFromState(state: StreamState): LLMResponse {
+export function buildResponseFromState(
+  state: StreamState,
+  useNativeStructuredOutput = false
+): LLMResponse {
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
@@ -619,6 +674,16 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
 
     if (block.type === 'text' && block.text) {
       textContent.push({ type: 'text', text: block.text });
+
+      // For native structured outputs, parse the text as JSON
+      if (useNativeStructuredOutput && structuredData === undefined) {
+        try {
+          structuredData = JSON.parse(block.text);
+        } catch {
+          // Not valid JSON - this shouldn't happen with native structured outputs
+          // but we handle it gracefully by leaving structuredData undefined
+        }
+      }
     } else if (block.type === 'tool_use' && block.id && block.name) {
       let args: Record<string, unknown> = {};
       if (block.input) {

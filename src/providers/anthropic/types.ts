@@ -112,6 +112,44 @@ export interface AnthropicSystemContent {
  * This interface represents the full request payload sent to the
  * `/v1/messages` endpoint.
  */
+/**
+ * Native structured output format configuration.
+ *
+ * When provided, Claude's response will be constrained to match the
+ * specified JSON schema. Requires the beta header `structured-outputs-2025-11-13`.
+ *
+ * @example
+ * ```typescript
+ * const outputFormat: AnthropicOutputFormat = {
+ *   type: 'json_schema',
+ *   schema: {
+ *     type: 'object',
+ *     properties: {
+ *       name: { type: 'string' },
+ *       age: { type: 'integer' },
+ *     },
+ *     required: ['name', 'age'],
+ *     additionalProperties: false,
+ *   },
+ * };
+ * ```
+ */
+export interface AnthropicOutputFormat {
+  /** Output format type - currently only 'json_schema' is supported. */
+  type: 'json_schema';
+  /** JSON Schema defining the expected response structure. */
+  schema: {
+    /** Schema type (always 'object' for structured outputs). */
+    type: 'object';
+    /** Property definitions for each field. */
+    properties: Record<string, unknown>;
+    /** List of required property names. */
+    required?: string[];
+    /** Must be false for structured outputs. */
+    additionalProperties?: false;
+  };
+}
+
 export interface AnthropicRequest {
   /** The model identifier (e.g., 'claude-sonnet-4-20250514'). */
   model: string;
@@ -141,6 +179,15 @@ export interface AnthropicRequest {
   thinking?: { type: 'enabled'; budget_tokens: number };
   /** Capacity tier selection. */
   service_tier?: 'auto' | 'standard_only';
+  /**
+   * Native structured output format.
+   *
+   * Constrains Claude's response to match the specified JSON schema.
+   * Requires the beta header `structured-outputs-2025-11-13`.
+   *
+   * @see {@link AnthropicOutputFormat}
+   */
+  output_format?: AnthropicOutputFormat;
 }
 
 /**

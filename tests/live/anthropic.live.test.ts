@@ -1,6 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
-import { anthropic } from '../../src/anthropic/index.ts';
+import { anthropic, STRUCTURED_OUTPUTS_BETA } from '../../src/anthropic/index.ts';
 import type { AnthropicLLMParams } from '../../src/anthropic/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
@@ -192,7 +192,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
       params: { max_tokens: 200 },
     });
 
-    // Anthropic doesn't have native structured output, but we can request JSON
+    // Anthropic legacy models do not have native structured output, but we can request JSON
     const turn = await claude.generate(
       'Return a JSON object with fields "name" (string) and "age" (number) for a person named John who is 30. Only return the JSON, no other text.'
     );
@@ -206,6 +206,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
   });
 
   test('protocol-level structured output (schema enforcement)', async () => {
+    // Native structured outputs require Claude 4.5 models, but we can test protocol-level enforcement (this will use tool forcing)
     const claude = llm<AnthropicLLMParams>({
       model: anthropic('claude-3-5-haiku-latest'),
       params: { max_tokens: 200 },
@@ -297,6 +298,96 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
     expect((turn.data as any).city).toContain('Tokyo');
     expect(typeof (turn.data as any).population).toBe('number');
     expect((turn.data as any).isCapital).toBe(true);
+
+    // Verify streamed matches final
+    expect(streamedData.city).toBe((turn.data as any).city);
+  });
+});
+
+/**
+ * Native structured outputs tests (beta feature)
+ * These tests use the structured-outputs-2025-11-13 beta header
+ */
+describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Native Structured Outputs', () => {
+  test('native structured output with beta header', async () => {
+    // Native structured outputs require Claude 4.5 models (Sonnet 4.5, Opus 4.5, Haiku 4.5)
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-sonnet-4-5'),
+      params: { max_tokens: 200 },
+      config: {
+        headers: {
+          'anthropic-beta': STRUCTURED_OUTPUTS_BETA,
+        },
+      },
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          population: { type: 'number' },
+          isCapital: { type: 'boolean' },
+        },
+        required: ['city', 'population', 'isCapital'],
+      },
+    });
+
+    const turn = await claude.generate('Tell me about Paris, France.');
+
+    // The 'data' field should be populated from native JSON output
+    expect(turn.data).toBeDefined();
+    expect((turn.data as any).city).toContain('Paris');
+    expect(typeof (turn.data as any).population).toBe('number');
+    expect((turn.data as any).isCapital).toBe(true);
+
+    // With native structured outputs, the text contains the raw JSON
+    expect(turn.response.text.length).toBeGreaterThan(0);
+    const parsedText = JSON.parse(turn.response.text);
+    expect(parsedText.city).toBe((turn.data as any).city);
+  });
+
+  test('streaming with native structured output', async () => {
+    // Native structured outputs require Claude 4.5 models
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-sonnet-4-5'),
+      params: { max_tokens: 200 },
+      config: {
+        headers: {
+          'anthropic-beta': STRUCTURED_OUTPUTS_BETA,
+        },
+      },
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          country: { type: 'string' },
+          population: { type: 'number' },
+        },
+        required: ['city', 'country', 'population'],
+      },
+    });
+
+    const stream = claude.stream('Tell me about Tokyo, Japan.');
+
+    // Native structured outputs stream text_delta events (not tool_call_delta)
+    let accumulatedText = '';
+    for await (const event of stream) {
+      console.log('Event:', event);
+      if (event.type === 'text_delta' && event.delta.text) {
+        accumulatedText += event.delta.text;
+      }
+    }
+
+    // The accumulated text should be valid JSON
+    expect(accumulatedText.length).toBeGreaterThan(0);
+    const streamedData = JSON.parse(accumulatedText);
+    expect(streamedData.city).toContain('Tokyo');
+    expect(streamedData.country).toContain('Japan');
+
+    const turn = await stream.turn;
+
+    // The 'data' field should match what we accumulated
+    expect(turn.data).toBeDefined();
+    expect((turn.data as any).city).toContain('Tokyo');
+    expect(typeof (turn.data as any).population).toBe('number');
 
     // Verify streamed matches final
     expect(streamedData.city).toBe((turn.data as any).city);
