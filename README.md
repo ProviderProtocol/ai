@@ -24,6 +24,7 @@ console.log(turn.response.text);
 | Anthropic | `@providerprotocol/ai/anthropic` | ✓ | | |
 | OpenAI | `@providerprotocol/ai/openai` | ✓ | ✓ | ✓ |
 | Google | `@providerprotocol/ai/google` | ✓ | ✓ | ✓ |
+| Vertex AI | `@providerprotocol/ai/vertex` | ✓ | | |
 | xAI | `@providerprotocol/ai/xai` | ✓ | | ✓ |
 | Ollama | `@providerprotocol/ai/ollama` | ✓ | ✓ | |
 | OpenRouter | `@providerprotocol/ai/openrouter` | ✓ | ✓ | |
@@ -423,6 +424,47 @@ export default defineEventHandler(async (event) => {
 - Model access control (different users get different models)
 - Request/response logging, content filtering
 - Double-layer retry: client retries to proxy, server retries to AI provider
+
+## Vertex AI
+
+Vertex AI provides access to multiple model families through different endpoints:
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { vertex } from '@providerprotocol/ai/vertex';
+
+// Gemini models (native)
+const gemini = llm({ model: vertex('gemini-3-flash-preview') });
+
+// Claude models (partner)
+const claude = llm({ model: vertex('claude-haiku-4-5', { endpoint: 'claude' }) });
+
+// Mistral models (partner)
+const mistral = llm({ model: vertex('mistral-medium-3', { endpoint: 'mistral' }) });
+
+// DeepSeek/MaaS models
+const deepseek = llm({ model: vertex('deepseek-ai/deepseek-r1-0528-maas', { endpoint: 'maas' }) });
+```
+
+### Authentication
+
+Vertex AI supports two authentication methods:
+
+**Express Mode (API Key)** - Enabled through `VERTEX_API_KEY`. Only usable for Gemini models, or other models if specified in the Vertex AI documentation. (Not all models tested, report issues).
+
+```bash
+VERTEX_API_KEY=your-api-key
+```
+
+**OAuth (Access Token)** - For all endpoints. Requires project ID and uses `global` location by default.
+
+```bash
+GOOGLE_ACCESS_TOKEN=$(gcloud auth print-access-token)
+GOOGLE_CLOUD_PROJECT=your-project-id
+GOOGLE_CLOUD_LOCATION=global  # or us-central1, etc.
+```
+
+The provider automatically selects the appropriate authentication method based on available credentials.
 
 ## xAI API Modes
 
