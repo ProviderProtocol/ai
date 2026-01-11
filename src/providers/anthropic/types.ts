@@ -186,7 +186,7 @@ export interface AnthropicLLMParams {
    * const model = llm({
    *   model: anthropic('claude-sonnet-4-20250514'),
    *   params: {
-   *     builtInTools: [
+   *     tools: [
    *       tools.webSearch({ max_uses: 5 }),
    *       tools.codeExecution(),
    *     ],
@@ -194,7 +194,7 @@ export interface AnthropicLLMParams {
    * });
    * ```
    */
-  builtInTools?: AnthropicBuiltInTool[];
+  tools?: AnthropicBuiltInTool[];
 
   /**
    * Container ID for code execution tool reuse.
@@ -1162,7 +1162,7 @@ export function toolSearchTool(options?: {
  * const model = llm({
  *   model: anthropic('claude-sonnet-4-20250514'),
  *   params: {
- *     builtInTools: [
+ *     tools: [
  *       tools.webSearch({ max_uses: 5 }),
  *       tools.codeExecution(),
  *     ],

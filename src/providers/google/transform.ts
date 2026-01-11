@@ -63,7 +63,7 @@ export function transformRequest<TParams extends GoogleLLMParams>(
   modelId: string
 ): GoogleRequest {
   const params = (request.params ?? {}) as GoogleLLMParams;
-  const { cachedContent, builtInTools, toolConfig, ...generationParams } = params;
+  const { cachedContent, tools: builtInTools, toolConfig, ...generationParams } = params;
 
   const googleRequest: GoogleRequest = {
     contents: transformMessages(request.messages),
@@ -96,10 +96,10 @@ export function transformRequest<TParams extends GoogleLLMParams>(
   }
 
   // Collect all tools: function declarations + built-in tools
-  const tools: NonNullable<GoogleRequest['tools']> = [];
+  const requestTools: NonNullable<GoogleRequest['tools']> = [];
 
   if (request.tools && request.tools.length > 0) {
-    tools.push({
+    requestTools.push({
       functionDeclarations: request.tools.map(transformTool),
     });
   }
@@ -107,11 +107,11 @@ export function transformRequest<TParams extends GoogleLLMParams>(
   // Add built-in tools (googleSearch, codeExecution, urlContext, etc.)
   // These are added as separate tool objects, not as function declarations
   if (builtInTools && builtInTools.length > 0) {
-    tools.push(...builtInTools);
+    requestTools.push(...builtInTools);
   }
 
-  if (tools.length > 0) {
-    googleRequest.tools = tools;
+  if (requestTools.length > 0) {
+    googleRequest.tools = requestTools;
   }
 
   // Add tool config if provided (e.g., for retrievalConfig with Google Maps)

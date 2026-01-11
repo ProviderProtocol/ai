@@ -16,7 +16,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Built-in Tools Live', () =>
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 1000,
-        builtInTools: [tools.googleSearch()],
+        tools: [tools.googleSearch()],
       },
     });
 
@@ -33,7 +33,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Built-in Tools Live', () =>
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 2000,
-        builtInTools: [tools.codeExecution()],
+        tools: [tools.codeExecution()],
       },
     });
 
@@ -50,7 +50,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Built-in Tools Live', () =>
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 1500,
-        builtInTools: [tools.urlContext()],
+        tools: [tools.urlContext()],
       },
     });
 
@@ -74,7 +74,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Built-in Tools Streaming', 
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 1000,
-        builtInTools: [tools.googleSearch()],
+        tools: [tools.googleSearch()],
       },
     });
 
@@ -105,7 +105,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Built-in Tools Streaming', 
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 2000,
-        builtInTools: [tools.codeExecution()],
+        tools: [tools.codeExecution()],
       },
     });
 
@@ -142,7 +142,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Multiple Built-in Tools', (
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 2000,
-        builtInTools: [
+        tools: [
           tools.googleSearch(),
           tools.codeExecution(),
         ],
@@ -162,7 +162,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Multiple Built-in Tools', (
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 2000,
-        builtInTools: [
+        tools: [
           tools.googleSearch(),
           tools.codeExecution(),
         ],
@@ -189,7 +189,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Maps Tool', () => {
       model: google('gemini-2.5-flash'),
       params: {
         maxOutputTokens: 1500,
-        builtInTools: [tools.googleMaps()],
+        tools: [tools.googleMaps()],
         toolConfig: {
           retrievalConfig: {
             latLng: { latitude: 40.758896, longitude: -73.985130 },

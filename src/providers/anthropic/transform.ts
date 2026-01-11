@@ -75,7 +75,7 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   useNativeStructuredOutput = false
 ): AnthropicRequest {
   const params = (request.params ?? {}) as AnthropicLLMParams;
-  const { builtInTools, ...restParams } = params;
+  const { tools: builtInTools, ...restParams } = params;
 
   const anthropicRequest: AnthropicRequest = {
     ...restParams,
@@ -93,7 +93,7 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   const allTools: NonNullable<AnthropicRequest['tools']> = [];
 
   if (request.tools && request.tools.length > 0) {
-    // For tool caching, use params.tools directly with native Anthropic format
+    // Transform function tools into Anthropic format
     allTools.push(...request.tools.map(transformTool));
   }
 

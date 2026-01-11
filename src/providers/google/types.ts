@@ -112,7 +112,7 @@ export interface GoogleLLMParams {
    * const model = llm({
    *   model: google('gemini-2.5-flash'),
    *   params: {
-   *     builtInTools: [
+   *     tools: [
    *       tools.googleSearch(),
    *       tools.codeExecution(),
    *     ],
@@ -120,7 +120,7 @@ export interface GoogleLLMParams {
    * });
    * ```
    */
-  builtInTools?: GoogleBuiltInTool[];
+  tools?: GoogleBuiltInTool[];
 
   /**
    * Tool configuration for retrieval (e.g., user location for Maps).
@@ -128,7 +128,7 @@ export interface GoogleLLMParams {
    * @example
    * ```typescript
    * const params: GoogleLLMParams = {
-   *   builtInTools: [tools.googleMaps()],
+   *   tools: [tools.googleMaps()],
    *   toolConfig: {
    *     retrievalConfig: {
    *       latLng: { latitude: 40.758896, longitude: -73.985130 },
@@ -865,7 +865,7 @@ export function fileSearchTool(options: {
  * const model = llm({
  *   model: google('gemini-2.5-flash'),
  *   params: {
- *     builtInTools: [
+ *     tools: [
  *       tools.googleSearch(),
  *       tools.codeExecution(),
  *     ],

@@ -17,7 +17,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Live', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 1000,
-        builtInTools: [tools.webSearch()],
+        tools: [tools.webSearch()],
       },
     });
 
@@ -34,7 +34,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Live', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 1000,
-        builtInTools: [
+        tools: [
           tools.webSearch({
             allowed_domains: ['wikipedia.org', 'github.com'],
           }),
@@ -55,7 +55,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Live', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 1000,
-        builtInTools: [tools.xSearch()],
+        tools: [tools.xSearch()],
       },
     });
 
@@ -72,7 +72,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Live', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 1000,
-        builtInTools: [
+        tools: [
           tools.xSearch({
             from_date: '2025-01-01',
           }),
@@ -93,7 +93,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Live', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 2000,
-        builtInTools: [tools.codeExecution()],
+        tools: [tools.codeExecution()],
       },
     });
 
@@ -110,7 +110,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Live', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 2000,
-        builtInTools: [
+        tools: [
           tools.codeExecution({
             pip_packages: ['numpy'],
           }),
@@ -138,7 +138,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Streaming', () => 
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 1000,
-        builtInTools: [tools.webSearch()],
+        tools: [tools.webSearch()],
       },
     });
 
@@ -169,7 +169,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Streaming', () => 
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 1000,
-        builtInTools: [tools.xSearch()],
+        tools: [tools.xSearch()],
       },
     });
 
@@ -199,7 +199,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Streaming', () => 
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 2000,
-        builtInTools: [tools.codeExecution()],
+        tools: [tools.codeExecution()],
       },
     });
 
@@ -236,7 +236,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Multiple Built-in Tools', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 2000,
-        builtInTools: [
+        tools: [
           tools.webSearch(),
           tools.codeExecution(),
         ],
@@ -256,7 +256,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Multiple Built-in Tools', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 2000,
-        builtInTools: [
+        tools: [
           tools.webSearch(),
           tools.xSearch(),
         ],
@@ -276,7 +276,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Multiple Built-in Tools', () => {
       model: xai('grok-4-1-fast', { api: 'responses' }),
       params: {
         max_output_tokens: 3000,
-        builtInTools: [
+        tools: [
           tools.webSearch(),
           tools.xSearch(),
           tools.codeExecution(),

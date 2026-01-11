@@ -40,6 +40,11 @@ type ModelInput = {
    * Set when creating a model reference with provider-specific options.
    */
   readonly providerConfig?: Partial<ProviderConfig>;
+  /**
+   * The original options passed when creating this model reference.
+   * Used by providers with multiple LLM handlers to resolve the correct handler.
+   */
+  readonly options?: unknown;
 };
 
 /**

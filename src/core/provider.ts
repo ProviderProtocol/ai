@@ -20,10 +20,52 @@ import type {
 } from '../types/provider.ts';
 
 /**
- * Configuration options for creating a new provider.
+ * Resolver for dynamically selecting LLM handlers based on model options.
+ *
+ * Used by providers that support multiple API modes (e.g., OpenAI with responses/completions).
+ * The resolver eliminates shared mutable state by storing the mode on the ModelReference
+ * and resolving the correct handler at request time.
+ *
+ * @typeParam TOptions - Provider-specific options type
  *
  * @example
  * ```typescript
+ * const resolver: LLMHandlerResolver<OpenAIProviderOptions> = {
+ *   handlers: {
+ *     responses: createResponsesLLMHandler(),
+ *     completions: createCompletionsLLMHandler(),
+ *   },
+ *   defaultMode: 'responses',
+ *   getMode: (options) => options?.api ?? 'responses',
+ * };
+ * ```
+ */
+export interface LLMHandlerResolver<TOptions = unknown> {
+  /** Map of mode identifiers to their corresponding LLM handlers */
+  handlers: Record<string, LLMHandler>;
+  /** The default mode when options don't specify one */
+  defaultMode: string;
+  /** Function to extract the mode from provider options */
+  getMode: (options: TOptions | undefined) => string;
+}
+
+/**
+ * Type guard to check if a value is an LLMHandlerResolver.
+ */
+function isHandlerResolver<TOptions>(
+  value: LLMHandler | LLMHandlerResolver<TOptions> | undefined
+): value is LLMHandlerResolver<TOptions> {
+  return value !== undefined && 'handlers' in value && 'getMode' in value;
+}
+
+/**
+ * Configuration options for creating a new provider.
+ *
+ * @typeParam TOptions - Provider-specific options type
+ *
+ * @example
+ * ```typescript
+ * // Simple provider with single handler
  * const options: CreateProviderOptions = {
  *   name: 'my-provider',
  *   version: '1.0.0',
@@ -32,22 +74,58 @@ import type {
  *     embedding: createEmbeddingHandler(),
  *   },
  * };
+ *
+ * // Provider with multiple LLM handlers (API modes)
+ * const options: CreateProviderOptions<OpenAIOptions> = {
+ *   name: 'openai',
+ *   version: '1.0.0',
+ *   modalities: {
+ *     llm: {
+ *       handlers: { responses: handler1, completions: handler2 },
+ *       defaultMode: 'responses',
+ *       getMode: (opts) => opts?.api ?? 'responses',
+ *     },
+ *   },
+ * };
  * ```
  */
-export interface CreateProviderOptions {
+export interface CreateProviderOptions<TOptions = unknown> {
   /** Unique identifier for the provider */
   name: string;
   /** Semantic version string for the provider implementation */
   version: string;
   /** Handlers for supported modalities (LLM, embedding, image generation) */
   modalities: {
-    /** Handler for language model completions */
-    llm?: LLMHandler;
+    /** Handler for language model completions, or resolver for multi-handler providers */
+    llm?: LLMHandler | LLMHandlerResolver<TOptions>;
     /** Handler for text embeddings */
     embedding?: EmbeddingHandler;
     /** Handler for image generation */
     image?: ImageHandler;
   };
+  /**
+   * Custom function to create model references from options.
+   * Use this to map provider options to providerConfig (e.g., betas to headers).
+   */
+  createModelReference?: (
+    modelId: string,
+    options: TOptions | undefined,
+    provider: Provider<TOptions>
+  ) => ModelReference<TOptions>;
+}
+
+/** Symbol for storing the LLM handler resolver on the modalities object */
+const LLM_RESOLVER_KEY = Symbol.for('upp:llm-resolver');
+
+/**
+ * Extended modalities interface that includes the internal resolver reference.
+ * @internal
+ */
+export interface ModalitiesWithResolver<TOptions = unknown> {
+  llm?: LLMHandler;
+  embedding?: EmbeddingHandler;
+  image?: ImageHandler;
+  [LLM_RESOLVER_KEY]?: LLMHandlerResolver<TOptions>;
 }
 
 /**
@@ -80,13 +158,48 @@ export interface CreateProviderOptions {
  *   version: '1.0.0',
  *   modalities: { llm: handler },
  * });
+ *
+ * // Provider with multiple LLM handlers (API modes)
+ * const openai = createProvider<OpenAIOptions>({
+ *   name: 'openai',
+ *   version: '1.0.0',
+ *   modalities: {
+ *     llm: {
+ *       handlers: { responses: responsesHandler, completions: completionsHandler },
+ *       defaultMode: 'responses',
+ *       getMode: (opts) => opts?.api ?? 'responses',
+ *     },
+ *   },
+ * });
  * ```
  */
 export function createProvider<TOptions = unknown>(
-  options: CreateProviderOptions
+  options: CreateProviderOptions<TOptions>
 ): Provider<TOptions> {
-  const fn = function (modelId: string, _options?: TOptions): ModelReference<TOptions> {
-    return { modelId, provider };
+  // Resolve the default LLM handler for capabilities/bind
+  const llmInput = options.modalities.llm;
+  const hasResolver = isHandlerResolver<TOptions>(llmInput);
+  const defaultLLMHandler = hasResolver ? llmInput.handlers[llmInput.defaultMode] : llmInput;
+
+  // Build modalities object with optional resolver reference
+  const modalities: ModalitiesWithResolver<TOptions> = {
+    llm: defaultLLMHandler,
+    embedding: options.modalities.embedding,
+    image: options.modalities.image,
+  };
+
+  // Store resolver for later lookup by resolveLLMHandler
+  if (hasResolver) {
+    modalities[LLM_RESOLVER_KEY] = llmInput;
+  }
+
+  // Create the factory function
+  const fn = function (modelId: string, modelOptions?: TOptions): ModelReference<TOptions> {
+    if (options.createModelReference) {
+      return options.createModelReference(modelId, modelOptions, provider);
+    }
+    // Default: store options on the reference for handler resolution
+    return { modelId, provider, options: modelOptions };
   };
 
   Object.defineProperties(fn, {
@@ -101,7 +214,7 @@ export function createProvider<TOptions = unknown>(
       configurable: true,
     },
     modalities: {
-      value: options.modalities,
+      value: modalities,
       writable: false,
       configurable: true,
     },
@@ -109,9 +222,18 @@ export function createProvider<TOptions = unknown>(
 
   const provider = fn as Provider<TOptions>;
 
-  if (options.modalities.llm?._setProvider) {
-    options.modalities.llm._setProvider(provider as unknown as LLMProvider);
+  // Set provider reference on the default handler
+  if (defaultLLMHandler?._setProvider) {
+    defaultLLMHandler._setProvider(provider as unknown as LLMProvider);
   }
+
+  // If there's a resolver, set provider on all handlers
+  if (hasResolver) {
+    for (const handler of Object.values(llmInput.handlers)) {
+      handler._setProvider?.(provider as unknown as LLMProvider);
+    }
+  }
+
   if (options.modalities.embedding?._setProvider) {
     options.modalities.embedding._setProvider(provider as unknown as EmbeddingProvider);
   }
@@ -120,4 +242,42 @@ export function createProvider<TOptions = unknown>(
   }
 
   return provider;
+}
+
+/**
+ * Resolves the correct LLM handler based on model reference options.
+ *
+ * For providers with multiple LLM handlers (e.g., OpenAI with responses/completions APIs),
+ * this function determines which handler to use based on the options stored on the
+ * ModelReference. This eliminates race conditions from shared mutable state.
+ *
+ * For providers with a single LLM handler, this simply returns that handler.
+ *
+ * @typeParam TOptions - Provider-specific options type
+ * @param provider - The provider to resolve the handler from
+ * @param options - The options from the ModelReference
+ * @returns The resolved LLM handler, or undefined if LLM is not supported
+ *
+ * @example
+ * ```typescript
+ * const handler = resolveLLMHandler(openai, { api: 'completions' });
+ * // Returns the completions handler
+ *
+ * const handler = resolveLLMHandler(anthropic, undefined);
+ * // Returns the single LLM handler
+ * ```
+ */
+export function resolveLLMHandler<TOptions = unknown>(
+  provider: Provider<TOptions>,
+  options: TOptions | undefined
+): LLMHandler | undefined {
+  const modalities = provider.modalities as ModalitiesWithResolver<TOptions>;
+  const resolver = modalities[LLM_RESOLVER_KEY];
+
+  if (resolver) {
+    const mode = resolver.getMode(options);
+    return resolver.handlers[mode] ?? modalities.llm;
+  }
+
+  return modalities.llm;
 }

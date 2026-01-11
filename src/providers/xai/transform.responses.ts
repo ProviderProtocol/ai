@@ -21,6 +21,7 @@ import type {
   XAIResponsesOutputItem,
   XAIResponsesMessageOutput,
   XAIResponsesFunctionCallOutput,
+  XAIBuiltInTool,
 } from './types.ts';
 
 /**
@@ -40,14 +41,24 @@ export function transformRequest(
 ): XAIResponsesRequest {
   const params = request.params ?? ({} as XAIResponsesParams);
 
+  // Extract tools before spreading params to avoid including it in the request
+  const { tools: builtInTools, ...restParams } = params;
+
   const xaiRequest: XAIResponsesRequest = {
-    ...params,
+    ...restParams,
     model: modelId,
     input: transformInputItems(request.messages, request.system),
   };
 
-  if (request.tools && request.tools.length > 0) {
-    xaiRequest.tools = request.tools.map(transformTool);
+  // Build tools array: function tools from request.tools + built-in agentic tools from params
+  const functionTools: XAIResponsesTool[] = request.tools?.map(transformTool) ?? [];
+  const allTools: Array<XAIResponsesTool | XAIBuiltInTool> = [
+    ...functionTools,
+    ...(builtInTools ?? []),
+  ];
+
+  if (allTools.length > 0) {
+    xaiRequest.tools = allTools;
   }
 
   if (request.structure) {

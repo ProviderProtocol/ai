@@ -72,8 +72,7 @@ export function transformRequest(
 ): OpenAIResponsesRequest {
   const params = request.params ?? ({} as OpenAIResponsesParams);
 
-  const builtInTools = params.tools as OpenAIResponsesToolUnion[] | undefined;
-  const { tools: _paramsTools, ...restParams } = params;
+  const { tools: builtInTools, ...restParams } = params;
 
   const openaiRequest: OpenAIResponsesRequest = {
     ...restParams,
@@ -82,7 +81,10 @@ export function transformRequest(
   };
 
   const functionTools: OpenAIResponsesToolUnion[] = request.tools?.map(transformTool) ?? [];
-  const allTools: OpenAIResponsesToolUnion[] = [...functionTools, ...(builtInTools ?? [])];
+  const allTools: OpenAIResponsesToolUnion[] = [
+    ...functionTools,
+    ...(builtInTools ?? []),
+  ];
 
   if (allTools.length > 0) {
     openaiRequest.tools = allTools;

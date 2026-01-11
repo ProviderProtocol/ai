@@ -7,27 +7,12 @@
  * @module providers/openai
  */
 
-import type {
-  Provider,
-  ModelReference,
-  LLMHandler,
-  LLMProvider,
-  EmbeddingHandler,
-  EmbeddingProvider,
-  ImageProvider,
-} from '../../types/provider.ts';
-import type { ImageHandler } from '../../types/image.ts';
+import { createProvider } from '../../core/provider.ts';
+import type { LLMHandlerResolver } from '../../core/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createEmbeddingHandler, type OpenAIEmbedParams } from './embed.ts';
 import { createImageHandler, type OpenAIImageParams } from './image.ts';
-import type { OpenAICompletionsParams, OpenAIResponsesParams } from './types.ts';
-
-/**
- * Union type for the LLM handler that supports both API modes.
- * Used internally for the dynamic handler selection based on API mode.
- */
-type OpenAILLMParamsUnion = OpenAICompletionsParams | OpenAIResponsesParams;
 
 /**
  * Configuration options for the OpenAI provider.
@@ -48,134 +33,6 @@ export interface OpenAIProviderOptions {
    * @default 'responses'
    */
   api?: 'responses' | 'completions';
-}
-
-/**
- * OpenAI provider interface with configurable API mode.
- *
- * The provider is callable as a function to create model references, and also
- * exposes metadata about the provider and its supported modalities.
- *
- * @example Creating model references
- * ```typescript
- * // Using the modern Responses API (default, recommended)
- * const model = openai('gpt-4o');
- *
- * // Using the legacy Chat Completions API
- * const legacyModel = openai('gpt-4o', { api: 'completions' });
- *
- * // Explicit Responses API selection
- * const responsesModel = openai('gpt-4o', { api: 'responses' });
- * ```
- *
- * @see {@link OpenAIProviderOptions} for available configuration options
- * @see {@link OpenAIResponsesParams} for Responses API parameters
- * @see {@link OpenAICompletionsParams} for Chat Completions API parameters
- */
-export interface OpenAIProvider extends Provider<OpenAIProviderOptions> {
-  /**
-   * Creates a model reference for the specified OpenAI model.
-   *
-   * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o', 'gpt-4-turbo', 'o1-preview', 'gpt-4o-mini')
-   * @param options - Optional provider configuration including API mode selection
-   * @returns A model reference that can be used with the LLM core functions
-   *
-   * @example
-   * ```typescript
-   * const gpt4o = openai('gpt-4o');
-   * const gpt4turbo = openai('gpt-4-turbo', { api: 'completions' });
-   * ```
-   */
-  (modelId: string, options?: OpenAIProviderOptions): ModelReference<OpenAIProviderOptions>;
-
-  /**
-   * The provider identifier.
-   * Always returns `'openai'` for this provider.
-   */
-  readonly name: 'openai';
-
-  /**
-   * The provider version following semantic versioning.
-   */
-  readonly version: string;
-
-  /**
-   * Supported modalities and their handlers.
-   * Supports LLM, Embedding, and Image modalities.
-   */
-  readonly modalities: {
-    /** The LLM handler for text generation and chat completion */
-    llm: LLMHandler<OpenAILLMParamsUnion>;
-    /** The embedding handler for text embeddings */
-    embedding: EmbeddingHandler<OpenAIEmbedParams>;
-    /** The image handler for image generation */
-    image: ImageHandler<OpenAIImageParams>;
-  };
-}
-
-/**
- * Factory function that creates and configures the OpenAI provider instance.
- *
- * This function initializes both the Responses API and Chat Completions API handlers,
- * sets up dynamic handler selection based on the API mode, and injects provider
- * references for spec compliance.
- *
- * @returns A fully configured OpenAI provider instance
- * @internal
- */
-function createOpenAIProvider(): OpenAIProvider {
-  let currentApiMode: 'responses' | 'completions' = 'responses';
-
-  const responsesHandler = createResponsesLLMHandler();
-  const completionsHandler = createCompletionsLLMHandler();
-  const embeddingHandler = createEmbeddingHandler();
-  const imageHandler = createImageHandler();
-
-  const fn = function (
-    modelId: string,
-    options?: OpenAIProviderOptions
-  ): ModelReference<OpenAIProviderOptions> {
-    const apiMode = options?.api ?? 'responses';
-    currentApiMode = apiMode;
-    return { modelId, provider };
-  };
-
-  const modalities = {
-    get llm(): LLMHandler<OpenAILLMParamsUnion> {
-      return currentApiMode === 'completions'
-        ? (completionsHandler as unknown as LLMHandler<OpenAILLMParamsUnion>)
-        : (responsesHandler as unknown as LLMHandler<OpenAILLMParamsUnion>);
-    },
-    embedding: embeddingHandler,
-    image: imageHandler,
-  };
-
-  Object.defineProperties(fn, {
-    name: {
-      value: 'openai',
-      writable: false,
-      configurable: true,
-    },
-    version: {
-      value: '1.0.0',
-      writable: false,
-      configurable: true,
-    },
-    modalities: {
-      value: modalities,
-      writable: false,
-      configurable: true,
-    },
-  });
-
-  const provider = fn as OpenAIProvider;
-
-  responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenAIResponsesParams>);
-  completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenAICompletionsParams>);
-  embeddingHandler._setProvider?.(provider as unknown as EmbeddingProvider<OpenAIEmbedParams>);
-  imageHandler._setProvider?.(provider as unknown as ImageProvider<OpenAIImageParams>);
-
-  return provider;
 }
 
 /**
@@ -219,9 +76,23 @@ function createOpenAIProvider(): OpenAIProvider {
  * });
  * ```
  */
-export const openai = createOpenAIProvider();
+export const openai = createProvider<OpenAIProviderOptions>({
+  name: 'openai',
+  version: '1.0.0',
+  modalities: {
+    llm: {
+      handlers: {
+        responses: createResponsesLLMHandler(),
+        completions: createCompletionsLLMHandler(),
+      },
+      defaultMode: 'responses',
+      getMode: (options) => options?.api ?? 'responses',
+    } satisfies LLMHandlerResolver<OpenAIProviderOptions>,
+    embedding: createEmbeddingHandler(),
+    image: createImageHandler(),
+  },
+});
 
-// Re-export types
 export type {
   OpenAICompletionsParams,
   OpenAIResponsesParams,
@@ -229,12 +100,10 @@ export type {
   OpenAIAPIMode,
   OpenAIModelOptions,
   OpenAIModelReference,
-  // Audio and web search types
   OpenAIAudioConfig,
   OpenAIWebSearchOptions,
   OpenAIWebSearchUserLocation,
   OpenAICompletionsWebSearchUserLocation,
-  // Built-in tool types
   OpenAIBuiltInTool,
   OpenAIWebSearchTool,
   OpenAIFileSearchTool,
@@ -246,12 +115,10 @@ export type {
   OpenAIMcpTool,
   OpenAIMcpServerConfig,
   OpenAIResponsesToolUnion,
-  // Conversation and prompt types
   OpenAIConversation,
   OpenAIPromptTemplate,
 } from './types.ts';
 
-// Re-export tool helper constructors
 export {
   tools,
   webSearchTool,

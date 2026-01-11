@@ -178,6 +178,14 @@ export interface ModelReference<TOptions = unknown> {
    * values taking precedence.
    */
   readonly providerConfig?: Partial<ProviderConfig>;
+
+  /**
+   * The original options passed when creating this model reference.
+   *
+   * Used by providers with multiple LLM handlers (e.g., OpenAI with responses/completions APIs)
+   * to resolve the correct handler at request time, avoiding race conditions from shared state.
+   */
+  readonly options?: TOptions;
 }
 
 /**
@@ -397,10 +405,11 @@ export interface BoundImageModel<TParams = unknown> {
  * // Accessing provider metadata
  * console.log(openai.name); // 'openai'
  * console.log(openai.version); // '1.0.0'
- *
- * // Accessing modality handlers
- * const llmHandler = openai.modalities.llm;
  * ```
+ *
+ * @remarks
+ * Modality handlers are low-level and may not reflect per-model options.
+ * Prefer the `llm()`, `embedding()`, or `image()` factories for normal usage.
  */
 export interface Provider<TOptions = unknown> {
   /**
@@ -418,7 +427,14 @@ export interface Provider<TOptions = unknown> {
   /** Provider version string */
   readonly version: string;
 
-  /** Supported modalities and their handlers */
+  /**
+   * Supported modalities and their handlers.
+   *
+   * @remarks
+   * These handlers are low-level and primarily intended for internal use.
+   * Prefer the higher-level factories (`llm()`, `embedding()`, `image()`) for
+   * request execution and per-model option handling.
+   */
   readonly modalities: {
     llm?: LLMHandler;
     embedding?: EmbeddingHandler;

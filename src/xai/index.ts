@@ -24,10 +24,7 @@
  */
 
 export { xai, tools } from '../providers/xai/index.ts';
-export type {
-  XAIProviderOptions,
-  XAIProvider,
-} from '../providers/xai/index.ts';
+export type { XAIProviderOptions, XAIProvider } from '../providers/xai/index.ts';
 export type {
   XAICompletionsParams,
   XAIResponsesParams,

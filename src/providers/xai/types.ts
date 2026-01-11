@@ -165,7 +165,7 @@ export interface XAIResponsesParams {
    * const model = llm({
    *   model: xai('grok-4-1-fast', { api: 'responses' }),
    *   params: {
-   *     builtInTools: [
+   *     tools: [
    *       tools.webSearch(),
    *       tools.xSearch({ from_date: '2025-01-01' }),
    *       tools.codeExecution(),
@@ -174,7 +174,7 @@ export interface XAIResponsesParams {
    * });
    * ```
    */
-  builtInTools?: XAIBuiltInTool[];
+  tools?: XAIBuiltInTool[];
 
   /**
    * Maximum agent reasoning turns.
@@ -635,7 +635,7 @@ export function mcpTool(options: {
  * const model = llm({
  *   model: xai('grok-4-1-fast', { api: 'responses' }),
  *   params: {
- *     builtInTools: [
+ *     tools: [
  *       tools.webSearch(),
  *       tools.xSearch({ from_date: '2025-01-01' }),
  *       tools.codeExecution(),
@@ -979,7 +979,7 @@ export interface XAIResponsesRequest {
   temperature?: number;
   top_p?: number;
   stream?: boolean;
-  tools?: XAIResponsesTool[];
+  tools?: Array<XAIResponsesTool | XAIBuiltInTool>;
   tool_choice?: XAIResponsesToolChoice;
   parallel_tool_calls?: boolean;
   text?: XAIResponsesTextConfig;

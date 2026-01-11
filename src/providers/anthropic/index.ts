@@ -1,7 +1,7 @@
 import { createProvider } from '../../core/provider.ts';
 import { createLLMHandler } from './llm.ts';
-import type { Provider, ModelReference, ProviderConfig } from '../../types/provider.ts';
-import type { BetaValue, AnthropicLLMParams } from './types.ts';
+import type { ProviderConfig } from '../../types/provider.ts';
+import type { BetaValue } from './types.ts';
 
 /**
  * Options for configuring an Anthropic model reference.
@@ -47,7 +47,6 @@ function createProviderConfig(options?: AnthropicModelOptions): Partial<Provider
     return undefined;
   }
 
-  // Combine betas into comma-separated header value
   const betaHeader = options.betas.join(',');
 
   return {
@@ -56,15 +55,6 @@ function createProviderConfig(options?: AnthropicModelOptions): Partial<Provider
     },
   };
 }
-
-// Create the base provider
-const baseProvider = createProvider<AnthropicModelOptions>({
-  name: 'anthropic',
-  version: '1.0.0',
-  modalities: {
-    llm: createLLMHandler(),
-  },
-});
 
 /**
  * Anthropic provider for the Universal Provider Protocol.
@@ -104,35 +94,22 @@ const baseProvider = createProvider<AnthropicModelOptions>({
  * @see {@link betas} for available beta features
  * @see {@link AnthropicLLMParams} for provider-specific parameters
  */
-function anthropicFactory(modelId: string, options?: AnthropicModelOptions): ModelReference<AnthropicModelOptions> {
-  const providerConfig = createProviderConfig(options);
-  return {
-    modelId,
-    provider: anthropic,
-    ...(providerConfig && { providerConfig }),
-  };
-}
-
-// Define properties on the factory function
-Object.defineProperties(anthropicFactory, {
-  name: {
-    value: baseProvider.name,
-    writable: false,
-    configurable: true,
-  },
-  version: {
-    value: baseProvider.version,
-    writable: false,
-    configurable: true,
-  },
+export const anthropic = createProvider<AnthropicModelOptions>({
+  name: 'anthropic',
+  version: '1.0.0',
   modalities: {
-    value: baseProvider.modalities,
-    writable: false,
-    configurable: true,
+    llm: createLLMHandler(),
+  },
+  createModelReference: (modelId, options, provider) => {
+    const providerConfig = createProviderConfig(options);
+    return {
+      modelId,
+      provider,
+      options,
+      ...(providerConfig && { providerConfig }),
+    };
   },
 });
-
-export const anthropic = anthropicFactory as Provider<AnthropicModelOptions>;
 
 export { tools, betas } from './types.ts';
 export type { BetaKey, BetaValue } from './types.ts';

@@ -24,7 +24,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Built-in Tools Live',
       model: anthropic('claude-sonnet-4-20250514'),
       params: {
         max_tokens: 1000,
-        builtInTools: [tools.webSearch()],
+        tools: [tools.webSearch()],
       },
     });
 
@@ -41,7 +41,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Built-in Tools Live',
       model: anthropic('claude-sonnet-4-20250514'),
       params: {
         max_tokens: 1000,
-        builtInTools: [
+        tools: [
           tools.webSearch({
             allowed_domains: ['wikipedia.org', 'github.com'],
             max_uses: 3,
@@ -63,7 +63,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Built-in Tools Live',
       model: anthropic('claude-sonnet-4-20250514'),
       params: {
         max_tokens: 1000,
-        builtInTools: [
+        tools: [
           tools.webSearch({
             user_location: {
               type: 'approximate',
@@ -93,7 +93,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Built-in Tools Live',
       },
       params: {
         max_tokens: 2000,
-        builtInTools: [tools.codeExecution()],
+        tools: [tools.codeExecution()],
       },
     });
 
@@ -118,7 +118,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Built-in Tools Stream
       model: anthropic('claude-sonnet-4-20250514'),
       params: {
         max_tokens: 1000,
-        builtInTools: [tools.webSearch()],
+        tools: [tools.webSearch()],
       },
     });
 
@@ -154,7 +154,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Built-in Tools Stream
       },
       params: {
         max_tokens: 2000,
-        builtInTools: [tools.codeExecution()],
+        tools: [tools.codeExecution()],
       },
     });
 
@@ -197,7 +197,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Multiple Built-in Too
       },
       params: {
         max_tokens: 2000,
-        builtInTools: [
+        tools: [
           tools.webSearch({ max_uses: 2 }),
           tools.codeExecution(),
         ],

@@ -2,10 +2,9 @@ import type {
   Provider,
   ModelReference,
   LLMHandler,
-  LLMProvider,
   EmbeddingHandler,
-  EmbeddingProvider,
 } from '../../types/provider.ts';
+import { createProvider, type LLMHandlerResolver } from '../../core/provider.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createEmbeddingHandler, type OpenRouterEmbedParams } from './embed.ts';
@@ -85,65 +84,20 @@ export interface OpenRouterProvider extends Provider<OpenRouterProviderOptions> 
 }
 
 /**
- * Factory function to create the OpenRouter provider singleton.
+ * LLM handler resolver for OpenRouter's dual API support.
  *
- * Creates both Completions and Responses API handlers and manages
- * API mode switching based on the options passed when creating model references.
- *
- * @returns A fully configured OpenRouter provider instance
- * @internal
+ * Dynamically selects between Completions and Responses API handlers
+ * based on the options stored on the ModelReference. This eliminates
+ * race conditions from shared mutable state.
  */
-function createOpenRouterProvider(): OpenRouterProvider {
-  let currentApiMode: 'completions' | 'responses' = 'completions';
-
-  const completionsHandler = createCompletionsLLMHandler();
-  const responsesHandler = createResponsesLLMHandler();
-  const embeddingHandler = createEmbeddingHandler();
-
-  const fn = function (
-    modelId: string,
-    options?: OpenRouterProviderOptions
-  ): ModelReference<OpenRouterProviderOptions> {
-    const apiMode = options?.api ?? 'completions';
-    currentApiMode = apiMode;
-    return { modelId, provider };
-  };
-
-  const modalities = {
-    get llm(): LLMHandler<OpenRouterLLMParamsUnion> {
-      return currentApiMode === 'responses'
-        ? (responsesHandler as unknown as LLMHandler<OpenRouterLLMParamsUnion>)
-        : (completionsHandler as unknown as LLMHandler<OpenRouterLLMParamsUnion>);
-    },
-    embedding: embeddingHandler,
-  };
-
-  Object.defineProperties(fn, {
-    name: {
-      value: 'openrouter',
-      writable: false,
-      configurable: true,
-    },
-    version: {
-      value: '1.0.0',
-      writable: false,
-      configurable: true,
-    },
-    modalities: {
-      value: modalities,
-      writable: false,
-      configurable: true,
-    },
-  });
-
-  const provider = fn as OpenRouterProvider;
-
-  completionsHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterCompletionsParams>);
-  responsesHandler._setProvider?.(provider as unknown as LLMProvider<OpenRouterResponsesParams>);
-  embeddingHandler._setProvider?.(provider as unknown as EmbeddingProvider<OpenRouterEmbedParams>);
-
-  return provider;
-}
+const llmResolver: LLMHandlerResolver<OpenRouterProviderOptions> = {
+  handlers: {
+    completions: createCompletionsLLMHandler(),
+    responses: createResponsesLLMHandler(),
+  },
+  defaultMode: 'completions',
+  getMode: (options) => options?.api ?? 'completions',
+};
 
 /**
  * OpenRouter provider singleton.
@@ -194,7 +148,14 @@ function createOpenRouterProvider(): OpenRouterProvider {
  *
  * @see {@link https://openrouter.ai/docs | OpenRouter Documentation}
  */
-export const openrouter = createOpenRouterProvider();
+export const openrouter = createProvider<OpenRouterProviderOptions>({
+  name: 'openrouter',
+  version: '1.0.0',
+  modalities: {
+    llm: llmResolver,
+    embedding: createEmbeddingHandler(),
+  },
+}) as OpenRouterProvider;
 
 export type {
   OpenRouterCompletionsParams,
