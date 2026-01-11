@@ -293,10 +293,9 @@ describe('Provider Index Exports', () => {
     expect(betas.fineGrainedToolStreaming).toBe('fine-grained-tool-streaming-2025-05-14');
 
     // Code Execution
-    expect(betas.codeExecution).toBe('code-execution-2025-05-22');
+    expect(betas.codeExecution).toBe('code-execution-2025-08-25');
 
-    // Tool Search / Advanced Tool Use
-    expect(betas.toolSearch).toBe('tool-search-tool-2025-10-19');
+    // Advanced Tool Use
     expect(betas.advancedToolUse).toBe('advanced-tool-use-2025-11-20');
 
     // Files & Documents
@@ -327,7 +326,7 @@ describe('Provider Index Exports', () => {
     const { betas } = await import('../../../src/providers/anthropic/index.ts');
     const betaKeys = Object.keys(betas) as Array<keyof typeof betas>;
 
-    expect(betaKeys.length).toBeGreaterThanOrEqual(22);
+    expect(betaKeys.length).toBeGreaterThanOrEqual(21);
 
     for (const key of betaKeys) {
       expect(typeof betas[key]).toBe('string');
@@ -408,7 +407,7 @@ describe('Provider Index Exports', () => {
     });
 
     expect(model.providerConfig?.headers?.['anthropic-beta']).toBe(
-      'structured-outputs-2025-11-13,my-custom-beta-2025-12-01,code-execution-2025-05-22'
+      'structured-outputs-2025-11-13,my-custom-beta-2025-12-01,code-execution-2025-08-25'
     );
   });
 

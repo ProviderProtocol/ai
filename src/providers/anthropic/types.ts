@@ -63,11 +63,9 @@ export const betas = {
 
   // Code Execution
   /** Code execution tool for running Python/Bash in secure sandbox. */
-  codeExecution: 'code-execution-2025-05-22',
+  codeExecution: 'code-execution-2025-08-25',
 
-  // Tool Search / Advanced Tool Use
-  /** Tool Search Tool for large tool catalogs. */
-  toolSearch: 'tool-search-tool-2025-10-19',
+  // Advanced Tool Use
   /** Advanced tool use: Tool Search, Programmatic Tool Calling, Tool Use Examples. */
   advancedToolUse: 'advanced-tool-use-2025-11-20',
 
