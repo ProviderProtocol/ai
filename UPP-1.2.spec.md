@@ -83,11 +83,11 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 ### 1.5 Modality Overview
 
-| Entry Point | Purpose | Example Models |
-|-------------|---------|----------------|
-| `llm()` | Chat, completion, reasoning | Claude, GPT-4, Gemini |
-| `embedding()` | Vector embeddings | text-embedding-3, Voyage, Cohere |
-| `image()` | Image generation/editing | DALL-E, Stable Diffusion, Imagen |
+| Entry Point | Purpose |
+|-------------|---------|
+| `llm()` | Chat, completion, reasoning |
+| `embedding()` | Vector embeddings |
+| `image()` | Image generation/editing |
 
 Future modalities may include:
 - `audio()` - Speech-to-text, text-to-speech
@@ -1023,15 +1023,7 @@ Providers SHOULD preserve unknown metadata fields during round-trips to support 
 
 #### 5.10.4 System Prompt Handling
 
-The provider MUST handle system prompts according to vendor requirements:
-
-| Provider | System Prompt Handling |
-|----------|----------------------|
-| Anthropic | Top-level `system` parameter |
-| OpenAI | Message with `role: "system"` |
-| Google | `systemInstruction` field |
-
-`llm()` accepts system prompts at the options level and providers transform accordingly.
+The provider MUST transform the system prompt from `LLMOptions.system` to the vendor-specific format required by the underlying API.
 
 #### 5.10.5 Structured Output Handling
 
@@ -1105,35 +1097,15 @@ Messages are represented as a type hierarchy, allowing type-safe handling and pr
 
 **MessageMetadata Structure:**
 
-Provider-namespaced metadata. Each provider defines its own metadata shape, enabling provider-specific features like prompt caching without affecting other providers.
+Provider-namespaced metadata. Each provider defines its own metadata shape, enabling provider-specific features without affecting other providers. The structure is `Map<String, Map>` where the outer key is the provider name.
 
 ```pseudocode
 {
-  google: { thought_signature: "abc123..." },
-  openai: { reasoning_encrypted: "..." },
-  anthropic: { cache_control: { type: "ephemeral", ttl: "1h" } }
+  providerName: { key: value, ... }
 }
 ```
 
-| Provider | Namespace | Supported Options |
-|----------|-----------|-------------------|
-| Anthropic | `anthropic` | `cache_control: { type: "ephemeral", ttl?: "5m" \| "1h" }` |
-| Google | `google` | `thought_signature: string` (for multi-turn tool calls) |
-| OpenRouter | `openrouter` | `cache_control: { type: "ephemeral", ttl?: "1h" }` |
-
-**Prompt Caching via Message Metadata:**
-
-Anthropic and OpenRouter support explicit cache breakpoints via message metadata. When set on a message, the `cache_control` is applied to the last content block of that message, marking a cache checkpoint.
-
-```pseudocode
-// Cache the system context to reduce costs on repeated requests
-userMessage = UserMessage(
-  "Here is the codebase context: " + largeCodebase,
-  { metadata: { anthropic: { cache_control: { type: "ephemeral" } } } }
-)
-```
-
-**Note:** Providers MUST ignore metadata namespaces they don't recognize. Message metadata is passed through to the provider's native format where supported.
+Providers MUST ignore metadata namespaces they don't recognize. Message metadata is passed through to the provider's native format where supported. Consult individual provider documentation for supported metadata options.
 
 ### 6.2 Message Types
 
@@ -1778,21 +1750,15 @@ Tools use **JSON Schema** for parameter definitions.
 
 **ToolMetadata Structure:**
 
-Provider-namespaced metadata for tools. Each provider defines its own metadata shape, enabling provider-specific features like prompt caching or strict schema validation without affecting other providers.
+Provider-namespaced metadata for tools. Each provider defines its own metadata shape, enabling provider-specific features without affecting other providers. The structure is `Map<String, Map>` where the outer key is the provider name.
 
 ```pseudocode
 {
-  anthropic: { cache_control: { type: "ephemeral", ttl: "1h" } },
-  openai: { strict: true }
+  providerName: { key: value, ... }
 }
 ```
 
-| Provider | Namespace | Supported Options |
-|----------|-----------|-------------------|
-| Anthropic | `anthropic` | `cache_control: { type: "ephemeral", ttl?: "5m" \| "1h" }` |
-| OpenAI | `openai` | `strict: boolean` (stricter JSON Schema validation) |
-
-**Note:** Providers MUST ignore metadata namespaces they don't recognize. Tool metadata is passed through to the provider's native format where supported.
+Providers MUST ignore metadata namespaces they don't recognize. Tool metadata is passed through to the provider's native format where supported. Consult individual provider documentation for supported metadata options.
 
 **JSONSchema Structure (for tool parameters):**
 
@@ -2176,274 +2142,21 @@ turn = await gpt.generate("What's the weather in Paris and save it to my notes")
 
 The `llm()` core handles UPP function tool execution automatically. Provider-native tools execute server-side and their results appear in the response.
 
-#### 10.9.5 Provider Tool Reference
+#### 10.9.5 Provider Implementation Notes
 
-This section documents the built-in tools available for each provider. All tools are passed via the `params.builtInTools` array and have helper constructors in the provider's `tools` namespace.
+Provider-native tools vary significantly between vendors. Implementations SHOULD:
 
-##### Anthropic Built-in Tools
+1. **Export helper constructors** in a `tools` namespace (e.g., `import { tools } from "upp/openai"`)
+2. **Document available tools** for each provider with their configuration options
+3. **Handle beta/preview features** via `config.headers` when required by the vendor
 
-Anthropic provides server-side tools for Claude models. Import via `import { tools } from "upp/anthropic"`.
+Common built-in tool categories across providers include:
+- **Web Search** - Real-time web information retrieval
+- **Code Execution** - Sandboxed code interpretation
+- **File/Document Search** - RAG over document stores
+- **Image Generation** - Text-to-image within LLM context
 
-| Tool | Constructor | Description | Pricing |
-|------|-------------|-------------|---------|
-| **Web Search** | `tools.webSearch()` | Search the web for real-time information | $10 per 1,000 tool invocations |
-| **Computer Use** | `tools.computer()` | Control computer via mouse, keyboard, screenshots | Requires beta header |
-| **Text Editor** | `tools.textEditor()` | View and edit files with str_replace operations | ~700 tokens overhead |
-| **Bash** | `tools.bash()` | Execute shell commands | ~245 tokens overhead |
-| **Code Execution** | `tools.codeExecution()` | Run Python in sandboxed container | $0.05 per container-hour |
-| **Tool Search** | `tools.toolSearch()` | Dynamic tool catalog search (regex/BM25) | Token-based |
-
-**Beta Header Requirements:**
-
-Some Anthropic tools require a beta header to be included in the request:
-
-| Tool | Beta Header | Status |
-|------|-------------|--------|
-| Web Search | None | GA |
-| Computer Use | `computer-use-2025-01-24` | Beta |
-| Text Editor | None | GA |
-| Bash | None | GA |
-| Code Execution | `code-execution-2025-08-25` | Beta |
-| Tool Search | `advanced-tool-use-2025-11-20` | Beta |
-
-**Web Search Example:**
-
-```pseudocode
-import { anthropic, tools } from "upp/anthropic"
-
-claude = llm({
-  model: anthropic("claude-sonnet-4-20250514"),
-  params: {
-    builtInTools: [
-      tools.webSearch({
-        max_uses: 5,  // Limit searches per request
-        allowed_domains: ["wikipedia.org", "github.com"],
-        user_location: {
-          type: "approximate",
-          city: "San Francisco",
-          country: "US"
-        }
-      })
-    ]
-  }
-})
-```
-
-**Code Execution Example (requires beta header):**
-
-```pseudocode
-claude = llm({
-  model: anthropic("claude-sonnet-4-20250514"),
-  config: {
-    headers: { "anthropic-beta": "code-execution-2025-08-25" }
-  },
-  params: {
-    builtInTools: [tools.codeExecution()],
-    container: "container_id_from_previous_response"  // Reuse container
-  }
-})
-```
-
-**Computer Use (Beta):**
-
-```pseudocode
-claude = llm({
-  model: anthropic("claude-sonnet-4-20250514"),
-  config: {
-    headers: { "anthropic-beta": "computer-use-2025-01-24" }
-  },
-  params: {
-    builtInTools: [
-      tools.computer({
-        display_width_px: 1920,
-        display_height_px: 1080,
-        version: "20251124",  // Opus-optimized version
-        enable_zoom: true
-      })
-    ]
-  }
-})
-```
-
-##### Google Built-in Tools
-
-Google provides server-side tools for Gemini models. Import via `import { tools } from "upp/google"`.
-
-| Tool | Constructor | Description | Pricing |
-|------|-------------|-------------|---------|
-| **Google Search** | `tools.googleSearch()` | Grounding with Google Search | $14-35 per 1,000 queries |
-| **Code Execution** | `tools.codeExecution()` | Execute Python code | Free |
-| **URL Context** | `tools.urlContext()` | Fetch and analyze URLs | Token-based |
-| **Google Maps** | `tools.googleMaps()` | Grounding with Google Maps | $25 per 1,000 queries |
-| **File Search** | `tools.fileSearch()` | RAG search on document stores | Token-based |
-
-**Google Search Example:**
-
-```pseudocode
-import { google, tools } from "upp/google"
-
-gemini = llm({
-  model: google("gemini-2.5-flash"),
-  params: {
-    builtInTools: [
-      tools.googleSearch()
-    ]
-  }
-})
-
-// Grounding metadata available in response
-turn = await gemini.generate("What's the latest news about AI?")
-// turn.metadata.google.groundingMetadata contains search results
-```
-
-**Multiple Tools with Tool Config:**
-
-```pseudocode
-gemini = llm({
-  model: google("gemini-2.5-flash"),
-  params: {
-    builtInTools: [
-      tools.googleMaps({ enableWidget: true }),
-      tools.codeExecution()
-    ],
-    toolConfig: {
-      retrievalConfig: {
-        latLng: { latitude: 40.758896, longitude: -73.985130 }
-      }
-    }
-  }
-})
-```
-
-**Note:** File Search cannot be combined with other built-in tools.
-
-##### xAI Built-in Tools
-
-xAI provides server-side tools for Grok models via the **Responses API only** (`api: 'responses'`). Import via `import { tools } from "upp/xai"`.
-
-| Tool | Constructor | Description | Pricing |
-|------|-------------|-------------|---------|
-| **Web Search** | `tools.webSearch()` | Search the web for current information | $5 per 1,000 invocations |
-| **X Search** | `tools.xSearch()` | Search X (Twitter) posts and profiles | $5 per 1,000 invocations |
-| **Code Execution** | `tools.codeExecution()` | Execute Python in sandbox | $5 per 1,000 invocations |
-| **File Search** | `tools.fileSearch()` | Search document collections | $2.50 per 1,000 invocations |
-| **MCP** | `tools.mcp()` | Connect to remote MCP servers | Token-based only |
-
-**Web Search and X Search Example:**
-
-```pseudocode
-import { xai, tools } from "upp/xai"
-
-grok = llm({
-  model: xai("grok-4", { api: "responses" }),
-  params: {
-    builtInTools: [
-      tools.webSearch({
-        allowed_domains: ["wikipedia.org"],
-        enable_image_understanding: true
-      }),
-      tools.xSearch({
-        allowed_x_handles: ["elonmusk", "xai"],
-        from_date: "2025-01-01",
-        enable_video_understanding: true
-      })
-    ]
-  }
-})
-```
-
-**Code Execution with Packages:**
-
-```pseudocode
-grok = llm({
-  model: xai("grok-4", { api: "responses" }),
-  params: {
-    builtInTools: [
-      tools.codeExecution({
-        pip_packages: ["numpy", "pandas", "scipy"]
-      })
-    ]
-  }
-})
-```
-
-**MCP Server Connection:**
-
-```pseudocode
-grok = llm({
-  model: xai("grok-4", { api: "responses" }),
-  params: {
-    builtInTools: [
-      tools.mcp({
-        server_url: "https://my-mcp-server.com/sse",
-        server_label: "my_tools",
-        allowed_tool_names: ["get_weather", "search_db"],
-        authorization: "Bearer token123"
-      })
-    ]
-  }
-})
-```
-
-##### OpenAI Built-in Tools
-
-OpenAI provides built-in tools for GPT models via the **Responses API**. Import via `import { tools } from "upp/openai"`.
-
-| Tool | Constructor | Description | Pricing |
-|------|-------------|-------------|---------|
-| **Web Search** | `tools.webSearch()` | Search the web for current information | Token-based |
-| **Image Generation** | `tools.imageGeneration()` | Generate images from prompts | Per-image pricing |
-| **Code Interpreter** | `tools.codeInterpreter()` | Execute Python in sandbox | Session-based |
-| **File Search** | `tools.fileSearch()` | Search vector stores | Token-based |
-
-**Web Search Example:**
-
-```pseudocode
-import { openai, tools } from "upp/openai"
-
-gpt = llm({
-  model: openai("gpt-4o"),
-  params: {
-    tools: [
-      tools.webSearch({
-        search_context_size: "medium",
-        user_location: {
-          type: "approximate",
-          city: "Tokyo",
-          country: "JP"
-        }
-      })
-    ]
-  }
-})
-```
-
-**Image Generation Example:**
-
-```pseudocode
-gpt = llm({
-  model: openai("gpt-4o"),
-  params: {
-    tools: [
-      tools.imageGeneration({
-        quality: "high",
-        size: "1024x1024"
-      })
-    ]
-  }
-})
-
-turn = await gpt.generate("Generate an image of a sunset over mountains")
-// turn.response.images contains the generated ImageBlock
-```
-
-##### OpenRouter
-
-OpenRouter acts as a routing layer and does not provide its own built-in tools. Use the underlying provider's tools based on the model being used.
-
-##### Ollama
-
-Ollama runs local models and does not provide server-side built-in tools. Use UPP function tools for client-side tool calling with local models.
+Consult individual provider documentation for specific tool availability, parameters, and pricing.
 
 ---
 
@@ -2542,13 +2255,7 @@ Structured outputs use standard JSON Schema:
 
 Structured output is a capability declared via `LLMCapabilities.structuredOutput`. If a provider's API doesn't support native structured outputs, the provider MUST set this to `false` and `llm()` core MUST throw `INVALID_REQUEST` when `structure` is provided.
 
-Providers with native support handle structured outputs according to vendor APIs:
-
-| Provider | Implementation |
-|----------|----------------|
-| Anthropic | Uses tool_choice with schema |
-| OpenAI | Uses response_format with json_schema |
-| Google | Uses responseSchema |
+Providers with native support MUST transform the JSON Schema to the vendor-specific format and enable structured output mode on the API request.
 
 Note: UPP does not validate responses against the schema—only that valid JSON was returned. Schema validation is the application's responsibility if needed.
 
@@ -2854,53 +2561,9 @@ print("Total tokens:", final.usage.totalTokens)
 
 ### 12.10 Provider-Specific Parameters
 
-Each provider exports its own parameter types. Parameters are passed through unchanged to the provider's API, enabling full access to provider-native features.
+Parameters are passed through unchanged to the provider's API via the `params` field. Each provider exports its own parameter types enabling full access to provider-native features (e.g., output dimensions, encoding formats, task type hints).
 
-**OpenAI Parameters:**
-
-```pseudocode
-// OpenAIEmbedParams
-{
-  dimensions: 1536,              // Output dimensions (text-embedding-3 models)
-  encoding_format: "float"       // "float" or "base64"
-}
-```
-
-**Google Parameters:**
-
-```pseudocode
-// GoogleEmbedParams
-{
-  taskType: "RETRIEVAL_DOCUMENT",   // Task optimization (see below)
-  title: "Document Title",          // Document title (for RETRIEVAL_DOCUMENT)
-  outputDimensionality: 768         // Output dimensions
-}
-```
-
-**Google Task Types:**
-
-Google embeddings are optimized based on the intended use case. For retrieval systems, documents and queries SHOULD use different task types for optimal performance.
-
-| Value | Description |
-|-------|-------------|
-| `RETRIEVAL_QUERY` | Optimize for search queries |
-| `RETRIEVAL_DOCUMENT` | Optimize for corpus documents (supports `title` param) |
-| `SEMANTIC_SIMILARITY` | Optimize for similarity comparison |
-| `CLASSIFICATION` | Optimize for classification tasks |
-| `CLUSTERING` | Optimize for clustering tasks |
-| `QUESTION_ANSWERING` | Optimize for QA query embeddings |
-| `FACT_VERIFICATION` | Optimize for fact verification retrieval |
-
-**Voyage/Cohere Parameters:**
-
-```pseudocode
-// VoyageEmbedParams
-{
-  input_type: "document"   // "document" or "query"
-}
-```
-
-Providers that do not support a parameter MUST ignore it. This enables portable code that includes provider-specific hints without breaking on other providers.
+Providers that do not support a parameter MUST ignore it. This enables portable code that includes provider-specific hints without breaking on other providers. Consult individual provider documentation for available parameters.
 
 ### 12.11 Metadata Preservation
 
@@ -2982,7 +2645,7 @@ image(options: ImageOptions) -> ImageInstance
 | `config` | ProviderConfig | No | Provider infrastructure configuration |
 | `params` | Map | No | Provider-specific parameters passed through unchanged |
 
-The `params` field is the primary mechanism for configuring image generation. All provider-specific options—dimensions, quality, style, negative prompts, seeds, guidance scales, etc.—flow through params. See §13.14 for provider-specific parameter documentation.
+The `params` field is the primary mechanism for configuring image generation. All provider-specific options—dimensions, quality, style, negative prompts, seeds, guidance scales, etc.—flow through params.
 
 ### 13.3 ImageInstance
 
@@ -2996,8 +2659,6 @@ The `params` field is the primary mechanism for configuring image generation. Al
 | `model` | BoundImageModel | The bound model |
 | `params` | Map? | Current parameters |
 | `capabilities` | ImageCapabilities | Model capabilities |
-
-**Note:** The `vary()` and `upscale()` methods from earlier drafts were removed as they only applied to specific providers (DALL-E 2 variations, Stability/Imagen upscaling). Use provider-specific endpoints via `params` or separate API calls for these features.
 
 **ImageInput Type:**
 
@@ -3028,12 +2689,7 @@ Provider-specific generation options (negative prompts, seeds, reference images,
 | `image` | Image | The generated image (using existing Image class) |
 | `metadata` | Map? | Provider-specific per-image metadata |
 
-The `metadata` fields are typed as `Map` rather than fixed structures because providers return vastly different metadata:
-- OpenAI: `revised_prompt`
-- xAI: `revised_prompt`
-- Stability: `seed`, `finish_reason`
-- BFL: `cost`, `input_mp`, `output_mp`
-- Google: `raiFilteredReason`, `safetyAttributes`
+The `metadata` fields are typed as `Map` rather than fixed structures because providers return vastly different metadata (e.g., revised prompts, safety ratings, seeds, billing info).
 
 Implementations MUST preserve all provider metadata without truncation.
 
@@ -3070,7 +2726,7 @@ Streaming is supported by very few providers (primarily OpenAI GPT-Image models)
 { type: "complete", image: GeneratedImage, index: Integer }
 ```
 
-**Note:** The `progress` event with `percent` and `stage` was removed as it only applied to OpenAI's specific streaming implementation. Providers that report progress should include it in the event's `metadata` field.
+Providers MAY include additional progress information in the event's `metadata` field.
 
 ### 13.6 Image Editing
 
@@ -3084,12 +2740,7 @@ Image editing (inpainting) is supported by some providers. The edit interface is
 | `mask` | Image | No | Mask indicating edit region |
 | `prompt` | String | Yes | Edit instruction |
 
-**Mask Conventions:** Mask interpretation varies by provider:
-- OpenAI: Transparent areas (alpha=0) indicate edit regions
-- Stability: White areas indicate edit regions, black preserved
-- Google Imagen: Configurable via `maskMode` param
-
-Implementations should document their provider's mask convention. The mask is optional because some providers support prompt-only editing (e.g., FLUX Kontext) or auto-masking (e.g., Imagen semantic masks).
+**Mask Conventions:** Mask interpretation varies by provider. Implementations MUST document the mask convention required by the underlying provider's API. The mask is optional because some providers support prompt-only editing or auto-masking.
 
 ### 13.7 Capabilities
 
@@ -3306,393 +2957,22 @@ bfl = image({
 
 ### 13.14 Provider-Specific Parameters
 
-Each provider exports its own parameter types that are passed through unchanged to the vendor API. UPP acts as a soft wrapper around these APIs—implementations MUST pass provider params through without modification or validation beyond basic type checking.
-
-#### 13.14.1 OpenAI Image Parameters
-
-**Supported Models:** `gpt-image-1.5`, `gpt-image-1`, `gpt-image-1-mini`, `dall-e-3`, `dall-e-2`
-
-**OpenAIImageParams Structure:**
-
-| Field | Type | Default | Models | Description |
-|-------|------|---------|--------|-------------|
-| `n` | Integer | 1 | All | Number of images (1-10 for GPT Image, 1 for DALL-E 3) |
-| `size` | String | "1024x1024" | All | Output dimensions |
-| `quality` | String | "auto" | GPT Image: "low"/"medium"/"high"/"auto", DALL-E 3: "standard"/"hd" |
-| `style` | String | "vivid" | DALL-E 3 only | "vivid" or "natural" |
-| `background` | String | "auto" | GPT Image only | "transparent", "opaque", or "auto" |
-| `output_format` | String | varies | GPT Image only | "png", "jpeg", or "webp" |
-| `output_compression` | Integer | - | GPT Image only | 0-100 for webp/jpeg |
-| `response_format` | String | "url" | DALL-E only | "url" or "b64_json" |
-| `moderation` | String | "auto" | GPT Image only | "auto" or "low" |
-| `stream` | Boolean | false | GPT Image only | Enable streaming with partial images |
-| `partial_images` | Integer | 0 | GPT Image only | 0-3 partial previews during streaming |
-| `user` | String | - | All | End-user identifier |
-
-**Size Options by Model:**
-- GPT Image: "1024x1024", "1536x1024", "1024x1536", "auto"
-- DALL-E 3: "1024x1024", "1792x1024", "1024x1792"
-- DALL-E 2: "256x256", "512x512", "1024x1024"
-
-```pseudocode
-// OpenAI GPT Image params
-openaiParams: OpenAIImageParams = {
-  n: 4,
-  size: "1024x1024",
-  quality: "high",
-  background: "transparent",
-  output_format: "png",
-  stream: true,
-  partial_images: 2
-}
-
-// OpenAI DALL-E 3 params
-dalleParams: OpenAIImageParams = {
-  size: "1792x1024",
-  quality: "hd",
-  style: "natural"
-}
-```
-
-#### 13.14.2 Google Imagen Parameters (Vertex AI)
-
-**Supported Models:** `imagen-4.0-generate-001`, `imagen-4.0-ultra-generate-001`, `imagen-3.0-generate-002`
-
-**GoogleImagenParams Structure:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `sampleCount` | Integer | 4 | Number of images (1-4, Ultra: 1 only) |
-| `aspectRatio` | String | "1:1" | "1:1", "3:4", "4:3", "9:16", "16:9" |
-| `negativePrompt` | String | - | Content to exclude (not supported in imagen-3.0-generate-002) |
-| `seed` | Integer | - | 1-2147483647 (requires addWatermark: false) |
-| `addWatermark` | Boolean | true | Add invisible SynthID watermark |
-| `enhancePrompt` | Boolean | true | LLM-based prompt enhancement |
-| `personGeneration` | String | "allow_adult" | "dont_allow", "allow_adult", "allow_all" |
-| `safetySetting` | String | "block_medium_and_above" | Safety filter level |
-| `language` | String | "auto" | Prompt language: "auto", "en", "es", "zh", "ja", "ko", "pt", "hi" |
-| `sampleImageSize` | String | "1K" | "1K" (1024x1024) or "2K" (2048x2048) |
-| `outputOptions.mimeType` | String | "image/png" | "image/png" or "image/jpeg" |
-| `outputOptions.compressionQuality` | Integer | 75 | 0-100 for JPEG |
-| `storageUri` | String | - | GCS bucket path for output |
-
-**Edit Mode Parameters (imagen-3.0-capability-001):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `editMode` | String | "INPAINT_INSERTION", "INPAINT_REMOVAL", "BGSWAP", "OUTPAINT" |
-| `baseSteps` | Integer | Sampling steps (16-75) |
-| `guidanceScale` | Integer | Prompt adherence (0-500) |
-| `maskMode` | String | "MASK_MODE_USER_PROVIDED", "BACKGROUND", "FOREGROUND", "SEMANTIC" |
-| `dilation` | Float | Mask expansion (0-1) |
-
-```pseudocode
-// Google Imagen params
-imagenParams: GoogleImagenParams = {
-  sampleCount: 4,
-  aspectRatio: "16:9",
-  negativePrompt: "blurry, low quality",
-  personGeneration: "allow_adult",
-  safetySetting: "block_medium_and_above",
-  enhancePrompt: true,
-  outputOptions: {
-    mimeType: "image/png"
-  }
-}
-```
-
-#### 13.14.3 xAI Image Parameters
-
-**Supported Models:** `grok-2-image`, `grok-2-image-1212`
-
-**XAIImageParams Structure:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `n` | Integer | 1 | Number of images (1-10) |
-| `response_format` | String | "url" | "url" or "b64_json" |
-
-**Note:** xAI's API currently has limited parameters. Output is fixed at 1024x768 JPEG. Size, quality, and style parameters are not supported. The API automatically revises prompts through a chat model before generation.
-
-```pseudocode
-// xAI params (limited)
-xaiParams: XAIImageParams = {
-  n: 4,
-  response_format: "url"
-}
-```
-
-#### 13.14.4 Stability AI Parameters
-
-**Supported Models:** `stable-image-ultra`, `stable-image-core`, `sd3.5-large`, `sd3.5-large-turbo`, `sd3.5-medium`
-
-**StabilityImageParams Structure:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `aspect_ratio` | String | "1:1" | "16:9", "1:1", "21:9", "2:3", "3:2", "4:5", "5:4", "9:16", "9:21" |
-| `negative_prompt` | String | - | Content to exclude (max 10,000 chars) |
-| `seed` | Integer | 0 | 0-4,294,967,295 (0 = random) |
-| `output_format` | String | "png" | "jpeg", "png", "webp" |
-| `style_preset` | String | - | Style guidance (Core only) |
-
-**v1 API Legacy Parameters (SDXL):**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `height` | Integer | 1024 | 512-1024, must be divisible by 8 |
-| `width` | Integer | 1024 | 512-1024, must be divisible by 8 |
-| `cfg_scale` | Float | 7 | Prompt adherence (0-35) |
-| `steps` | Integer | 30 | Denoising steps (10-150) |
-| `samples` | Integer | 1 | Number of images (1-10) |
-| `sampler` | String | - | "DDIM", "K_EULER", "K_DPM_2", etc. |
-| `clip_guidance_preset` | String | "NONE" | "FAST_BLUE", "FAST_GREEN", etc. |
-
-**Style Presets:** "3d-model", "analog-film", "anime", "cinematic", "comic-book", "digital-art", "enhance", "fantasy-art", "isometric", "line-art", "low-poly", "neon-punk", "origami", "photographic", "pixel-art", "tile-texture"
-
-```pseudocode
-// Stability AI v2beta params
-stabilityParams: StabilityImageParams = {
-  aspect_ratio: "16:9",
-  negative_prompt: "blurry, distorted",
-  seed: 12345,
-  output_format: "png",
-  style_preset: "photographic"
-}
-
-// Stability AI v1 (SDXL) params
-sdxlParams: StabilityImageParams = {
-  width: 1024,
-  height: 1024,
-  cfg_scale: 7,
-  steps: 30,
-  samples: 4,
-  sampler: "K_EULER"
-}
-```
-
-#### 13.14.5 Together AI Parameters
-
-**Supported Models:** `black-forest-labs/FLUX.1-schnell`, `black-forest-labs/FLUX.1-dev`, `black-forest-labs/FLUX.1-pro`, `black-forest-labs/FLUX.1-dev-lora`, `stabilityai/stable-diffusion-xl-base-1.0`
-
-**TogetherImageParams Structure:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `steps` | Integer | 20 | Generation steps |
-| `n` | Integer | 1 | Number of images |
-| `width` | Integer | 1024 | Image width (128-2048) |
-| `height` | Integer | 1024 | Image height (128-2048) |
-| `seed` | Integer | - | Random seed |
-| `negative_prompt` | String | - | Content to exclude |
-| `guidance_scale` | Float | 3.5 | Prompt adherence (1-10) |
-| `response_format` | String | "url" | "url" or "base64" |
-| `output_format` | String | "jpeg" | "jpeg" or "png" |
-| `image_loras` | List | - | LoRA adapters for FLUX.1-dev-lora |
-| `disable_safety_checker` | Boolean | false | Disable NSFW filter |
-
-**LoRA Object Structure (image_loras):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `path` | String | URL to .safetensors file (HuggingFace, CivitAI, etc.) |
-| `scale` | Float | Strength multiplier (0.3-1.2) |
-
-```pseudocode
-// Together AI FLUX params
-togetherParams: TogetherImageParams = {
-  steps: 28,
-  n: 4,
-  width: 1024,
-  height: 768,
-  guidance_scale: 3.5,
-  output_format: "png"
-}
-
-// Together AI with LoRA
-loraParams: TogetherImageParams = {
-  steps: 33,
-  width: 1280,
-  height: 832,
-  image_loras: [
-    { path: "https://huggingface.co/multimodalart/flux-tarot-v1", scale: 1.0 },
-    { path: "https://huggingface.co/Shakker-Labs/FLUX.1-dev-LoRA-add-details", scale: 0.8 }
-  ]
-}
-```
-
-#### 13.14.6 Replicate Parameters
-
-Replicate uses a prediction-based API where parameters vary by model. Common parameters across popular image models:
-
-**ReplicateImageParams Structure (Common):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `prompt` | String | Image description |
-| `negative_prompt` | String | Content to exclude |
-| `width` | Integer | Output width (model-dependent) |
-| `height` | Integer | Output height (model-dependent) |
-| `num_outputs` | Integer | Number of images (1-4 typical) |
-| `guidance_scale` | Float | Prompt adherence |
-| `num_inference_steps` | Integer | Denoising steps |
-| `seed` | Integer | Random seed |
-| `scheduler` | String | Sampling algorithm |
-
-**FLUX 1.1 Pro Specific:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `aspect_ratio` | String | "1:1", "16:9", "3:2", "4:3", "9:16", etc. |
-| `output_format` | String | "webp", "jpg", "png" |
-| `output_quality` | Integer | 0-100 |
-| `safety_tolerance` | Integer | 1-6 |
-| `prompt_upsampling` | Boolean | Auto-enhance prompt |
-
-**SDXL Specific:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `refine` | String | "no_refiner", "expert_ensemble_refiner", "base_image_refiner" |
-| `high_noise_frac` | Float | Fraction for base model (0-1) |
-| `refine_steps` | Integer | Additional refiner steps |
-
-```pseudocode
-// Replicate FLUX params
-replicateParams: ReplicateImageParams = {
-  aspect_ratio: "16:9",
-  output_format: "webp",
-  output_quality: 80,
-  safety_tolerance: 2,
-  prompt_upsampling: false
-}
-```
-
-#### 13.14.7 Black Forest Labs Parameters (FLUX Direct API)
-
-**Supported Models:** `flux-2-max`, `flux-2-pro`, `flux-2-flex`, `flux-pro-1.1`, `flux-pro-1.1-ultra`, `flux-kontext-pro`
-
-**BFLImageParams Structure:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `width` | Integer | 1024 | Output width (64-2048, multiple of 16) |
-| `height` | Integer | 1024 | Output height (64-2048, multiple of 16) |
-| `seed` | Integer | - | Random seed |
-| `safety_tolerance` | Integer | 2 | 0 (strict) to 5-6 (permissive) |
-| `output_format` | String | "jpeg" | "jpeg" or "png" |
-
-**FLUX.2 [flex] Exclusive:**
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `steps` | Integer | 50 | 1-50 inference steps |
-| `guidance` | Float | 4.5 | 1.5-10 prompt adherence |
-
-**FLUX1.1 [pro] Ultra:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `aspect_ratio` | String | Output aspect ratio |
-| `raw` | Boolean | Enable candid photography aesthetic |
-| `image_prompt` | String | Base64 image for visual context |
-| `image_prompt_strength` | Float | Influence strength (0-1) |
-| `prompt_upsampling` | Boolean | Enhance prompt |
-
-**Multi-Reference Editing (FLUX.2):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `input_image` | String | Primary reference (base64 or URL) |
-| `input_image_2` through `input_image_8` | String | Additional references |
-
-**Note:** BFL uses an async task-based API. Signed URLs expire after 10 minutes.
-
-```pseudocode
-// BFL FLUX.2 params
-bflParams: BFLImageParams = {
-  width: 1024,
-  height: 1024,
-  safety_tolerance: 2,
-  output_format: "png"
-}
-
-// BFL FLUX.2 [flex] params
-flexParams: BFLImageParams = {
-  width: 1024,
-  height: 768,
-  steps: 30,
-  guidance: 5.0,
-  output_format: "jpeg"
-}
-```
-
-#### 13.14.8 OpenRouter Parameters
-
-OpenRouter routes image generation through its unified chat completions endpoint. Image generation requires the `modalities` parameter.
-
-**OpenRouterImageParams Structure:**
-
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `modalities` | List<String> | Yes | Must include "image" and "text" |
-| `image_config` | Object | No | Gemini-only configuration |
-
-**image_config Object (Gemini models only):**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `aspect_ratio` | String | "1:1", "2:3", "3:2", "4:3", "9:16", "16:9", "21:9" |
-| `image_size` | String | "1K", "2K", "4K" |
-
-**Provider Routing:**
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `provider.order` | List<String> | Preferred providers |
-| `provider.allow_fallbacks` | Boolean | Enable automatic fallback |
-| `provider.sort` | String | "price", "throughput", "latency" |
-
-```pseudocode
-// OpenRouter image generation params
-openrouterParams: OpenRouterImageParams = {
-  modalities: ["image", "text"],
-  image_config: {
-    aspect_ratio: "16:9",
-    image_size: "2K"
-  },
-  provider: {
-    order: ["google"],
-    allow_fallbacks: true
-  }
-}
-```
-
-#### 13.14.9 Provider Capability Matrix
-
-| Provider | Generate | Edit | Vary | Upscale | Stream | Max Images |
-|----------|----------|------|------|---------|--------|------------|
-| OpenAI (GPT Image) | ✓ | ✓ | - | - | ✓ | 10 |
-| OpenAI (DALL-E 3) | ✓ | - | - | - | - | 1 |
-| OpenAI (DALL-E 2) | ✓ | ✓ | ✓ | - | - | 10 |
-| Google Imagen | ✓ | ✓ | - | ✓ | - | 4 |
-| xAI | ✓ | - | - | - | - | 10 |
-| Stability AI | ✓ | ✓ | - | ✓ | - | 10 |
-| Together AI | ✓ | ✓* | - | - | - | varies |
-| Replicate | ✓ | ✓* | ✓* | ✓* | - | model-specific |
-| BFL FLUX | ✓ | ✓ | - | - | - | 1 |
-| OpenRouter | ✓ | - | - | - | ✓* | model-specific |
-
-*Capability depends on specific model selected
-
-#### 13.14.10 Providers Without Image Generation
-
-The following providers do NOT support image generation:
-
-- **Anthropic**: Vision/image input only. Claude models can analyze images but cannot generate them.
-- **Ollama**: LLM-focused platform without native image generation. Third-party integrations (OllamaDiffuser, ComfyUI) can provide this separately.
-
-Implementations MUST NOT include image handlers in these providers' `modalities` objects
+Parameters are passed through unchanged to the vendor API via the `params` field. UPP acts as a soft wrapper—implementations MUST pass provider params through without modification or validation beyond basic type checking.
+
+Common parameter categories across image generation providers include:
+- **Dimensions**: `width`, `height`, `size`, `aspect_ratio`
+- **Quality**: `quality`, `steps`, `cfg_scale`, `guidance_scale`
+- **Output**: `output_format`, `response_format`, `n` (count)
+- **Style**: `style`, `style_preset`, `negative_prompt`
+- **Reproducibility**: `seed`
+- **Safety**: `safety_tolerance`, `moderation`, `safetySetting`
+
+Each provider exports its own parameter types. Consult individual provider documentation for supported parameters, valid values, and model-specific options.
+
+**Provider Capability Notes:**
+- Not all providers support all operations (edit, vary, upscale, streaming)
+- Some providers do not support image generation at all
+- Implementations MUST declare capabilities accurately via `ImageCapabilities`
 
 ### 13.15 Capability Detection
 
@@ -4322,17 +3602,9 @@ Providers may implement one or more modalities. For each modality, conformance i
 - `edit()` method for inpainting (if `capabilities.edit`)
 - Mask handling
 
-**Level 3: Variations**
-- `vary()` method (if `capabilities.vary`)
-- Strength/count parameters
-
-**Level 4: Streaming**
+**Level 3: Streaming**
 - `stream()` method (if `capabilities.streaming`)
-- Progress and preview events
-
-**Level 5: Advanced**
-- `upscale()` method (if `capabilities.upscale`)
-- Outpainting support (if `capabilities.outpaint`)
+- Preview events
 
 ### 16.2 Conformance Requirements
 
@@ -4745,6 +4017,8 @@ Returns a scalar value. For normalized vectors, equivalent to cosine similarity.
 
 ### 1.2.0-draft
 
+- **Simplified** specification to pure protocol architecture; removed all vendor-specific implementation details including: metadata option tables (6.1, 10.1), system prompt mappings (5.10.4), structured output wiring (11.3), mask conventions (13.6), provider tool reference (10.9.5), embedding params (12.10), image params (13.14), capability matrix (13.14.9), and example model names (1.5)
+- **Removed** Image conformance levels for vary/upscale/outpaint (16.1.3) to match interface; renumbered Streaming to Level 3
 - **Added** Section 10.9 Provider-Native Tools documenting server-side built-in tools (web search, image generation, code interpreter, etc.)
 - **Added** `images`, `audio`, `video` convenience accessors to base Message structure (Section 6.1) to match existing `text` accessor pattern
 - **Reformatted** specification to be language-agnostic
