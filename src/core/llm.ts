@@ -277,7 +277,7 @@ function inputToMessage(input: InferenceInput): Message {
     return new UserMessageClass((block as TextBlock).text);
   }
 
-  return new UserMessageClass([block as any]);
+  return new UserMessageClass([block]);
 }
 
 /**

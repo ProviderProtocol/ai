@@ -207,9 +207,9 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
                 if (typeof data === 'object' && data !== null) {
                   const chunk = data as GoogleStreamChunk;
 
-                  if ('error' in chunk) {
+                  if (chunk.error) {
                     const error = new UPPError(
-                      (chunk as any).error.message,
+                      chunk.error.message,
                       'PROVIDER_ERROR',
                       'google',
                       'llm'

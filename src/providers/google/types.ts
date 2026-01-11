@@ -437,6 +437,15 @@ export interface GoogleStreamChunk {
     /** Number of tokens read from cached content. */
     cachedContentTokenCount?: number;
   };
+  /** Error response from the API (when streaming fails). */
+  error?: {
+    /** Error message from the API. */
+    message: string;
+    /** Error code. */
+    code?: number;
+    /** Error status string. */
+    status?: string;
+  };
 }
 
 // ============================================
