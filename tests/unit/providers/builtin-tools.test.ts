@@ -277,9 +277,11 @@ describe('Provider Index Exports', () => {
 
     // Extended Thinking / Reasoning
     expect(betas.interleavedThinking).toBe('interleaved-thinking-2025-05-14');
+    expect(betas.devFullThinking).toBe('dev-full-thinking-2025-05-14');
     expect(betas.effort).toBe('effort-2025-11-24');
 
     // Computer Use
+    expect(betas.computerUseLegacy).toBe('computer-use-2024-10-22');
     expect(betas.computerUse).toBe('computer-use-2025-01-24');
     expect(betas.computerUseOpus).toBe('computer-use-2025-11-24');
 
@@ -307,10 +309,12 @@ describe('Provider Index Exports', () => {
     expect(betas.mcpClientLatest).toBe('mcp-client-2025-11-20');
 
     // Caching
+    expect(betas.promptCaching).toBe('prompt-caching-2024-07-31');
     expect(betas.extendedCacheTtl).toBe('extended-cache-ttl-2025-04-11');
 
     // Context Management
     expect(betas.contextManagement).toBe('context-management-2025-06-27');
+    expect(betas.modelContextWindowExceeded).toBe('model-context-window-exceeded-2025-08-26');
 
     // Message Batches
     expect(betas.messageBatches).toBe('message-batches-2024-09-24');
@@ -326,7 +330,7 @@ describe('Provider Index Exports', () => {
     const { betas } = await import('../../../src/providers/anthropic/index.ts');
     const betaKeys = Object.keys(betas) as Array<keyof typeof betas>;
 
-    expect(betaKeys.length).toBeGreaterThanOrEqual(21);
+    expect(betaKeys.length).toBeGreaterThanOrEqual(25);
 
     for (const key of betaKeys) {
       expect(typeof betas[key]).toBe('string');

@@ -38,10 +38,14 @@ export const betas = {
   // Extended Thinking / Reasoning
   /** Enables Claude to think between tool calls in Claude 4 models. */
   interleavedThinking: 'interleaved-thinking-2025-05-14',
+  /** Developer mode for full thinking output visibility. */
+  devFullThinking: 'dev-full-thinking-2025-05-14',
   /** Effort parameter for Claude Opus 4.5 - controls response thoroughness vs efficiency. */
   effort: 'effort-2025-11-24',
 
   // Computer Use
+  /** Legacy computer use tool (Claude 3.x models). */
+  computerUseLegacy: 'computer-use-2024-10-22',
   /** Computer use tool for Claude 4 models (mouse, keyboard, screenshots). */
   computerUse: 'computer-use-2025-01-24',
   /** Computer use tool for Claude Opus 4.5 with additional commands. */
@@ -82,12 +86,16 @@ export const betas = {
   mcpClientLatest: 'mcp-client-2025-11-20',
 
   // Caching
+  /** Prompt caching for reduced latency and costs. Now works automatically with cache_control. */
+  promptCaching: 'prompt-caching-2024-07-31',
   /** Enables 1-hour cache TTL (vs default 5-minute). */
   extendedCacheTtl: 'extended-cache-ttl-2025-04-11',
 
   // Context Management
   /** Automatic tool call clearing for context management. */
   contextManagement: 'context-management-2025-06-27',
+  /** Handling for when model context window is exceeded. */
+  modelContextWindowExceeded: 'model-context-window-exceeded-2025-08-26',
 
   // Message Batches (generally available but may still need header)
   /** Message Batches API for async processing at 50% cost. */
