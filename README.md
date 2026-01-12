@@ -44,6 +44,31 @@ for await (const event of stream) {
 const turn = await stream.turn;
 ```
 
+**Stream Control:**
+
+```typescript
+const stream = claude.stream('Write a long story');
+
+// Abort the stream at any time
+setTimeout(() => stream.abort(), 5000);
+
+for await (const event of stream) {
+  // Process events until abort
+}
+```
+
+**Stream Events:**
+
+| Event | Description |
+|-------|-------------|
+| `text_delta` | Incremental text output |
+| `reasoning_delta` | Incremental reasoning/thinking output |
+| `tool_call_delta` | Tool call arguments being streamed |
+| `tool_execution_start` | Tool execution has started |
+| `tool_execution_end` | Tool execution has completed |
+| `message_start` / `message_stop` | Message boundaries |
+| `content_block_start` / `content_block_stop` | Content block boundaries |
+
 ### Multi-turn Conversations
 
 ```typescript
@@ -103,6 +128,60 @@ import { Image } from '@providerprotocol/ai';
 const img = await Image.fromPath('./photo.png');
 const turn = await claude.generate([img, 'What is in this image?']);
 ```
+
+## Anthropic Beta Features
+
+Anthropic provides beta features through the `betas` export. Enable them at the model level:
+
+```typescript
+import { anthropic, betas } from '@providerprotocol/ai/anthropic';
+import { llm } from '@providerprotocol/ai';
+
+// Native structured outputs with guaranteed JSON schema conformance
+const model = llm({
+  model: anthropic('claude-sonnet-4-20250514', {
+    betas: [betas.structuredOutputs],
+  }),
+  structure: {
+    type: 'object',
+    properties: { answer: { type: 'string' } },
+    required: ['answer'],
+  },
+});
+
+// Extended thinking with interleaved tool calls
+const thinker = llm({
+  model: anthropic('claude-sonnet-4-20250514', {
+    betas: [betas.interleavedThinking],
+  }),
+  params: {
+    thinking: { type: 'enabled', budget_tokens: 10000 },
+  },
+});
+```
+
+**Available Beta Features:**
+
+| Beta | Description |
+|------|-------------|
+| `structuredOutputs` | Guaranteed JSON schema conformance for responses |
+| `interleavedThinking` | Claude can think between tool calls |
+| `devFullThinking` | Developer mode for full thinking visibility |
+| `effort` | Control response thoroughness vs efficiency (Opus 4.5) |
+| `computerUse` | Mouse, keyboard, screenshot control (Claude 4) |
+| `codeExecution` | Python/Bash sandbox execution |
+| `tokenEfficientTools` | Up to 70% token reduction for tool calls |
+| `fineGrainedToolStreaming` | Stream tool args without buffering |
+| `output128k` | 128K token output length |
+| `context1m` | 1 million token context window (Sonnet 4) |
+| `promptCaching` | Reduced latency and costs via caching |
+| `extendedCacheTtl` | 1-hour cache TTL (vs 5-minute default) |
+| `advancedToolUse` | Tool Search, Programmatic Tool Calling |
+| `mcpClient` | Connect to remote MCP servers |
+| `filesApi` | Upload and manage files |
+| `pdfs` | PDF document support |
+| `messageBatches` | Async batch processing at 50% cost |
+| `skills` | Agent Skills (PowerPoint, Excel, Word, PDF) |
 
 ## Embeddings
 
@@ -198,6 +277,51 @@ const instance = llm({
 });
 ```
 
+### System Prompts
+
+System prompts can be a simple string or a provider-specific array for advanced features:
+
+```typescript
+// Simple string (all providers)
+const simple = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  system: 'You are a helpful assistant.',
+});
+
+// Anthropic cache_control format
+import { anthropic, betas } from '@providerprotocol/ai/anthropic';
+
+const cached = llm({
+  model: anthropic('claude-sonnet-4-20250514', {
+    betas: [betas.promptCaching],
+  }),
+  system: [
+    { type: 'text', text: 'Large context document...', cache_control: { type: 'ephemeral' } },
+    { type: 'text', text: 'Instructions...' },
+  ],
+});
+```
+
+### Provider Config Options
+
+```typescript
+interface ProviderConfig {
+  apiKey?: string | (() => Promise<string>) | KeyStrategy; // API key, async getter, or strategy
+  baseUrl?: string;                 // Custom API endpoint
+  timeout?: number;                 // Per-attempt timeout (ms)
+  retryStrategy?: RetryStrategy;    // Retry behavior
+  headers?: Record<string, string>; // Custom headers (merged with provider defaults)
+  fetch?: typeof fetch;             // Custom fetch implementation
+  apiVersion?: string;              // API version override
+  retryAfterMaxSeconds?: number;    // Cap for Retry-After header (default: 3600)
+}
+```
+
+**Notes:**
+- `timeout` applies per attempt; total time can exceed this with retries
+- `headers` are merged with model-level headers (explicit config takes precedence)
+- `retryAfterMaxSeconds` prevents honoring excessively long Retry-After values
+
 ### Key Strategies
 
 ```typescript
@@ -227,8 +351,13 @@ import {
   RetryAfterStrategy,
 } from '@providerprotocol/ai/http';
 
-// Exponential: 1s, 2s, 4s... (default)
-new ExponentialBackoff({ maxAttempts: 5, baseDelay: 1000, maxDelay: 30000 })
+// Exponential: 1s, 2s, 4s...
+new ExponentialBackoff({
+  maxAttempts: 5,
+  baseDelay: 1000,
+  maxDelay: 30000,
+  jitter: true,  // Randomize delays to prevent thundering herd (default: true)
+})
 
 // Linear: 1s, 2s, 3s...
 new LinearBackoff({ maxAttempts: 3, delay: 1000 })
@@ -242,6 +371,8 @@ new RetryAfterStrategy({ maxAttempts: 3, fallbackDelay: 5000 })
 // No retries
 new NoRetry()
 ```
+
+**Retryable Errors:** `RATE_LIMITED`, `NETWORK_ERROR`, `TIMEOUT`, `PROVIDER_ERROR`
 
 ## Tool Execution Control
 
@@ -294,6 +425,12 @@ try {
   await claude.generate('Hello');
 } catch (error) {
   if (error instanceof UPPError) {
+    console.log(error.code);       // 'RATE_LIMITED'
+    console.log(error.provider);   // 'anthropic'
+    console.log(error.modality);   // 'llm'
+    console.log(error.statusCode); // 429
+    console.log(error.cause);      // Original error (if any)
+
     switch (error.code) {
       case 'RATE_LIMITED':
         // Wait and retry
@@ -385,7 +522,7 @@ Server adapters for Express, Fastify, and Nuxt/H3:
 
 ```typescript
 // Express
-import { express as expressAdapter } from '@providerprotocol/ai/proxy/server';
+import { express as expressAdapter, parseBody } from '@providerprotocol/ai/proxy';
 app.post('/ai', authMiddleware, async (req, res) => {
   const { messages, system, params } = parseBody(req.body);
   if (params?.stream) {
@@ -396,7 +533,7 @@ app.post('/ai', authMiddleware, async (req, res) => {
 });
 
 // Fastify
-import { fastify as fastifyAdapter } from '@providerprotocol/ai/proxy/server';
+import { fastify as fastifyAdapter, parseBody } from '@providerprotocol/ai/proxy';
 app.post('/ai', async (request, reply) => {
   const { messages, system, params } = parseBody(request.body);
   if (params?.stream) {
@@ -406,7 +543,7 @@ app.post('/ai', async (request, reply) => {
 });
 
 // Nuxt/H3 (server/api/ai.post.ts)
-import { h3 as h3Adapter } from '@providerprotocol/ai/proxy/server';
+import { h3 as h3Adapter, parseBody } from '@providerprotocol/ai/proxy';
 export default defineEventHandler(async (event) => {
   const { messages, system, params } = parseBody(await readBody(event));
   if (params?.stream) {
@@ -441,21 +578,66 @@ xai('grok-3-fast', { api: 'responses' })
 xai('grok-3-fast', { api: 'messages' })
 ```
 
+## Alternative Import Style
+
+Use the `ai` namespace for a grouped import style:
+
+```typescript
+import { ai } from '@providerprotocol/ai';
+import { openai } from '@providerprotocol/ai/openai';
+
+const model = ai.llm({ model: openai('gpt-4o') });
+const embedder = ai.embedding({ model: openai('text-embedding-3-small') });
+const dalle = ai.image({ model: openai('dall-e-3') });
+```
+
 ## TypeScript
 
 Full type safety with no `any` types. All provider parameters are typed:
 
 ```typescript
 import type {
+  // Core types
   Turn,
   Message,
   Tool,
-  UPPError,
   TokenUsage,
+
+  // Streaming
   StreamEvent,
+  StreamResult,
+
+  // Modality results
   EmbeddingResult,
   ImageResult,
+
+  // Errors
+  UPPError,
+  ErrorCode,
+
+  // Configuration
+  ProviderConfig,
+  KeyStrategy,
+  RetryStrategy,
+  LLMCapabilities,
 } from '@providerprotocol/ai';
+```
+
+### Custom Providers
+
+Build custom providers with `createProvider`:
+
+```typescript
+import { createProvider } from '@providerprotocol/ai';
+
+const myProvider = createProvider({
+  name: 'my-provider',
+  version: '1.0.0',
+  handlers: {
+    llm: myLLMHandler,
+    embedding: myEmbeddingHandler,
+  },
+});
 ```
 
 ## License
