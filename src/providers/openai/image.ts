@@ -24,6 +24,8 @@ import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
 import { Image } from '../../core/media/Image.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 
 const OPENAI_IMAGES_API_URL = 'https://api.openai.com/v1/images/generations';
 const OPENAI_IMAGES_EDIT_URL = 'https://api.openai.com/v1/images/edits';
@@ -217,7 +219,7 @@ async function executeGenerate(
     signal: request.signal,
   }, request.config, 'openai', 'image');
 
-  const data = await response.json() as OpenAIImagesResponse;
+  const data = await parseJsonResponse<OpenAIImagesResponse>(response, 'openai', 'image');
 
   return transformResponse(data);
 }
@@ -281,7 +283,7 @@ async function executeEdit(
     signal: request.signal,
   }, request.config, 'openai', 'image');
 
-  const data = await response.json() as OpenAIImagesResponse;
+  const data = await parseJsonResponse<OpenAIImagesResponse>(response, 'openai', 'image');
 
   return transformResponse(data);
 }
@@ -415,6 +417,55 @@ function executeStream(
           }
         }
       }
+      const remaining = decoder.decode();
+      if (remaining) {
+        buffer += remaining;
+        const lines = buffer.split('\n');
+        buffer = lines.pop() ?? '';
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') {
+              continue;
+            }
+            try {
+              const chunk = JSON.parse(data) as OpenAIImageStreamChunk;
+
+              if (chunk.type === 'image_generation.partial_image' && chunk.data?.b64_json) {
+                const previewImage = Image.fromBase64(chunk.data.b64_json, 'image/png');
+                yield {
+                  type: 'preview',
+                  image: previewImage,
+                  index: chunk.index ?? 0,
+                };
+              } else if (chunk.type === 'image_generation.completed' && chunk.data) {
+                const image = chunk.data.b64_json
+                  ? Image.fromBase64(chunk.data.b64_json, 'image/png')
+                  : Image.fromUrl(chunk.data.url ?? '', 'image/png');
+
+                const genImage: GeneratedImage = {
+                  image,
+                  metadata: chunk.data.revised_prompt
+                    ? { revised_prompt: chunk.data.revised_prompt }
+                    : undefined,
+                };
+
+                generatedImages.push(genImage);
+
+                yield {
+                  type: 'complete',
+                  image: genImage,
+                  index: chunk.index ?? generatedImages.length - 1,
+                };
+              } else if (chunk.type === 'response.done') {
+                responseMetadata = chunk.data as unknown as Record<string, unknown>;
+              }
+            } catch {
+              // Skip invalid JSON lines
+            }
+          }
+        }
+      }
 
       resolveResponse({
         images: generatedImages,
@@ -424,8 +475,9 @@ function executeStream(
         },
       });
     } catch (error) {
-      rejectResponse(error as Error);
-      throw error;
+      const err = toError(error);
+      rejectResponse(err);
+      throw err;
     }
   }
 

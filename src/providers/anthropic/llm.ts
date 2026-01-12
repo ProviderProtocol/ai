@@ -13,6 +13,8 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { AnthropicLLMParams, AnthropicResponse, AnthropicStreamEvent } from './types.ts';
 import { betas } from './types.ts';
 import {
@@ -165,7 +167,7 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
             'llm'
           );
 
-          const data = (await response.json()) as AnthropicResponse;
+          const data = await parseJsonResponse<AnthropicResponse>(response, 'anthropic', 'llm');
           return transformResponse(data, useNativeStructuredOutput);
         },
 
@@ -200,6 +202,7 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey,
                 'anthropic-version': request.config.apiVersion ?? ANTHROPIC_VERSION,
+                Accept: 'text/event-stream',
               };
 
               if (request.config.headers) {
@@ -255,8 +258,8 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
                     throw error;
                   }
 
-                  const uppEvent = transformStreamEvent(event, state);
-                  if (uppEvent) {
+                  const uppEvents = transformStreamEvent(event, state);
+                  for (const uppEvent of uppEvents) {
                     yield uppEvent;
                   }
                 }
@@ -264,8 +267,9 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
 
               responseResolve(buildResponseFromState(state, useNativeStructuredOutput));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 

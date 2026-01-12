@@ -18,6 +18,7 @@ import type {
 import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
+import { parseJsonResponse } from '../../http/json.ts';
 
 /** Base URL for OpenRouter's Embeddings API endpoint */
 const OPENROUTER_EMBEDDINGS_API_URL = 'https://openrouter.ai/api/v1/embeddings';
@@ -185,7 +186,7 @@ export function createEmbeddingHandler(): EmbeddingHandler<OpenRouterEmbedParams
             signal: request.signal,
           }, request.config, 'openrouter', 'embedding');
 
-          const data = await response.json() as OpenRouterEmbeddingsResponse;
+          const data = await parseJsonResponse<OpenRouterEmbeddingsResponse>(response, 'openrouter', 'embedding');
 
           // Return EmbeddingResponse - vector is floats or base64 string
           return {

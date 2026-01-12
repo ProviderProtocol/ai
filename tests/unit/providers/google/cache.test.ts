@@ -56,7 +56,8 @@ describe('Google Cache Utilities', () => {
 
       const [url, options] = getCallArgs();
       expect(url).toContain('cachedContents');
-      expect(url).toContain(`key=${MOCK_API_KEY}`);
+      const headers = options.headers as Record<string, string>;
+      expect(headers['x-goog-api-key']).toBe(MOCK_API_KEY);
       expect(options.method).toBe('POST');
 
       const body = JSON.parse(options.body as string);

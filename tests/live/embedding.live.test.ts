@@ -133,6 +133,19 @@ describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Embeddings', () => {
     expect(finalResult.embeddings).toHaveLength(10);
   });
 
+  test('aborts chunked embedding stream', async () => {
+    const embedder = embedding<OpenAIEmbedParams>({
+      model: openai(OPENAI_MODEL),
+    });
+
+    const texts = Array.from({ length: 10 }, (_, i) => `Document ${i} content`);
+    const stream = embedder.embed(texts, { chunked: true, batchSize: 3 });
+
+    stream.abort();
+
+    await expect(stream.result).rejects.toBeInstanceOf(UPPError);
+  });
+
   test('text-embedding-3-large model', async () => {
     const embedder = embedding<OpenAIEmbedParams>({
       model: openai('text-embedding-3-large'),

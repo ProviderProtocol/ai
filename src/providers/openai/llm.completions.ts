@@ -19,6 +19,8 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { OpenAICompletionsParams, OpenAICompletionsResponse, OpenAICompletionsStreamChunk } from './types.ts';
 import {
   transformRequest,
@@ -148,7 +150,7 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAICompletionsParam
             'llm'
           );
 
-          const data = (await response.json()) as OpenAICompletionsResponse;
+          const data = await parseJsonResponse<OpenAICompletionsResponse>(response, 'openai', 'llm');
           return transformResponse(data);
         },
 
@@ -179,6 +181,7 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAICompletionsParam
               const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${apiKey}`,
+                Accept: 'text/event-stream',
               };
 
               if (request.config.headers) {
@@ -252,8 +255,9 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAICompletionsParam
               // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 

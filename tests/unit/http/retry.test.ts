@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { ExponentialBackoff, NoRetry } from '../../../src/http/retry.ts';
+import { ExponentialBackoff, NoRetry, TokenBucket, RetryAfterStrategy } from '../../../src/http/retry.ts';
 import { UPPError } from '../../../src/types/errors.ts';
 
 describe('retry strategies', () => {
@@ -24,5 +24,24 @@ describe('retry strategies', () => {
     const error = new UPPError('timeout', 'TIMEOUT', 'mock', 'llm');
 
     expect(strategy.onRetry(error, 1)).toBeNull();
+  });
+
+  test('TokenBucket enforces capacity', async () => {
+    const bucket = new TokenBucket({ maxTokens: 1, refillRate: 1 });
+    const first = await bucket.beforeRequest();
+    const second = await bucket.beforeRequest();
+
+    expect(first).toBe(0);
+    expect(second).toBeGreaterThan(0);
+  });
+
+  test('RetryAfterStrategy fork isolates state', () => {
+    const strategy = new RetryAfterStrategy({ maxAttempts: 1, fallbackDelay: 1000 });
+    const forked = strategy.fork();
+    strategy.setRetryAfter(2);
+
+    const error = new UPPError('rate limit', 'RATE_LIMITED', 'mock', 'llm');
+    expect(strategy.onRetry(error, 1)).toBe(2000);
+    expect(forked.onRetry(error, 1)).toBe(1000);
   });
 });

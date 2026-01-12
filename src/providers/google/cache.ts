@@ -18,6 +18,7 @@ import type {
   GoogleTool,
 } from './types.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
 
 const CACHE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/cachedContents';
 
@@ -128,9 +129,9 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
     requestBody.expireTime = expireTime;
   }
 
-  const response = await fetch(`${CACHE_API_BASE}?key=${apiKey}`, {
+  const response = await fetch(CACHE_API_BASE, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify(requestBody),
   });
 
@@ -138,7 +139,7 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
     throw await normalizeHttpError(response, 'google', 'llm');
   }
 
-  return response.json() as Promise<GoogleCacheResponse>;
+  return parseJsonResponse<GoogleCacheResponse>(response, 'google', 'llm');
 }
 
 /**
@@ -156,15 +157,18 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
  */
 export async function get(name: string, apiKey: string): Promise<GoogleCacheResponse> {
   const cacheName = name.startsWith('cachedContents/') ? name : `cachedContents/${name}`;
-  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}`;
 
-  const response = await fetch(url, { method: 'GET' });
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: { 'x-goog-api-key': apiKey },
+  });
 
   if (!response.ok) {
     throw await normalizeHttpError(response, 'google', 'llm');
   }
 
-  return response.json() as Promise<GoogleCacheResponse>;
+  return parseJsonResponse<GoogleCacheResponse>(response, 'google', 'llm');
 }
 
 /**
@@ -188,17 +192,20 @@ export async function get(name: string, apiKey: string): Promise<GoogleCacheResp
 export async function list(options: CacheListOptions): Promise<GoogleCacheListResponse> {
   const { apiKey, pageSize, pageToken } = options;
 
-  const params = new URLSearchParams({ key: apiKey });
+  const params = new URLSearchParams();
   if (pageSize) params.set('pageSize', String(pageSize));
   if (pageToken) params.set('pageToken', pageToken);
 
-  const response = await fetch(`${CACHE_API_BASE}?${params}`, { method: 'GET' });
+  const response = await fetch(`${CACHE_API_BASE}?${params}`, {
+    method: 'GET',
+    headers: { 'x-goog-api-key': apiKey },
+  });
 
   if (!response.ok) {
     throw await normalizeHttpError(response, 'google', 'llm');
   }
 
-  return response.json() as Promise<GoogleCacheListResponse>;
+  return parseJsonResponse<GoogleCacheListResponse>(response, 'google', 'llm');
 }
 
 /**
@@ -228,11 +235,11 @@ export async function update(
   apiKey: string
 ): Promise<GoogleCacheResponse> {
   const cacheName = name.startsWith('cachedContents/') ? name : `cachedContents/${name}`;
-  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}`;
 
   const response = await fetch(url, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify(updateRequest),
   });
 
@@ -240,7 +247,7 @@ export async function update(
     throw await normalizeHttpError(response, 'google', 'llm');
   }
 
-  return response.json() as Promise<GoogleCacheResponse>;
+  return parseJsonResponse<GoogleCacheResponse>(response, 'google', 'llm');
 }
 
 /**
@@ -256,9 +263,12 @@ export async function update(
  */
 async function deleteCache(name: string, apiKey: string): Promise<void> {
   const cacheName = name.startsWith('cachedContents/') ? name : `cachedContents/${name}`;
-  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}`;
 
-  const response = await fetch(url, { method: 'DELETE' });
+  const response = await fetch(url, {
+    method: 'DELETE',
+    headers: { 'x-goog-api-key': apiKey },
+  });
 
   if (!response.ok) {
     throw await normalizeHttpError(response, 'google', 'llm');

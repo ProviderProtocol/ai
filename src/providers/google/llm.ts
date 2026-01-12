@@ -6,6 +6,8 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { GoogleLLMParams, GoogleResponse, GoogleStreamChunk } from './types.ts';
 import {
   transformRequest,
@@ -39,12 +41,10 @@ const GOOGLE_CAPABILITIES: LLMCapabilities = {
  *
  * @param modelId - The Gemini model identifier (e.g., 'gemini-1.5-pro')
  * @param action - The API action to perform
- * @param apiKey - The Google API key for authentication
- * @returns Fully qualified URL with API key as query parameter
+ * @returns Fully qualified URL for the model action
  */
-function buildUrl(modelId: string, action: 'generateContent' | 'streamGenerateContent', apiKey: string): string {
-  const base = `${GOOGLE_API_BASE}/models/${modelId}:${action}`;
-  return `${base}?key=${apiKey}`;
+function buildUrl(modelId: string, action: 'generateContent' | 'streamGenerateContent'): string {
+  return `${GOOGLE_API_BASE}/models/${modelId}:${action}`;
 }
 
 /**
@@ -102,13 +102,14 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
           );
 
           const url = request.config.baseUrl
-            ? `${request.config.baseUrl}/models/${modelId}:generateContent?key=${apiKey}`
-            : buildUrl(modelId, 'generateContent', apiKey);
+            ? `${request.config.baseUrl}/models/${modelId}:generateContent`
+            : buildUrl(modelId, 'generateContent');
 
           const body = transformRequest(request, modelId);
 
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
           };
 
           if (request.config.headers) {
@@ -132,7 +133,7 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
             'llm'
           );
 
-          const data = (await response.json()) as GoogleResponse;
+          const data = await parseJsonResponse<GoogleResponse>(response, 'google', 'llm');
           return transformResponse(data);
         },
 
@@ -156,13 +157,15 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
               );
 
               const url = request.config.baseUrl
-                ? `${request.config.baseUrl}/models/${modelId}:streamGenerateContent?alt=sse&key=${apiKey}`
-                : `${buildUrl(modelId, 'streamGenerateContent', apiKey)}&alt=sse`;
+                ? `${request.config.baseUrl}/models/${modelId}:streamGenerateContent?alt=sse`
+                : `${buildUrl(modelId, 'streamGenerateContent')}?alt=sse`;
 
               const body = transformRequest(request, modelId);
 
               const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
+                Accept: 'text/event-stream',
+                'x-goog-api-key': apiKey,
               };
 
               if (request.config.headers) {
@@ -227,8 +230,9 @@ export function createLLMHandler(): LLMHandler<GoogleLLMParams> {
 
               responseResolve(buildResponseFromState(state));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 

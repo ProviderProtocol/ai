@@ -695,7 +695,7 @@ export interface OpenRouterResponsesSystemItem {
   /** Role identifier. */
   role: 'system';
   /** System prompt content. */
-  content: string | OpenRouterResponsesContentPart[];
+  content: string | OpenRouterResponsesContentPart[] | OpenRouterSystemContent[];
 }
 
 /**

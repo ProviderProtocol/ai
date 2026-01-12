@@ -65,6 +65,25 @@ export function parseBody(body: unknown): ParsedRequest {
     throw new Error('Request body must have a messages array');
   }
 
+  for (const message of data.messages) {
+    if (!message || typeof message !== 'object') {
+      throw new Error('Each message must be an object');
+    }
+    const msg = message as Record<string, unknown>;
+    if (typeof msg.id !== 'string') {
+      throw new Error('Each message must have a string id');
+    }
+    if (typeof msg.type !== 'string') {
+      throw new Error('Each message must have a string type');
+    }
+    if (typeof msg.timestamp !== 'string') {
+      throw new Error('Each message must have a string timestamp');
+    }
+    if ((msg.type === 'user' || msg.type === 'assistant') && !Array.isArray(msg.content)) {
+      throw new Error('User and assistant messages must have a content array');
+    }
+  }
+
   return {
     messages: (data.messages as MessageJSON[]).map(deserializeMessage),
     system: data.system as string | unknown[] | undefined,

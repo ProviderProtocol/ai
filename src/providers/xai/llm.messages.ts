@@ -6,6 +6,8 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { XAIMessagesParams, XAIMessagesResponse, XAIMessagesStreamEvent } from './types.ts';
 import {
   transformRequest,
@@ -124,7 +126,7 @@ export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
             'llm'
           );
 
-          const data = (await response.json()) as XAIMessagesResponse;
+          const data = await parseJsonResponse<XAIMessagesResponse>(response, 'xai', 'llm');
           return transformResponse(data);
         },
 
@@ -155,6 +157,7 @@ export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
                 'Content-Type': 'application/json',
                 'x-api-key': apiKey,
                 'anthropic-version': '2023-06-01',
+                Accept: 'text/event-stream',
               };
 
               if (request.config.headers) {
@@ -221,8 +224,9 @@ export function createMessagesLLMHandler(): LLMHandler<XAIMessagesParams> {
               // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 

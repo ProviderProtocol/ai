@@ -233,6 +233,33 @@ describe('embed() - base64 normalization', () => {
   });
 });
 
+describe('embed() - chunked abort', () => {
+  test('aborting chunked stream rejects result', async () => {
+    const handler = createMockHandler(async (inputs: unknown[]) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return {
+        embeddings: (inputs as string[]).map((_, index) => ({
+          vector: [0.1, 0.2, 0.3],
+          index,
+        })),
+        usage: { totalTokens: inputs.length },
+      };
+    });
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const embedder = embedding({ model: modelRef });
+    const stream = embedder.embed(['one', 'two', 'three'], { chunked: true });
+
+    stream.abort();
+
+    await expect(stream.result).rejects.toBeInstanceOf(UPPError);
+  });
+});
+
 describe('embed() - chunked streaming', () => {
   test('returns stream with chunked option', async () => {
     const provider = createMockProvider();

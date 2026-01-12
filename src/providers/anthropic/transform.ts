@@ -21,6 +21,8 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
+import { UPPError } from '../../types/errors.ts';
+import { generateId } from '../../utils/id.ts';
 import type {
   AnthropicLLMParams,
   AnthropicRequest,
@@ -83,10 +85,9 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
     messages: request.messages.map(transformMessage),
   };
 
-  if (request.system) {
-    // Pass through directly - accepts string or array of AnthropicSystemContent
-    // Array format enables cache_control: [{type: 'text', text: '...', cache_control: {...}}]
-    anthropicRequest.system = request.system as string | AnthropicSystemContent[];
+  const normalizedSystem = normalizeSystem(request.system);
+  if (normalizedSystem !== undefined) {
+    anthropicRequest.system = normalizedSystem;
   }
 
   // Collect all tools: user-defined tools + built-in tools
@@ -129,6 +130,9 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
           type: 'object',
           properties: request.structure.properties,
           required: request.structure.required,
+          ...(request.structure.additionalProperties !== undefined
+            ? { additionalProperties: request.structure.additionalProperties }
+            : {}),
         },
       };
 
@@ -138,6 +142,66 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   }
 
   return anthropicRequest;
+}
+
+/**
+ * Validates and normalizes system prompt input for Anthropic.
+ */
+function normalizeSystem(
+  system: string | unknown[] | undefined
+): string | AnthropicSystemContent[] | undefined {
+  if (system === undefined || system === null) return undefined;
+  if (typeof system === 'string') return system;
+  if (!Array.isArray(system)) {
+    throw new UPPError(
+      'System prompt must be a string or an array of text blocks',
+      'INVALID_REQUEST',
+      'anthropic',
+      'llm'
+    );
+  }
+
+  const blocks: AnthropicSystemContent[] = [];
+  for (const block of system) {
+    if (!block || typeof block !== 'object') {
+      throw new UPPError(
+        'System prompt array must contain objects with type "text"',
+        'INVALID_REQUEST',
+        'anthropic',
+        'llm'
+      );
+    }
+    const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
+    if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
+      throw new UPPError(
+        'Anthropic system blocks must be of type "text" with a string text field',
+        'INVALID_REQUEST',
+        'anthropic',
+        'llm'
+      );
+    }
+    if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
+      throw new UPPError(
+        'Invalid cache_control for Anthropic system prompt',
+        'INVALID_REQUEST',
+        'anthropic',
+        'llm'
+      );
+    }
+    blocks.push(block as AnthropicSystemContent);
+  }
+
+  return blocks.length > 0 ? blocks : undefined;
+}
+
+function isValidCacheControl(value: unknown): value is AnthropicCacheControl {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { type?: unknown; ttl?: unknown };
+  if (candidate.type !== 'ephemeral') return false;
+  if (candidate.ttl !== undefined && candidate.ttl !== '5m' && candidate.ttl !== '1h') {
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -351,6 +415,9 @@ function transformTool(tool: Tool): AnthropicTool {
       type: 'object',
       properties: tool.parameters.properties,
       required: tool.parameters.required,
+      ...(tool.parameters.additionalProperties !== undefined
+        ? { additionalProperties: tool.parameters.additionalProperties }
+        : {}),
     },
     ...(cacheControl ? { cache_control: cacheControl } : {}),
   };
@@ -516,8 +583,8 @@ export function createStreamState(): StreamState {
  * ```typescript
  * const state = createStreamState();
  * for await (const event of parseSSEStream(response.body)) {
- *   const uppEvent = transformStreamEvent(event, state);
- *   if (uppEvent) {
+ *   const uppEvents = transformStreamEvent(event, state);
+ *   for (const uppEvent of uppEvents) {
  *     yield uppEvent;
  *   }
  * }
@@ -527,7 +594,8 @@ export function createStreamState(): StreamState {
 export function transformStreamEvent(
   event: AnthropicStreamEvent,
   state: StreamState
-): StreamEvent | null {
+): StreamEvent[] {
+  const events: StreamEvent[] = [];
   switch (event.type) {
     case 'message_start':
       state.messageId = event.message.id;
@@ -535,7 +603,8 @@ export function transformStreamEvent(
       state.inputTokens = event.message.usage.input_tokens;
       state.cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
       state.cacheWriteTokens = event.message.usage.cache_creation_input_tokens ?? 0;
-      return { type: 'message_start', index: 0, delta: {} };
+      events.push({ type: 'message_start', index: 0, delta: {} });
+      break;
 
     case 'content_block_start':
       if (event.content_block.type === 'text') {
@@ -579,7 +648,8 @@ export function transformStreamEvent(
           fileContent: resultBlock.content?.content ?? '',
         };
       }
-      return { type: 'content_block_start', index: event.index, delta: {} };
+      events.push({ type: 'content_block_start', index: event.index, delta: {} });
+      break;
 
     case 'content_block_delta': {
       const delta = event.delta;
@@ -588,18 +658,19 @@ export function transformStreamEvent(
           state.content[event.index]!.text =
             (state.content[event.index]!.text ?? '') + delta.text;
         }
-        return {
+        events.push({
           type: 'text_delta',
           index: event.index,
           delta: { text: delta.text },
-        };
+        });
+        break;
       }
       if (delta.type === 'input_json_delta') {
         if (state.content[event.index]) {
           state.content[event.index]!.input =
             (state.content[event.index]!.input ?? '') + delta.partial_json;
         }
-        return {
+        events.push({
           type: 'tool_call_delta',
           index: event.index,
           delta: {
@@ -607,36 +678,42 @@ export function transformStreamEvent(
             toolCallId: state.content[event.index]?.id,
             toolName: state.content[event.index]?.name,
           },
-        };
+        });
+        break;
       }
       if (delta.type === 'thinking_delta') {
-        return {
+        events.push({
           type: 'reasoning_delta',
           index: event.index,
           delta: { text: delta.thinking },
-        };
+        });
+        break;
       }
-      return null;
+      break;
     }
 
     case 'content_block_stop':
-      return { type: 'content_block_stop', index: event.index, delta: {} };
+      events.push({ type: 'content_block_stop', index: event.index, delta: {} });
+      break;
 
     case 'message_delta':
       state.stopReason = event.delta.stop_reason;
       state.outputTokens = event.usage.output_tokens;
-      return null;
+      return [];
 
     case 'message_stop':
-      return { type: 'message_stop', index: 0, delta: {} };
+      events.push({ type: 'message_stop', index: 0, delta: {} });
+      break;
 
     case 'ping':
     case 'error':
-      return null;
+      return [];
 
     default:
-      return null;
+      break;
   }
+
+  return events;
 }
 
 /**
@@ -705,11 +782,12 @@ export function buildResponseFromState(
     // server_tool_use blocks are tracked for context but don't produce output
   }
 
+  const messageId = state.messageId || generateId();
   const message = new AssistantMessage(
     textContent,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: state.messageId,
+      id: messageId,
       metadata: {
         anthropic: {
           stop_reason: state.stopReason,

@@ -28,6 +28,8 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
+import { UPPError } from '../../types/errors.ts';
+import { generateId } from '../../utils/id.ts';
 import type {
   OpenAIResponsesParams,
   OpenAIResponsesRequest,
@@ -37,10 +39,6 @@ import type {
   OpenAIResponsesToolUnion,
   OpenAIResponsesResponse,
   OpenAIResponsesStreamEvent,
-  OpenAIResponsesOutputItem,
-  OpenAIResponsesMessageOutput,
-  OpenAIResponsesFunctionCallOutput,
-  OpenAIResponsesImageGenerationOutput,
 } from './types.ts';
 
 /**
@@ -122,12 +120,42 @@ export function transformRequest(
  * Converts array format to concatenated string for providers that only support strings.
  */
 function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
-  if (!system) return undefined;
+  if (system === undefined || system === null) return undefined;
   if (typeof system === 'string') return system;
-  return (system as Array<{text?: string}>)
-    .map(block => block.text ?? '')
-    .filter(text => text.length > 0)
-    .join('\n\n');
+  if (!Array.isArray(system)) {
+    throw new UPPError(
+      'System prompt must be a string or an array of text blocks',
+      'INVALID_REQUEST',
+      'openai',
+      'llm'
+    );
+  }
+
+  const texts: string[] = [];
+  for (const block of system) {
+    if (!block || typeof block !== 'object' || !('text' in block)) {
+      throw new UPPError(
+        'System prompt array must contain objects with a text field',
+        'INVALID_REQUEST',
+        'openai',
+        'llm'
+      );
+    }
+    const textValue = (block as { text?: unknown }).text;
+    if (typeof textValue !== 'string') {
+      throw new UPPError(
+        'System prompt text must be a string',
+        'INVALID_REQUEST',
+        'openai',
+        'llm'
+      );
+    }
+    if (textValue.length > 0) {
+      texts.push(textValue);
+    }
+  }
+
+  return texts.length > 0 ? texts.join('\n\n') : undefined;
 }
 
 /**
@@ -402,7 +430,7 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
 
   for (const item of data.output) {
     if (item.type === 'message') {
-      const messageItem = item as OpenAIResponsesMessageOutput;
+      const messageItem = item;
       for (const part of messageItem.content) {
         if (part.type === 'output_text') {
           content.push({ type: 'text', text: part.text });
@@ -419,7 +447,7 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
         }
       }
     } else if (item.type === 'function_call') {
-      const functionCall = item as OpenAIResponsesFunctionCallOutput;
+      const functionCall = item;
       let args: Record<string, unknown> = {};
       try {
         args = JSON.parse(functionCall.arguments);
@@ -438,7 +466,7 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
         arguments: functionCall.arguments,
       });
     } else if (item.type === 'image_generation_call') {
-      const imageGen = item as OpenAIResponsesImageGenerationOutput;
+      const imageGen = item;
       if (imageGen.result) {
         content.push({
           type: 'image',
@@ -449,16 +477,17 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
     }
   }
 
+  const responseId = data.id || generateId();
   const message = new AssistantMessage(
     content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: data.id,
+      id: responseId,
       metadata: {
         openai: {
           model: data.model,
           status: data.status,
-          response_id: data.id,
+          response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
         },
@@ -594,7 +623,7 @@ export function transformStreamEvent(
 
     case 'response.output_item.added':
       if (event.item.type === 'function_call') {
-        const functionCall = event.item as OpenAIResponsesFunctionCallOutput;
+        const functionCall = event.item;
         const existing = state.toolCalls.get(event.output_index) ?? {
           arguments: '',
         };
@@ -615,7 +644,7 @@ export function transformStreamEvent(
 
     case 'response.output_item.done':
       if (event.item.type === 'function_call') {
-        const functionCall = event.item as OpenAIResponsesFunctionCallOutput;
+        const functionCall = event.item;
         const existing = state.toolCalls.get(event.output_index) ?? {
           arguments: '',
         };
@@ -627,7 +656,7 @@ export function transformStreamEvent(
         }
         state.toolCalls.set(event.output_index, existing);
       } else if (event.item.type === 'image_generation_call') {
-        const imageGen = event.item as OpenAIResponsesImageGenerationOutput;
+        const imageGen = event.item;
         if (imageGen.result) {
           state.images.push(imageGen.result);
         }
@@ -793,16 +822,17 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     }
   }
 
+  const responseId = state.id || generateId();
   const message = new AssistantMessage(
     content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: state.id,
+      id: responseId,
       metadata: {
         openai: {
           model: state.model,
           status: state.status,
-          response_id: state.id,
+          response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
         },

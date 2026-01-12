@@ -18,6 +18,7 @@ import type {
 import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
+import { parseJsonResponse } from '../../http/json.ts';
 
 /** Base URL for Google's Gemini API */
 const GOOGLE_API_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -143,10 +144,11 @@ export function createEmbeddingHandler(): EmbeddingHandler<GoogleEmbedParams> {
             return embedRequest;
           });
 
-          const url = `${baseUrl}/models/${modelId}:batchEmbedContents?key=${apiKey}`;
+          const url = `${baseUrl}/models/${modelId}:batchEmbedContents`;
 
           const headers: Record<string, string> = {
             'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey,
           };
 
           // Merge custom headers
@@ -165,7 +167,7 @@ export function createEmbeddingHandler(): EmbeddingHandler<GoogleEmbedParams> {
             signal: request.signal,
           }, request.config, 'google', 'embedding');
 
-          const data = await response.json() as GoogleEmbeddingsResponse;
+          const data = await parseJsonResponse<GoogleEmbeddingsResponse>(response, 'google', 'embedding');
 
           // Calculate total tokens
           let totalTokens = 0;

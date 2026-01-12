@@ -272,6 +272,7 @@ export class TokenBucket implements RetryStrategy {
   private refillRate: number;
   private lastRefill: number;
   private maxAttempts: number;
+  private lock: Promise<void>;
 
   /**
    * Creates a new TokenBucket instance.
@@ -291,6 +292,7 @@ export class TokenBucket implements RetryStrategy {
     this.maxAttempts = options.maxAttempts ?? 3;
     this.tokens = this.maxTokens;
     this.lastRefill = Date.now();
+    this.lock = Promise.resolve();
   }
 
   /**
@@ -302,16 +304,18 @@ export class TokenBucket implements RetryStrategy {
    *
    * @returns Delay in milliseconds before the request can proceed
    */
-  beforeRequest(): number {
-    this.refill();
+  beforeRequest(): Promise<number> {
+    return this.withLock(() => {
+      this.refill();
 
-    if (this.tokens >= 1) {
-      this.tokens -= 1;
-      return 0;
-    }
+      if (this.tokens >= 1) {
+        this.tokens -= 1;
+        return 0;
+      }
 
-    const msPerToken = 1000 / this.refillRate;
-    return Math.ceil(msPerToken);
+      const msPerToken = 1000 / this.refillRate;
+      return Math.ceil(msPerToken);
+    });
   }
 
   /**
@@ -342,8 +346,10 @@ export class TokenBucket implements RetryStrategy {
    * Called automatically on successful requests to restore available tokens.
    */
   reset(): void {
-    this.tokens = this.maxTokens;
-    this.lastRefill = Date.now();
+    void this.withLock(() => {
+      this.tokens = this.maxTokens;
+      this.lastRefill = Date.now();
+    });
   }
 
   /**
@@ -356,6 +362,12 @@ export class TokenBucket implements RetryStrategy {
 
     this.tokens = Math.min(this.maxTokens, this.tokens + newTokens);
     this.lastRefill = now;
+  }
+
+  private async withLock<T>(fn: () => T | Promise<T>): Promise<T> {
+    const next = this.lock.then(fn, fn);
+    this.lock = next.then(() => undefined, () => undefined);
+    return next;
   }
 }
 
@@ -410,6 +422,16 @@ export class RetryAfterStrategy implements RetryStrategy {
   } = {}) {
     this.maxAttempts = options.maxAttempts ?? 3;
     this.fallbackDelay = options.fallbackDelay ?? 5000;
+  }
+
+  /**
+   * Creates a request-scoped copy of this strategy.
+   */
+  fork(): RetryAfterStrategy {
+    return new RetryAfterStrategy({
+      maxAttempts: this.maxAttempts,
+      fallbackDelay: this.fallbackDelay,
+    });
   }
 
   /**

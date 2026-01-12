@@ -20,6 +20,7 @@ import type {
 import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
+import { parseJsonResponse } from '../../http/json.ts';
 import { Image } from '../../core/media/Image.ts';
 
 const XAI_IMAGES_API_URL = 'https://api.x.ai/v1/images/generations';
@@ -168,7 +169,7 @@ async function executeGenerate(
     signal: request.signal,
   }, request.config, 'xai', 'image');
 
-  const data = await response.json() as XAIImagesResponse;
+  const data = await parseJsonResponse<XAIImagesResponse>(response, 'xai', 'image');
 
   return transformResponse(data);
 }

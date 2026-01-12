@@ -10,6 +10,8 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
+import { UPPError } from '../../types/errors.ts';
+import { generateId } from '../../utils/id.ts';
 import type {
   XAIMessagesParams,
   XAIMessagesRequest,
@@ -26,12 +28,42 @@ import type {
  * Converts array format to concatenated string since xAI Messages API only supports string.
  */
 function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
-  if (!system) return undefined;
+  if (system === undefined || system === null) return undefined;
   if (typeof system === 'string') return system;
-  return (system as Array<{ text?: string }>)
-    .map((block) => block.text ?? '')
-    .filter((text) => text.length > 0)
-    .join('\n\n');
+  if (!Array.isArray(system)) {
+    throw new UPPError(
+      'System prompt must be a string or an array of text blocks',
+      'INVALID_REQUEST',
+      'xai',
+      'llm'
+    );
+  }
+
+  const texts: string[] = [];
+  for (const block of system) {
+    if (!block || typeof block !== 'object' || !('text' in block)) {
+      throw new UPPError(
+        'System prompt array must contain objects with a text field',
+        'INVALID_REQUEST',
+        'xai',
+        'llm'
+      );
+    }
+    const textValue = (block as { text?: unknown }).text;
+    if (typeof textValue !== 'string') {
+      throw new UPPError(
+        'System prompt text must be a string',
+        'INVALID_REQUEST',
+        'xai',
+        'llm'
+      );
+    }
+    if (textValue.length > 0) {
+      texts.push(textValue);
+    }
+  }
+
+  return texts.length > 0 ? texts.join('\n\n') : undefined;
 }
 
 /**
@@ -465,11 +497,12 @@ export function buildResponseFromState(state: MessagesStreamState): LLMResponse 
     }
   }
 
+  const messageId = state.messageId || generateId();
   const message = new AssistantMessage(
     textContent,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: state.messageId,
+      id: messageId,
       metadata: {
         xai: {
           stop_reason: state.stopReason,

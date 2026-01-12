@@ -39,7 +39,7 @@ import {
   toolExecutionStart,
   toolExecutionEnd,
 } from '../types/stream.ts';
-import { generateShortId } from '../utils/id.ts';
+import { toError } from '../utils/error.ts';
 
 /** Default maximum iterations for the tool execution loop */
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -440,22 +440,45 @@ function executeStream<TParams>(
 
   let resolveGenerator: () => void;
   let rejectGenerator: (error: Error) => void;
+  let generatorSettled = false;
   const generatorDone = new Promise<void>((resolve, reject) => {
-    resolveGenerator = resolve;
-    rejectGenerator = reject;
+    resolveGenerator = () => {
+      if (!generatorSettled) {
+        generatorSettled = true;
+        resolve();
+      }
+    };
+    rejectGenerator = (error: Error) => {
+      if (!generatorSettled) {
+        generatorSettled = true;
+        reject(error);
+      }
+    };
   });
 
   const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
+  const onAbort = () => {
+    const error = new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
+    generatorError = error;
+    rejectGenerator(error);
+  };
+  abortController.signal.addEventListener('abort', onAbort, { once: true });
+
+  const ensureNotAborted = () => {
+    if (abortController.signal.aborted) {
+      throw new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
+    }
+  };
+
   async function* generateStream(): AsyncGenerator<StreamEvent, void, unknown> {
     try {
       // Check if already aborted before starting
-      if (abortController.signal.aborted) {
-        throw new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
-      }
+      ensureNotAborted();
 
       while (cycles < maxIterations + 1) {
         cycles++;
+        ensureNotAborted();
 
         const request: LLMRequest<TParams> = {
           messages: allMessages,
@@ -470,6 +493,7 @@ function executeStream<TParams>(
         const streamResult = model.stream(request);
 
         for await (const event of streamResult) {
+          ensureNotAborted();
           yield event;
         }
 
@@ -506,6 +530,7 @@ function executeStream<TParams>(
           );
 
           for (const event of toolEvents) {
+            ensureNotAborted();
             yield event;
           }
 
@@ -518,9 +543,12 @@ function executeStream<TParams>(
       }
       resolveGenerator();
     } catch (error) {
-      generatorError = error as Error;
-      rejectGenerator(error as Error);
-      throw error;
+      const err = toError(error);
+      generatorError = err;
+      rejectGenerator(err);
+      throw err;
+    } finally {
+      abortController.signal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -576,48 +604,66 @@ async function executeTools(
 
   const promises = toolCalls.map(async (call, index) => {
     const tool = toolMap.get(call.toolName);
-    if (!tool) {
-      return {
-        toolCallId: call.toolCallId,
-        result: `Tool '${call.toolName}' not found`,
-        isError: true,
-      };
-    }
-
+    const toolName = tool?.name ?? call.toolName;
     const startTime = Date.now();
 
-    onEvent?.(toolExecutionStart(call.toolCallId, tool.name, startTime, index));
+    onEvent?.(toolExecutionStart(call.toolCallId, toolName, startTime, index));
 
     let effectiveParams = call.arguments;
 
-    await toolStrategy?.onToolCall?.(tool, effectiveParams);
+    const endWithError = async (message: string, approved?: boolean): Promise<ToolResult> => {
+      const endTime = Date.now();
+      if (tool) {
+        await toolStrategy?.onError?.(tool, effectiveParams, new Error(message));
+      }
+      const execution: ToolExecution = {
+        toolName,
+        toolCallId: call.toolCallId,
+        arguments: effectiveParams,
+        result: message,
+        isError: true,
+        duration: endTime - startTime,
+        approved,
+      };
+      executions.push(execution);
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, message, true, endTime, index));
+      return {
+        toolCallId: call.toolCallId,
+        result: message,
+        isError: true,
+      };
+    };
+
+    if (!tool) {
+      return endWithError(`Tool '${call.toolName}' not found`);
+    }
+
+    try {
+      await toolStrategy?.onToolCall?.(tool, effectiveParams);
+    } catch (error) {
+      return endWithError(toError(error).message);
+    }
 
     if (toolStrategy?.onBeforeCall) {
-      const beforeResult = await toolStrategy.onBeforeCall(tool, effectiveParams);
+      let beforeResult: boolean | BeforeCallResult | undefined;
+      try {
+        beforeResult = await toolStrategy.onBeforeCall(tool, effectiveParams);
+      } catch (error) {
+        return endWithError(toError(error).message);
+      }
+
       const isBeforeCallResult = (value: unknown): value is BeforeCallResult =>
         typeof value === 'object' && value !== null && 'proceed' in value;
 
       if (isBeforeCallResult(beforeResult)) {
         if (!beforeResult.proceed) {
-          const endTime = Date.now();
-          onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, 'Tool execution skipped', true, endTime, index));
-          return {
-            toolCallId: call.toolCallId,
-            result: 'Tool execution skipped',
-            isError: true,
-          };
+          return endWithError('Tool execution skipped');
         }
         if (beforeResult.params !== undefined) {
           effectiveParams = beforeResult.params as Record<string, unknown>;
         }
       } else if (!beforeResult) {
-        const endTime = Date.now();
-        onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, 'Tool execution skipped', true, endTime, index));
-        return {
-          toolCallId: call.toolCallId,
-          result: 'Tool execution skipped',
-          isError: true,
-        };
+        return endWithError('Tool execution skipped');
       }
     }
 
@@ -626,14 +672,14 @@ async function executeTools(
       try {
         approved = await tool.approval(effectiveParams);
       } catch (error) {
-        throw error;
+        return endWithError(toError(error).message);
       }
     }
 
     if (!approved) {
       const endTime = Date.now();
       const execution: ToolExecution = {
-        toolName: tool.name,
+        toolName,
         toolCallId: call.toolCallId,
         arguments: effectiveParams as Record<string, unknown>,
         result: 'Tool execution denied',
@@ -643,7 +689,7 @@ async function executeTools(
       };
       executions.push(execution);
 
-      onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, 'Tool execution denied by approval handler', true, endTime, index));
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, 'Tool execution denied by approval handler', true, endTime, index));
 
       return {
         toolCallId: call.toolCallId,
@@ -667,7 +713,7 @@ async function executeTools(
       }
 
       const execution: ToolExecution = {
-        toolName: tool.name,
+        toolName,
         toolCallId: call.toolCallId,
         arguments: effectiveParams as Record<string, unknown>,
         result,
@@ -677,7 +723,7 @@ async function executeTools(
       };
       executions.push(execution);
 
-      onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, result, false, endTime, index));
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, result, false, endTime, index));
 
       return {
         toolCallId: call.toolCallId,
@@ -686,26 +732,25 @@ async function executeTools(
       };
     } catch (error) {
       const endTime = Date.now();
-      await toolStrategy?.onError?.(tool, effectiveParams, error as Error);
-
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const err = toError(error);
+      await toolStrategy?.onError?.(tool, effectiveParams, err);
 
       const execution: ToolExecution = {
-        toolName: tool.name,
+        toolName,
         toolCallId: call.toolCallId,
         arguments: effectiveParams as Record<string, unknown>,
-        result: errorMessage,
+        result: err.message,
         isError: true,
         duration: endTime - startTime,
         approved,
       };
       executions.push(execution);
 
-      onEvent?.(toolExecutionEnd(call.toolCallId, tool.name, errorMessage, true, endTime, index));
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, err.message, true, endTime, index));
 
       return {
         toolCallId: call.toolCallId,
-        result: errorMessage,
+        result: err.message,
         isError: true,
       };
     }

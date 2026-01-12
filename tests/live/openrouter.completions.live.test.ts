@@ -113,6 +113,18 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
     ).toBe(true);
   });
 
+  test('with system prompt array', async () => {
+    const model = llm<OpenRouterCompletionsParams>({
+      model: openrouter(TEST_MODEL),
+      params: { max_tokens: 50 },
+      system: [{ type: 'text', text: 'You are concise.' }],
+    });
+
+    const turn = await model.generate('Hello!');
+
+    expect(turn.response.text.length).toBeGreaterThan(0);
+  });
+
   test('tool calling', async () => {
     const calculate = {
       name: 'calculate',

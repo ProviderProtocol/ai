@@ -4,6 +4,7 @@
  */
 
 import { UPPError, type ErrorCode, type Modality } from '../types/errors.ts';
+import { toError } from '../utils/error.ts';
 
 /**
  * Maps HTTP status codes to standardized UPP error codes.
@@ -91,6 +92,7 @@ export async function normalizeHttpError(
 ): Promise<UPPError> {
   const code = statusToErrorCode(response.status);
   let message = `HTTP ${response.status}: ${response.statusText}`;
+  let bodyReadError: Error | undefined;
 
   try {
     const body = await response.text();
@@ -112,10 +114,11 @@ export async function normalizeHttpError(
         }
       }
     }
-  } catch {
+  } catch (error) {
+    bodyReadError = toError(error);
   }
 
-  return new UPPError(message, code, provider, modality, response.status);
+  return new UPPError(message, code, provider, modality, response.status, bodyReadError);
 }
 
 /**

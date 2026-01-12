@@ -19,6 +19,8 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { OpenAIResponsesParams, OpenAIResponsesResponse, OpenAIResponsesStreamEvent, OpenAIResponseErrorEvent } from './types.ts';
 import {
   transformRequest,
@@ -163,7 +165,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
             'llm'
           );
 
-          const data = (await response.json()) as OpenAIResponsesResponse;
+          const data = await parseJsonResponse<OpenAIResponsesResponse>(response, 'openai', 'llm');
 
           // Check for error in response
           if (data.status === 'failed' && data.error) {
@@ -204,6 +206,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
               const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${apiKey}`,
+                Accept: 'text/event-stream',
               };
 
               if (request.config.headers) {
@@ -277,8 +280,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
               // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 

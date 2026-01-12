@@ -23,6 +23,7 @@ import type {
 } from '../types/provider.ts';
 import { UPPError } from '../types/errors.ts';
 import { resolveEmbeddingHandler } from './provider-handlers.ts';
+import { toError } from '../utils/error.ts';
 
 /**
  * Creates an embedding instance configured with the specified options.
@@ -222,10 +223,37 @@ function createChunkedStream<TParams>(
 
   let resolveResult: (result: EmbeddingResult) => void;
   let rejectResult: (error: Error) => void;
+  let settled = false;
   const resultPromise = new Promise<EmbeddingResult>((resolve, reject) => {
-    resolveResult = resolve;
-    rejectResult = reject;
+    resolveResult = (result) => {
+      if (!settled) {
+        settled = true;
+        resolve(result);
+      }
+    };
+    rejectResult = (error) => {
+      if (!settled) {
+        settled = true;
+        reject(error);
+      }
+    };
   });
+
+  const cancelError = () => new UPPError(
+    'Embedding cancelled',
+    'CANCELLED',
+    model.provider.name,
+    'embedding'
+  );
+
+  const onAbort = () => {
+    rejectResult(cancelError());
+  };
+
+  abortController.signal.addEventListener('abort', onAbort, { once: true });
+  if (options.signal) {
+    options.signal.addEventListener('abort', () => abortController.abort(), { once: true });
+  }
 
   async function* generate(): AsyncGenerator<EmbeddingProgress> {
     const total = inputs.length;
@@ -240,12 +268,7 @@ function createChunkedStream<TParams>(
     try {
       for (let i = 0; i < batches.length; i += concurrency) {
         if (abortController.signal.aborted || options.signal?.aborted) {
-          throw new UPPError(
-            'Embedding cancelled',
-            'CANCELLED',
-            model.provider.name,
-            'embedding'
-          );
+          throw cancelError();
         }
 
         const chunk = batches.slice(i, i + concurrency);
@@ -291,8 +314,9 @@ function createChunkedStream<TParams>(
         usage: { totalTokens },
       });
     } catch (error) {
-      rejectResult(error as Error);
-      throw error;
+      const err = toError(error);
+      rejectResult(err);
+      throw err;
     }
   }
 

@@ -18,6 +18,7 @@ import type {
 import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
+import { parseJsonResponse } from '../../http/json.ts';
 
 /** Base URL for OpenAI's Embeddings API endpoint */
 const OPENAI_EMBEDDINGS_API_URL = 'https://api.openai.com/v1/embeddings';
@@ -165,7 +166,7 @@ export function createEmbeddingHandler(): EmbeddingHandler<OpenAIEmbedParams> {
             signal: request.signal,
           }, request.config, 'openai', 'embedding');
 
-          const data = await response.json() as OpenAIEmbeddingsResponse;
+          const data = await parseJsonResponse<OpenAIEmbeddingsResponse>(response, 'openai', 'embedding');
 
           // Return EmbeddingResponse - vector is floats or base64 string
           return {

@@ -24,6 +24,8 @@ import { emptyUsage } from '../../types/turn.ts';
 import { UPPError } from '../../types/errors.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { ProxyLLMParams, ProxyProviderOptions } from './types.ts';
 import {
   serializeMessage,
@@ -119,7 +121,7 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
             'llm'
           );
 
-          const data = (await response.json()) as TurnJSON;
+          const data = await parseJsonResponse<TurnJSON>(response, 'proxy', 'llm');
           return turnJSONToLLMResponse(data);
         },
 
@@ -181,8 +183,11 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
                 for (const line of lines) {
                   if (!line.trim() || line.startsWith(':')) continue;
 
-                  if (line.startsWith('data: ')) {
-                    const data = line.slice(6);
+                  if (line.startsWith('data:')) {
+                    let data = line.slice(5);
+                    if (data.startsWith(' ')) {
+                      data = data.slice(1);
+                    }
                     if (data === '[DONE]') continue;
 
                     try {
@@ -201,8 +206,34 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
                   }
                 }
               }
+              const remaining = decoder.decode();
+              if (remaining) {
+                buffer += remaining;
+                const lines = buffer.split('\n');
+                buffer = lines.pop() ?? '';
+                for (const line of lines) {
+                  if (!line.trim() || line.startsWith(':')) continue;
+                  if (line.startsWith('data:')) {
+                    let data = line.slice(5);
+                    if (data.startsWith(' ')) {
+                      data = data.slice(1);
+                    }
+                    if (data === '[DONE]') continue;
+                    try {
+                      const parsed = JSON.parse(data);
+                      if ('messages' in parsed && 'usage' in parsed && 'cycles' in parsed) {
+                        resolveResponse(turnJSONToLLMResponse(parsed as TurnJSON));
+                      } else {
+                        yield deserializeStreamEvent(parsed as StreamEvent);
+                      }
+                    } catch {
+                      // Skip malformed JSON
+                    }
+                  }
+                }
+              }
             } catch (error) {
-              rejectResponse(error instanceof Error ? error : new Error(String(error)));
+              rejectResponse(toError(error));
               throw error;
             }
           };
@@ -264,11 +295,128 @@ function turnJSONToLLMResponse(data: TurnJSON): LLMResponse {
     .filter((m): m is AssistantMessage => m.type === 'assistant')
     .pop();
 
+  const stopReason = deriveStopReason(lastAssistant);
+
   return {
     message: lastAssistant ?? new AssistantMessage(''),
     usage: data.usage ?? emptyUsage(),
-    stopReason: 'stop',
+    stopReason,
     data: data.data,
   };
 }
 
+function deriveStopReason(message: AssistantMessage | undefined): string {
+  if (!message) {
+    return 'end_turn';
+  }
+
+  if (message.toolCalls && message.toolCalls.length > 0) {
+    return 'tool_use';
+  }
+
+  const metadata = message.metadata;
+  const openaiMeta = metadata?.openai as { finish_reason?: string; status?: string } | undefined;
+  if (openaiMeta?.status) {
+    if (openaiMeta.status === 'failed') {
+      return 'error';
+    }
+    if (openaiMeta.status === 'completed') {
+      return 'end_turn';
+    }
+  }
+  if (openaiMeta?.finish_reason) {
+    return mapCompletionStopReason(openaiMeta.finish_reason);
+  }
+
+  const openrouterMeta = metadata?.openrouter as { finish_reason?: string } | undefined;
+  if (openrouterMeta?.finish_reason) {
+    return mapCompletionStopReason(openrouterMeta.finish_reason);
+  }
+
+  const xaiMeta = metadata?.xai as { finish_reason?: string; status?: string } | undefined;
+  if (xaiMeta?.status) {
+    if (xaiMeta.status === 'failed') {
+      return 'error';
+    }
+    if (xaiMeta.status === 'completed') {
+      return 'end_turn';
+    }
+  }
+  if (xaiMeta?.finish_reason) {
+    return mapCompletionStopReason(xaiMeta.finish_reason);
+  }
+
+  const anthropicMeta = metadata?.anthropic as { stop_reason?: string } | undefined;
+  if (anthropicMeta?.stop_reason) {
+    return mapAnthropicStopReason(anthropicMeta.stop_reason);
+  }
+
+  const googleMeta = metadata?.google as { finishReason?: string } | undefined;
+  if (googleMeta?.finishReason) {
+    return mapGoogleStopReason(googleMeta.finishReason);
+  }
+
+  const ollamaMeta = metadata?.ollama as { done_reason?: string } | undefined;
+  if (ollamaMeta?.done_reason) {
+    return mapOllamaStopReason(ollamaMeta.done_reason);
+  }
+
+  return 'end_turn';
+}
+
+function mapCompletionStopReason(reason: string): string {
+  switch (reason) {
+    case 'stop':
+      return 'end_turn';
+    case 'length':
+      return 'max_tokens';
+    case 'tool_calls':
+      return 'tool_use';
+    case 'content_filter':
+      return 'content_filter';
+    default:
+      return 'end_turn';
+  }
+}
+
+function mapAnthropicStopReason(reason: string): string {
+  switch (reason) {
+    case 'tool_use':
+      return 'tool_use';
+    case 'max_tokens':
+      return 'max_tokens';
+    case 'end_turn':
+      return 'end_turn';
+    case 'stop_sequence':
+      return 'end_turn';
+    default:
+      return 'end_turn';
+  }
+}
+
+function mapGoogleStopReason(reason: string): string {
+  switch (reason) {
+    case 'STOP':
+      return 'end_turn';
+    case 'MAX_TOKENS':
+      return 'max_tokens';
+    case 'SAFETY':
+      return 'content_filter';
+    case 'RECITATION':
+      return 'content_filter';
+    case 'OTHER':
+      return 'end_turn';
+    default:
+      return 'end_turn';
+  }
+}
+
+function mapOllamaStopReason(reason: string): string {
+  if (reason === 'length') {
+    return 'max_tokens';
+  }
+  if (reason === 'stop') {
+    return 'end_turn';
+  }
+  return 'end_turn';
+}

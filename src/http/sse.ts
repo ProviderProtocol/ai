@@ -46,6 +46,7 @@ export async function* parseSSEStream(
       const { done, value } = await reader.read();
 
       if (done) {
+        buffer += decoder.decode();
         // Process any remaining data in buffer
         if (buffer.trim()) {
           const event = parseSSEEvent(buffer);
@@ -99,16 +100,22 @@ function parseSSEEvent(eventText: string): unknown | 'DONE' | null {
   let eventType = '';
 
   for (const line of lines) {
-    const trimmedLine = line.trim();
-    if (trimmedLine.startsWith('event:')) {
-      eventType = trimmedLine.slice(6).trim();
-    } else if (trimmedLine.startsWith('data:')) {
-      const lineData = trimmedLine.slice(5).trim();
-      data += (data ? '\n' : '') + lineData;
-    } else if (trimmedLine.startsWith(':')) {
+    const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line;
+    if (normalizedLine.startsWith('event:')) {
+      let value = normalizedLine.slice(6);
+      if (value.startsWith(' ')) value = value.slice(1);
+      eventType = value;
+    } else if (normalizedLine.startsWith('data:')) {
+      let value = normalizedLine.slice(5);
+      if (value.startsWith(' ')) value = value.slice(1);
+      data += (data ? '\n' : '') + value;
+    } else if (normalizedLine.startsWith(':')) {
       continue;
-    } else if (trimmedLine.startsWith('{') || trimmedLine.startsWith('[')) {
-      data += (data ? '\n' : '') + trimmedLine;
+    } else {
+      const trimmedStart = normalizedLine.trimStart();
+      if (trimmedStart.startsWith('{') || trimmedStart.startsWith('[')) {
+        data += (data ? '\n' : '') + trimmedStart;
+      }
     }
   }
 
@@ -173,6 +180,10 @@ export async function* parseSimpleTextStream(
       if (text) {
         yield text;
       }
+    }
+    const remaining = decoder.decode();
+    if (remaining) {
+      yield remaining;
     }
   } finally {
     reader.releaseLock();

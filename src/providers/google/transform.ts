@@ -24,6 +24,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
+import { UPPError } from '../../types/errors.ts';
 import type {
   GoogleLLMParams,
   GoogleRequest,
@@ -69,15 +70,15 @@ export function transformRequest<TParams extends GoogleLLMParams>(
     contents: transformMessages(request.messages),
   };
 
-  if (request.system) {
-    if (typeof request.system === 'string') {
+  const normalizedSystem = normalizeSystem(request.system);
+  if (normalizedSystem !== undefined) {
+    if (typeof normalizedSystem === 'string') {
       googleRequest.systemInstruction = {
-        parts: [{ text: request.system }],
+        parts: [{ text: normalizedSystem }],
       };
-    } else {
-      // Array format - pass through as parts: [{text: '...'}, {text: '...'}]
+    } else if (normalizedSystem.length > 0) {
       googleRequest.systemInstruction = {
-        parts: request.system as GooglePart[],
+        parts: normalizedSystem,
       };
     }
   }
@@ -124,6 +125,62 @@ export function transformRequest<TParams extends GoogleLLMParams>(
   }
 
   return googleRequest;
+}
+
+function normalizeSystem(system: string | unknown[] | undefined): string | GooglePart[] | undefined {
+  if (system === undefined || system === null) return undefined;
+  if (typeof system === 'string') return system;
+  if (!Array.isArray(system)) {
+    throw new UPPError(
+      'System prompt must be a string or an array of text parts',
+      'INVALID_REQUEST',
+      'google',
+      'llm'
+    );
+  }
+
+  const parts: GooglePart[] = [];
+  for (const part of system) {
+    if (!part || typeof part !== 'object' || !('text' in part)) {
+      throw new UPPError(
+        'Google system prompt array must contain text parts',
+        'INVALID_REQUEST',
+        'google',
+        'llm'
+      );
+    }
+    const textValue = (part as { text?: unknown }).text;
+    if (typeof textValue !== 'string') {
+      throw new UPPError(
+        'Google system prompt text must be a string',
+        'INVALID_REQUEST',
+        'google',
+        'llm'
+      );
+    }
+    parts.push(part as GooglePart);
+  }
+
+  return parts.length > 0 ? parts : undefined;
+}
+
+const GOOGLE_TOOLCALL_PREFIX = 'google_toolcall';
+
+function createGoogleToolCallId(name: string, index: number): string {
+  return `${GOOGLE_TOOLCALL_PREFIX}:${index}:${name}`;
+}
+
+function extractGoogleToolName(toolCallId: string): string {
+  const prefix = `${GOOGLE_TOOLCALL_PREFIX}:`;
+  if (!toolCallId.startsWith(prefix)) {
+    return toolCallId;
+  }
+  const rest = toolCallId.slice(prefix.length);
+  const separatorIndex = rest.indexOf(':');
+  if (separatorIndex === -1) {
+    return toolCallId;
+  }
+  return rest.slice(separatorIndex + 1);
 }
 
 /**
@@ -210,7 +267,7 @@ function transformMessages(messages: Message[]): GoogleContent[] {
         role: 'user',
         parts: msg.results.map((result) => ({
           functionResponse: {
-            name: result.toolCallId,
+            name: extractGoogleToolName(result.toolCallId),
             response:
               typeof result.result === 'object'
                 ? (result.result as Record<string, unknown>)
@@ -333,8 +390,9 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
       }
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
+      const toolCallId = createGoogleToolCallId(fc.functionCall.name, toolCalls.length);
       toolCalls.push({
-        toolCallId: fc.functionCall.name,
+        toolCallId,
         toolName: fc.functionCall.name,
         arguments: fc.functionCall.args,
       });
@@ -378,7 +436,7 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
   return {
     message,
     usage,
-    stopReason: candidate.finishReason ?? 'STOP',
+    stopReason: normalizeStopReason(candidate.finishReason),
     data: structuredData,
   };
 }
@@ -393,7 +451,7 @@ export interface StreamState {
   /** Accumulated text content from all chunks. */
   content: string;
   /** Accumulated tool calls with their arguments and optional thought signatures. */
-  toolCalls: Array<{ name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
+  toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
   /** The finish reason from the final chunk, if received. */
   finishReason: string | null;
   /** Total input tokens reported by the API. */
@@ -466,7 +524,9 @@ export function transformStreamChunk(
       });
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
+      const toolCallId = createGoogleToolCallId(fc.functionCall.name, state.toolCalls.length);
       state.toolCalls.push({
+        id: toolCallId,
         name: fc.functionCall.name,
         args: fc.functionCall.args,
         thoughtSignature: fc.thoughtSignature,
@@ -475,7 +535,7 @@ export function transformStreamChunk(
         type: 'tool_call_delta',
         index: state.toolCalls.length - 1,
         delta: {
-          toolCallId: fc.functionCall.name,
+          toolCallId,
           toolName: fc.functionCall.name,
           argumentsJson: JSON.stringify(fc.functionCall.args),
         },
@@ -533,8 +593,9 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
   }
 
   for (const tc of state.toolCalls) {
+    const toolCallId = tc.id || createGoogleToolCallId(tc.name, toolCalls.length);
     toolCalls.push({
-      toolCallId: tc.name,
+      toolCallId,
       toolName: tc.name,
       arguments: tc.args,
     });
@@ -569,7 +630,23 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
   return {
     message,
     usage,
-    stopReason: state.finishReason ?? 'STOP',
+    stopReason: normalizeStopReason(state.finishReason),
     data: structuredData,
   };
+}
+
+function normalizeStopReason(reason: string | null | undefined): string {
+  switch (reason) {
+    case 'STOP':
+      return 'end_turn';
+    case 'MAX_TOKENS':
+      return 'max_tokens';
+    case 'SAFETY':
+    case 'RECITATION':
+      return 'content_filter';
+    case 'OTHER':
+      return 'end_turn';
+    default:
+      return 'end_turn';
+  }
 }

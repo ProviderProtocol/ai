@@ -17,6 +17,7 @@ import {
 import type { UserContent, AssistantContent } from '../../types/content.ts';
 import type { StreamEvent, EventDelta } from '../../types/stream.ts';
 import type { Turn, TurnJSON } from '../../types/turn.ts';
+import { UPPError } from '../../types/errors.ts';
 
 /**
  * Convert a Message to MessageJSON format.
@@ -63,7 +64,12 @@ export function deserializeMessage(json: MessageJSON): Message {
     case 'tool_result':
       return new ToolResultMessage(json.results ?? [], options);
     default:
-      throw new Error(`Unknown message type: ${json.type}`);
+      throw new UPPError(
+        `Unknown message type: ${json.type}`,
+        'INVALID_RESPONSE',
+        'proxy',
+        'llm'
+      );
   }
 }
 

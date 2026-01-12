@@ -20,10 +20,13 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
+import { UPPError } from '../../types/errors.ts';
+import { generateId } from '../../utils/id.ts';
 import type {
   OpenRouterCompletionsParams,
   OpenRouterCompletionsRequest,
   OpenRouterCompletionsMessage,
+  OpenRouterSystemContent,
   OpenRouterUserContent,
   OpenRouterCompletionsTool,
   OpenRouterCompletionsResponse,
@@ -106,12 +109,21 @@ function transformMessages(
 ): OpenRouterCompletionsMessage[] {
   const result: OpenRouterCompletionsMessage[] = [];
 
-  if (system) {
-    // Pass through directly - OpenRouter supports both string and array formats
-    result.push({
-      role: 'system',
-      content: system as string | Array<{type: 'text'; text: string; cache_control?: {type: 'ephemeral'; ttl?: '1h'}}>,
-    });
+  if (system !== undefined && system !== null) {
+    const normalizedSystem = normalizeSystem(system);
+    if (typeof normalizedSystem === 'string') {
+      if (normalizedSystem.length > 0) {
+        result.push({
+          role: 'system',
+          content: normalizedSystem,
+        });
+      }
+    } else if (normalizedSystem.length > 0) {
+      result.push({
+        role: 'system',
+        content: normalizedSystem,
+      });
+    }
   }
 
   for (const message of messages) {
@@ -127,6 +139,58 @@ function transformMessages(
   }
 
   return result;
+}
+
+function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemContent[] {
+  if (typeof system === 'string') return system;
+  if (!Array.isArray(system)) {
+    throw new UPPError(
+      'System prompt must be a string or an array of text blocks',
+      'INVALID_REQUEST',
+      'openrouter',
+      'llm'
+    );
+  }
+
+  const blocks: OpenRouterSystemContent[] = [];
+  for (const block of system) {
+    if (!block || typeof block !== 'object') {
+      throw new UPPError(
+        'System prompt array must contain objects with type "text"',
+        'INVALID_REQUEST',
+        'openrouter',
+        'llm'
+      );
+    }
+    const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
+    if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
+      throw new UPPError(
+        'OpenRouter system blocks must be of type "text" with a string text field',
+        'INVALID_REQUEST',
+        'openrouter',
+        'llm'
+      );
+    }
+    if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
+      throw new UPPError(
+        'Invalid cache_control for OpenRouter system prompt',
+        'INVALID_REQUEST',
+        'openrouter',
+        'llm'
+      );
+    }
+    blocks.push(block as OpenRouterSystemContent);
+  }
+
+  return blocks;
+}
+
+function isValidCacheControl(value: unknown): value is OpenRouterCacheControl {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { type?: unknown; ttl?: unknown };
+  if (candidate.type !== 'ephemeral') return false;
+  if (candidate.ttl !== undefined && candidate.ttl !== '1h') return false;
+  return true;
 }
 
 /**
@@ -390,11 +454,12 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
     }
   }
 
+  const responseId = data.id || generateId();
   const message = new AssistantMessage(
     content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: data.id,
+      id: responseId,
       metadata: {
         openrouter: {
           model: data.model,
@@ -638,11 +703,12 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     });
   }
 
+  const messageId = state.id || generateId();
   const message = new AssistantMessage(
     content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: state.id,
+      id: messageId,
       metadata: {
         openrouter: {
           model: state.model,

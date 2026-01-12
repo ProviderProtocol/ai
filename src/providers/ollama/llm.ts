@@ -22,6 +22,8 @@ import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { OllamaLLMParams, OllamaResponse, OllamaStreamChunk } from './types.ts';
 import {
   transformRequest,
@@ -86,19 +88,34 @@ async function* parseOllamaStream(
         try {
           const chunk = JSON.parse(trimmed) as OllamaStreamChunk;
           yield chunk;
-        } catch {
-          // Skip invalid JSON lines
+        } catch (error) {
+          throw new UPPError(
+            'Invalid JSON in Ollama stream',
+            'INVALID_RESPONSE',
+            'ollama',
+            'llm',
+            undefined,
+            toError(error)
+          );
         }
       }
     }
 
+    buffer += decoder.decode();
     // Process any remaining buffer
     if (buffer.trim()) {
       try {
         const chunk = JSON.parse(buffer.trim()) as OllamaStreamChunk;
         yield chunk;
-      } catch {
-        // Skip invalid JSON
+      } catch (error) {
+        throw new UPPError(
+          'Invalid JSON in Ollama stream',
+          'INVALID_RESPONSE',
+          'ollama',
+          'llm',
+          undefined,
+          toError(error)
+        );
       }
     }
   } finally {
@@ -203,7 +220,7 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
             'llm'
           );
 
-          const data = (await response.json()) as OllamaResponse;
+          const data = await parseJsonResponse<OllamaResponse>(response, 'ollama', 'llm');
           return transformResponse(data);
         },
 
@@ -306,8 +323,9 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
               // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 

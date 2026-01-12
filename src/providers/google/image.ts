@@ -20,6 +20,7 @@ import type {
 import { UPPError } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
+import { parseJsonResponse } from '../../http/json.ts';
 import { Image } from '../../core/media/Image.ts';
 
 const GOOGLE_AI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
@@ -169,7 +170,7 @@ async function executeGenerate(
     signal: request.signal,
   }, request.config, 'google', 'image');
 
-  const data = await response.json() as GoogleImagenResponse;
+  const data = await parseJsonResponse<GoogleImagenResponse>(response, 'google', 'image');
 
   return transformResponse(data);
 }

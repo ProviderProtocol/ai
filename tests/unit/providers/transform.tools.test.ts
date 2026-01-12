@@ -117,3 +117,64 @@ describe('Google tool merging', () => {
     expect(hasBuiltInTool).toBe(true);
   });
 });
+
+describe('Google tool call identifiers', () => {
+  test('generates unique toolCallId values for duplicate function names', async () => {
+    const { transformResponse } = await import(
+      '../../../src/providers/google/transform.ts'
+    );
+
+    const response = transformResponse({
+      candidates: [
+        {
+          content: {
+            role: 'model',
+            parts: [
+              { functionCall: { name: 'search', args: { q: 'a' } } },
+              { functionCall: { name: 'search', args: { q: 'b' } } },
+            ],
+          },
+          finishReason: 'STOP',
+          index: 0,
+        },
+      ],
+      usageMetadata: {
+        promptTokenCount: 0,
+        candidatesTokenCount: 0,
+        totalTokenCount: 0,
+      },
+    });
+
+    const toolCalls = response.message.toolCalls ?? [];
+    expect(toolCalls).toHaveLength(2);
+    expect(toolCalls[0]?.toolName).toBe('search');
+    expect(toolCalls[1]?.toolName).toBe('search');
+    expect(toolCalls[0]?.toolCallId).not.toBe(toolCalls[1]?.toolCallId);
+  });
+
+  test('maps synthetic toolCallId back to function name in tool results', async () => {
+    const { transformRequest } = await import(
+      '../../../src/providers/google/transform.ts'
+    );
+    const { ToolResultMessage } = await import(
+      '../../../src/types/messages.ts'
+    );
+
+    const toolResult = new ToolResultMessage([
+      { toolCallId: 'google_toolcall:0:search', result: { ok: true } },
+    ]);
+
+    const request = transformRequest(
+      {
+        messages: [toolResult],
+        config: {},
+      },
+      'gemini-1.5-flash'
+    );
+
+    const firstPart = request.contents?.[0]?.parts?.[0] as
+      | { functionResponse?: { name?: string } }
+      | undefined;
+    expect(firstPart?.functionResponse?.name).toBe('search');
+  });
+});

@@ -3,7 +3,7 @@
  * @module http/fetch
  */
 
-import type { ProviderConfig } from '../types/provider.ts';
+import type { ProviderConfig, RetryStrategy } from '../types/provider.ts';
 import type { Modality } from '../types/errors.ts';
 import { UPPError } from '../types/errors.ts';
 import {
@@ -12,9 +12,18 @@ import {
   timeoutError,
   cancelledError,
 } from './errors.ts';
+import { toError } from '../utils/error.ts';
 
 /** Default request timeout in milliseconds (2 minutes). */
 const DEFAULT_TIMEOUT = 120000;
+
+type ForkableRetryStrategy = RetryStrategy & {
+  fork: () => RetryStrategy | undefined;
+};
+
+function hasFork(strategy: RetryStrategy | undefined): strategy is ForkableRetryStrategy {
+  return !!strategy && typeof (strategy as { fork?: unknown }).fork === 'function';
+}
 
 /**
  * Executes an HTTP fetch request with automatic retry, timeout handling, and error normalization.
@@ -63,7 +72,8 @@ export async function doFetch(
 ): Promise<Response> {
   const fetchFn = config.fetch ?? fetch;
   const timeout = config.timeout ?? DEFAULT_TIMEOUT;
-  const strategy = config.retryStrategy;
+  const baseStrategy = config.retryStrategy;
+  const strategy = hasFork(baseStrategy) ? baseStrategy.fork() : baseStrategy;
 
   if (strategy?.beforeRequest) {
     const delay = await strategy.beforeRequest();
@@ -72,7 +82,6 @@ export async function doFetch(
     }
   }
 
-  let lastError: UPPError | undefined;
   let attempt = 0;
 
   while (true) {
@@ -91,21 +100,17 @@ export async function doFetch(
       if (!response.ok) {
         const error = await normalizeHttpError(response, provider, modality);
 
-        const retryAfter = response.headers.get('Retry-After');
-        if (retryAfter && strategy) {
-          const seconds = parseInt(retryAfter, 10);
-          if (!isNaN(seconds) && 'setRetryAfter' in strategy) {
-            (strategy as { setRetryAfter: (s: number) => void }).setRetryAfter(
-              seconds
-            );
-          }
+        const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
+        if (retryAfterSeconds !== null && strategy && 'setRetryAfter' in strategy) {
+          (strategy as { setRetryAfter: (s: number) => void }).setRetryAfter(
+            retryAfterSeconds
+          );
         }
 
         if (strategy) {
           const delay = await strategy.onRetry(error, attempt);
           if (delay !== null) {
             await sleep(delay);
-            lastError = error;
             continue;
           }
         }
@@ -122,20 +127,18 @@ export async function doFetch(
           const delay = await strategy.onRetry(error, attempt);
           if (delay !== null) {
             await sleep(delay);
-            lastError = error;
             continue;
           }
         }
         throw error;
       }
 
-      const uppError = networkError(error as Error, provider, modality);
+      const uppError = networkError(toError(error), provider, modality);
 
       if (strategy) {
         const delay = await strategy.onRetry(uppError, attempt);
         if (delay !== null) {
           await sleep(delay);
-          lastError = uppError;
           continue;
         }
       }
@@ -182,8 +185,9 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+  const onAbort = () => controller.abort();
   if (existingSignal) {
-    existingSignal.addEventListener('abort', () => controller.abort());
+    existingSignal.addEventListener('abort', onAbort, { once: true });
   }
 
   try {
@@ -193,7 +197,7 @@ async function fetchWithTimeout(
     });
     return response;
   } catch (error) {
-    if ((error as Error).name === 'AbortError') {
+    if (toError(error).name === 'AbortError') {
       if (existingSignal?.aborted) {
         throw cancelledError(provider, modality);
       }
@@ -202,6 +206,9 @@ async function fetchWithTimeout(
     throw error;
   } finally {
     clearTimeout(timeoutId);
+    if (existingSignal) {
+      existingSignal.removeEventListener('abort', onAbort);
+    }
   }
 }
 
@@ -273,7 +280,8 @@ export async function doStreamFetch(
 ): Promise<Response> {
   const fetchFn = config.fetch ?? fetch;
   const timeout = config.timeout ?? DEFAULT_TIMEOUT;
-  const strategy = config.retryStrategy;
+  const baseStrategy = config.retryStrategy;
+  const strategy = hasFork(baseStrategy) ? baseStrategy.fork() : baseStrategy;
 
   if (strategy?.beforeRequest) {
     const delay = await strategy.beforeRequest();
@@ -296,6 +304,34 @@ export async function doStreamFetch(
     if (error instanceof UPPError) {
       throw error;
     }
-    throw networkError(error as Error, provider, modality);
+    throw networkError(toError(error), provider, modality);
   }
+}
+
+/**
+ * Parses Retry-After header values into seconds.
+ *
+ * Supports both delta-seconds and HTTP-date formats.
+ */
+function parseRetryAfter(headerValue: string | null): number | null {
+  if (!headerValue) {
+    return null;
+  }
+
+  const seconds = parseInt(headerValue, 10);
+  if (!Number.isNaN(seconds)) {
+    return seconds;
+  }
+
+  const dateMillis = Date.parse(headerValue);
+  if (Number.isNaN(dateMillis)) {
+    return null;
+  }
+
+  const deltaMs = dateMillis - Date.now();
+  if (deltaMs <= 0) {
+    return 0;
+  }
+
+  return Math.ceil(deltaMs / 1000);
 }

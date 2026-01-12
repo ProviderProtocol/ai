@@ -43,6 +43,16 @@ describe('parseSSEStream', () => {
     expect(events[0]).toEqual({ message: 'hello' });
   });
 
+  test('parses data lines without a space', async () => {
+    const stream = textToStream('data:{"message":"hello"}\n\n');
+    const events: unknown[] = [];
+    for await (const event of parseSSEStream(stream)) {
+      events.push(event);
+    }
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({ message: 'hello' });
+  });
+
   test('parses multiple events', async () => {
     const stream = textToStream(
       'data: {"id": 1}\n\ndata: {"id": 2}\n\ndata: {"id": 3}\n\n'

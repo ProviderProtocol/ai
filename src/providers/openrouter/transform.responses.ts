@@ -20,6 +20,8 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
+import { UPPError } from '../../types/errors.ts';
+import { generateId } from '../../utils/id.ts';
 import type {
   OpenRouterResponsesParams,
   OpenRouterResponsesRequest,
@@ -28,10 +30,8 @@ import type {
   OpenRouterResponsesTool,
   OpenRouterResponsesResponse,
   OpenRouterResponsesStreamEvent,
-  OpenRouterResponsesOutputItem,
-  OpenRouterResponsesMessageOutput,
-  OpenRouterResponsesFunctionCallOutput,
-  OpenRouterResponsesImageGenerationOutput,
+  OpenRouterSystemContent,
+  OpenRouterCacheControl,
 } from './types.ts';
 
 /**
@@ -106,14 +106,23 @@ function transformInputItems(
 ): OpenRouterResponsesInputItem[] | string {
   const result: OpenRouterResponsesInputItem[] = [];
 
-  if (system) {
-    // Pass through directly - OpenRouter supports both string and array formats
-    // Array format enables cache_control for Anthropic/Gemini models
-    result.push({
-      type: 'message',
-      role: 'system',
-      content: system,
-    } as OpenRouterResponsesInputItem);
+  if (system !== undefined && system !== null) {
+    const normalizedSystem = normalizeSystem(system);
+    if (typeof normalizedSystem === 'string') {
+      if (normalizedSystem.length > 0) {
+        result.push({
+          type: 'message',
+          role: 'system',
+          content: normalizedSystem,
+        } as OpenRouterResponsesInputItem);
+      }
+    } else if (normalizedSystem.length > 0) {
+      result.push({
+        type: 'message',
+        role: 'system',
+        content: normalizedSystem,
+      } as OpenRouterResponsesInputItem);
+    }
   }
 
   for (const message of messages) {
@@ -129,6 +138,58 @@ function transformInputItems(
   }
 
   return result;
+}
+
+function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemContent[] {
+  if (typeof system === 'string') return system;
+  if (!Array.isArray(system)) {
+    throw new UPPError(
+      'System prompt must be a string or an array of text blocks',
+      'INVALID_REQUEST',
+      'openrouter',
+      'llm'
+    );
+  }
+
+  const blocks: OpenRouterSystemContent[] = [];
+  for (const block of system) {
+    if (!block || typeof block !== 'object') {
+      throw new UPPError(
+        'System prompt array must contain objects with type "text"',
+        'INVALID_REQUEST',
+        'openrouter',
+        'llm'
+      );
+    }
+    const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
+    if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
+      throw new UPPError(
+        'OpenRouter system blocks must be of type "text" with a string text field',
+        'INVALID_REQUEST',
+        'openrouter',
+        'llm'
+      );
+    }
+    if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
+      throw new UPPError(
+        'Invalid cache_control for OpenRouter system prompt',
+        'INVALID_REQUEST',
+        'openrouter',
+        'llm'
+      );
+    }
+    blocks.push(block as OpenRouterSystemContent);
+  }
+
+  return blocks;
+}
+
+function isValidCacheControl(value: unknown): value is OpenRouterCacheControl {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { type?: unknown; ttl?: unknown };
+  if (candidate.type !== 'ephemeral') return false;
+  if (candidate.ttl !== undefined && candidate.ttl !== '1h') return false;
+  return true;
 }
 
 /**
@@ -183,7 +244,7 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
         annotations: [],
       }));
 
-    const messageId = message.id ?? `msg_${Date.now()}`;
+    const messageId = message.id || generateId();
 
     if (contentParts.length > 0) {
       items.push({
@@ -340,7 +401,7 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
 
   for (const item of data.output) {
     if (item.type === 'message') {
-      const messageItem = item as OpenRouterResponsesMessageOutput;
+      const messageItem = item;
       for (const part of messageItem.content) {
         if (part.type === 'output_text') {
           content.push({ type: 'text', text: part.text });
@@ -357,7 +418,7 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
         }
       }
     } else if (item.type === 'function_call') {
-      const functionCall = item as OpenRouterResponsesFunctionCallOutput;
+      const functionCall = item;
       let args: Record<string, unknown> = {};
       try {
         args = JSON.parse(functionCall.arguments);
@@ -376,7 +437,7 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
         arguments: functionCall.arguments,
       });
     } else if (item.type === 'image_generation_call') {
-      const imageGen = item as OpenRouterResponsesImageGenerationOutput;
+      const imageGen = item;
       if (imageGen.result) {
         content.push({
           type: 'image',
@@ -387,17 +448,18 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
     }
   }
 
+  const responseId = data.id || generateId();
   const message = new AssistantMessage(
     content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: data.id,
+      id: responseId,
       metadata: {
         openrouter: {
           model: data.model,
           status: data.status,
           // Store response_id for multi-turn tool calling
-          response_id: data.id,
+          response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
         },
@@ -527,7 +589,7 @@ export function transformStreamEvent(
         for (let i = 0; i < event.response.output.length; i++) {
           const item = event.response.output[i];
           if (item && item.type === 'function_call') {
-            const functionCall = item as OpenRouterResponsesFunctionCallOutput;
+            const functionCall = item;
             const existing = state.toolCalls.get(i) ?? { arguments: '' };
             existing.itemId = functionCall.id ?? existing.itemId;
             existing.callId = functionCall.call_id ?? existing.callId;
@@ -549,7 +611,7 @@ export function transformStreamEvent(
 
     case 'response.output_item.added':
       if (event.item.type === 'function_call') {
-        const functionCall = event.item as OpenRouterResponsesFunctionCallOutput;
+        const functionCall = event.item;
         const existing = state.toolCalls.get(event.output_index) ?? {
           arguments: '',
         };
@@ -570,7 +632,7 @@ export function transformStreamEvent(
 
     case 'response.output_item.done':
       if (event.item.type === 'function_call') {
-        const functionCall = event.item as OpenRouterResponsesFunctionCallOutput;
+        const functionCall = event.item;
         const existing = state.toolCalls.get(event.output_index) ?? {
           arguments: '',
         };
@@ -583,7 +645,7 @@ export function transformStreamEvent(
         state.toolCalls.set(event.output_index, existing);
       } else if (event.item.type === 'message') {
         // Extract text from completed message item (may not have incremental deltas)
-        const messageItem = event.item as OpenRouterResponsesMessageOutput;
+        const messageItem = event.item;
         for (const content of messageItem.content || []) {
           if (content.type === 'output_text') {
             const existingText = state.textByIndex.get(event.output_index) ?? '';
@@ -599,7 +661,7 @@ export function transformStreamEvent(
           }
         }
       } else if (event.item.type === 'image_generation_call') {
-        const imageGen = event.item as OpenRouterResponsesImageGenerationOutput;
+        const imageGen = event.item;
         if (imageGen.result) {
           state.images.set(event.output_index, imageGen.result);
         }
@@ -780,17 +842,18 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     }
   }
 
+  const responseId = state.id || generateId();
   const message = new AssistantMessage(
     content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
-      id: state.id,
+      id: responseId,
       metadata: {
         openrouter: {
           model: state.model,
           status: state.status,
           // Store response_id for multi-turn tool calling
-          response_id: state.id,
+          response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
         },

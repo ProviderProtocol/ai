@@ -6,6 +6,8 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { XAIResponsesParams, XAIResponsesResponse, XAIResponsesStreamEvent, XAIResponseErrorEvent } from './types.ts';
 import {
   transformRequest,
@@ -133,7 +135,7 @@ export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
             'llm'
           );
 
-          const data = (await response.json()) as XAIResponsesResponse;
+          const data = await parseJsonResponse<XAIResponsesResponse>(response, 'xai', 'llm');
 
           // Check for error in response
           if (data.status === 'failed' && data.error) {
@@ -174,6 +176,7 @@ export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
               const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${apiKey}`,
+                Accept: 'text/event-stream',
               };
 
               if (request.config.headers) {
@@ -247,8 +250,9 @@ export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
               // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 

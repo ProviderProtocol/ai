@@ -18,6 +18,7 @@ import type {
 } from '../../types/provider.ts';
 import { UPPError } from '../../types/errors.ts';
 import { doFetch } from '../../http/fetch.ts';
+import { parseJsonResponse } from '../../http/json.ts';
 
 /** Default URL for Ollama's local API */
 const OLLAMA_DEFAULT_URL = 'http://localhost:11434';
@@ -150,7 +151,7 @@ export function createEmbeddingHandler(): EmbeddingHandler<OllamaEmbedParams> {
             signal: request.signal,
           }, request.config, 'ollama', 'embedding');
 
-          const data = await response.json() as OllamaEmbeddingsResponse;
+          const data = await parseJsonResponse<OllamaEmbeddingsResponse>(response, 'ollama', 'embedding');
 
           // Return EmbeddingResponse
           return {

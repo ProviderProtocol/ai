@@ -142,6 +142,39 @@ describe('Anthropic Tool Metadata Transform', () => {
     const tool0 = request.tools?.[0] as { cache_control?: { type: string } };
     expect(tool0?.cache_control).toBeUndefined();
   });
+
+  test('transformTool preserves additionalProperties', async () => {
+    const { transformRequest } = await import(
+      '../../../src/providers/anthropic/transform.ts'
+    );
+
+    const tool: Tool = {
+      name: 'schemaTool',
+      description: 'Tool with additionalProperties',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      run: async () => 'result',
+    };
+
+    const request = transformRequest(
+      {
+        messages: [],
+        tools: [tool],
+        params: { max_tokens: 10 },
+        config: { apiKey: 'test' },
+      },
+      'claude-3-5-sonnet-latest'
+    );
+
+    const tool0 = request.tools?.[0] as { input_schema?: { additionalProperties?: boolean } };
+    expect(tool0?.input_schema?.additionalProperties).toBe(false);
+  });
 });
 
 describe('OpenAI Tool Metadata Transform', () => {
@@ -242,6 +275,40 @@ describe('OpenAI Tool Metadata Transform', () => {
 
     expect(request.tools).toHaveLength(1);
     expect(request.tools?.[0]?.function?.strict).toBeUndefined();
+  });
+});
+
+describe('Ollama Tool Schema Transform', () => {
+  test('transformTool preserves additionalProperties', async () => {
+    const { transformRequest } = await import(
+      '../../../src/providers/ollama/transform.ts'
+    );
+
+    const tool: Tool = {
+      name: 'schemaTool',
+      description: 'Tool with additionalProperties',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string' },
+        },
+        required: ['query'],
+        additionalProperties: false,
+      },
+      run: async () => 'result',
+    };
+
+    const request = transformRequest(
+      {
+        messages: [],
+        tools: [tool],
+        config: { apiKey: 'test' },
+      },
+      'llama3.1'
+    );
+
+    const tool0 = request.tools?.[0] as { function?: { parameters?: { additionalProperties?: boolean } } };
+    expect(tool0?.function?.parameters?.additionalProperties).toBe(false);
   });
 });
 

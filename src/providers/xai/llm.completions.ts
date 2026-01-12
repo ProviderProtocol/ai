@@ -6,6 +6,8 @@ import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
+import { parseJsonResponse } from '../../http/json.ts';
+import { toError } from '../../utils/error.ts';
 import type { XAICompletionsParams, XAICompletionsResponse, XAICompletionsStreamChunk } from './types.ts';
 import {
   transformRequest,
@@ -123,7 +125,7 @@ export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> 
             'llm'
           );
 
-          const data = (await response.json()) as XAICompletionsResponse;
+          const data = await parseJsonResponse<XAICompletionsResponse>(response, 'xai', 'llm');
           return transformResponse(data);
         },
 
@@ -154,6 +156,7 @@ export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> 
               const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
                 Authorization: `Bearer ${apiKey}`,
+                Accept: 'text/event-stream',
               };
 
               if (request.config.headers) {
@@ -227,8 +230,9 @@ export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> 
               // Build final response
               responseResolve(buildResponseFromState(state));
             } catch (error) {
-              responseReject(error as Error);
-              throw error;
+              const err = toError(error);
+              responseReject(err);
+              throw err;
             }
           }
 
