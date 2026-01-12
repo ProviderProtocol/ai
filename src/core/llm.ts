@@ -25,7 +25,7 @@ import type { StreamResult, StreamEvent } from '../types/stream.ts';
 import type { Thread } from '../types/thread.ts';
 import type { ProviderConfig } from '../types/provider.ts';
 import { UPPError } from '../types/errors.ts';
-import { resolveLLMHandler } from './provider.ts';
+import { resolveLLMHandler } from './provider-handlers.ts';
 import {
   Message,
   UserMessage as UserMessageClass,
@@ -94,7 +94,7 @@ export function llm<TParams = unknown>(
   // This handles providers with multiple handlers (e.g., OpenAI responses/completions)
   // Cast is safe: ModelInput uses structural typing with unknown for variance, but the
   // actual provider at runtime is a proper Provider with LLMHandler
-  const provider = modelRef.provider as Parameters<typeof resolveLLMHandler>[0];
+  const provider = modelRef.provider;
   const llmHandler = resolveLLMHandler(provider, modelRef.options) as LLMHandler<TParams> | undefined;
 
   if (!llmHandler) {

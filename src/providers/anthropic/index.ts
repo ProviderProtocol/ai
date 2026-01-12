@@ -97,7 +97,7 @@ function createProviderConfig(options?: AnthropicModelOptions): Partial<Provider
 export const anthropic = createProvider<AnthropicModelOptions>({
   name: 'anthropic',
   version: '1.0.0',
-  modalities: {
+  handlers: {
     llm: createLLMHandler(),
   },
   createModelReference: (modelId, options, provider) => {

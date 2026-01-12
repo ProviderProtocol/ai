@@ -3,6 +3,7 @@
  */
 import { test, expect, describe } from 'bun:test';
 import { image } from '../../../src/core/image.ts';
+import { createProvider } from '../../../src/core/provider.ts';
 import { UPPError } from '../../../src/types/errors.ts';
 import type {
   ImageHandler,
@@ -90,17 +91,13 @@ interface TestParams {
 function createMockProvider(handler?: ImageHandler<TestParams>): Provider<object> {
   const imageHandler = handler ?? createMockHandler();
 
-  const provider = {
+  return createProvider<object>({
     name: 'mock-provider',
     version: '1.0.0',
-    modalities: {
+    handlers: {
       image: imageHandler,
     },
-  } as unknown as Provider<object>;
-
-  imageHandler._setProvider?.(provider as unknown as ImageProvider<TestParams>);
-
-  return provider;
+  });
 }
 
 describe('image()', () => {
@@ -118,16 +115,13 @@ describe('image()', () => {
   });
 
   test('throws when provider does not support image', () => {
-    const provider = {
+    const provider = createProvider<object>({
       name: 'no-image',
       version: '1.0.0',
-      modalities: {},
-    } as unknown as Provider<object>;
+      handlers: {},
+    });
 
-    const modelRef: ModelReference<object> = {
-      modelId: 'some-model',
-      provider,
-    };
+    const modelRef: ModelReference<object> = provider('some-model');
 
     expect(() => image({ model: modelRef })).toThrow(UPPError);
   });
@@ -145,6 +139,36 @@ describe('image()', () => {
     });
 
     expect(imageInstance.params).toEqual({ size: '1024x1024', quality: 'hd' });
+  });
+
+  test('passes abort signal to handler', async () => {
+    let receivedSignal: AbortSignal | undefined;
+    const controller = new AbortController();
+
+    const handler = createMockHandler({
+      mockGenerate: async (request) => {
+        receivedSignal = request.signal;
+        return {
+          images: [{
+            image: Image.fromBase64(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              'image/png'
+            ),
+          }],
+          usage: { imagesGenerated: 1 },
+        };
+      },
+    });
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const imageInstance = image({ model: modelRef });
+    await imageInstance.generate('Test prompt', { signal: controller.signal });
+
+    expect(receivedSignal).toBe(controller.signal);
   });
 
   test('exposes capabilities', () => {

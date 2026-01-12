@@ -8,7 +8,7 @@
  */
 
 import { createProvider } from '../../core/provider.ts';
-import type { LLMHandlerResolver } from '../../core/provider.ts';
+import type { LLMHandlerResolver } from '../../core/provider-handlers.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createEmbeddingHandler, type OpenAIEmbedParams } from './embed.ts';
@@ -79,7 +79,7 @@ export interface OpenAIProviderOptions {
 export const openai = createProvider<OpenAIProviderOptions>({
   name: 'openai',
   version: '1.0.0',
-  modalities: {
+  handlers: {
     llm: {
       handlers: {
         responses: createResponsesLLMHandler(),

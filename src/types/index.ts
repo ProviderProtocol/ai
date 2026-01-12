@@ -117,6 +117,7 @@ export {
  */
 export type {
   Provider,
+  ProviderIdentity,
   ModelReference,
   ProviderConfig,
   KeyStrategy,
@@ -173,6 +174,7 @@ export type {
   ImageInstance,
   ImageInput,
   ImageEditInput,
+  ImageGenerateOptions,
   GeneratedImage,
   ImageUsage,
   ImageResult,

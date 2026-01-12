@@ -36,6 +36,7 @@ const GOOGLE_MODEL = 'imagen-4.0-generate-001';
  */
 describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Image Generation', () => {
   test('generates image with DALL-E 3', async () => {
+    const controller = new AbortController();
     const imageGen = image<OpenAIImageParams>({
       model: openai(OPENAI_MODEL),
       params: {
@@ -44,7 +45,9 @@ describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Image Generation', () => {
       },
     });
 
-    const result = await imageGen.generate('A simple red circle on a white background');
+    const result = await imageGen.generate('A simple red circle on a white background', {
+      signal: controller.signal,
+    });
 
     expect(result.images).toHaveLength(1);
     expect(result.images[0]!.image).toBeInstanceOf(Image);

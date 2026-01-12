@@ -9,7 +9,8 @@
  */
 
 import type { Provider } from '../../types/provider.ts';
-import { createProvider, type LLMHandlerResolver } from '../../core/provider.ts';
+import { createProvider } from '../../core/provider.ts';
+import type { LLMHandlerResolver } from '../../core/provider-handlers.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
 import { createMessagesLLMHandler } from './llm.messages.ts';
@@ -116,7 +117,7 @@ export type XAIProvider = Provider<XAIProviderOptions>;
 export const xai = createProvider<XAIProviderOptions>({
   name: 'xai',
   version: '1.0.0',
-  modalities: {
+  handlers: {
     llm: {
       handlers: {
         completions: createCompletionsLLMHandler(),

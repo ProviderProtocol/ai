@@ -17,10 +17,10 @@ import type {
   ImageStreamEvent,
   ImageCapabilities,
   BoundImageModel,
-  ImageHandler,
+  ImageGenerateOptions,
 } from '../types/image.ts';
-import type { ProviderConfig } from '../types/provider.ts';
 import { UPPError } from '../types/errors.ts';
+import { resolveImageHandler } from './provider-handlers.ts';
 
 /**
  * Creates an image generation instance configured with the specified options.
@@ -54,7 +54,8 @@ export function image<TParams = unknown>(
   const { model: modelRef, config = {}, params } = options;
 
   const provider = modelRef.provider;
-  if (!provider.modalities.image) {
+  const imageHandler = resolveImageHandler<TParams>(provider);
+  if (!imageHandler) {
     throw new UPPError(
       `Provider '${provider.name}' does not support image modality`,
       'INVALID_REQUEST',
@@ -63,7 +64,6 @@ export function image<TParams = unknown>(
     );
   }
 
-  const imageHandler = provider.modalities.image as ImageHandler<TParams>;
   const boundModel = imageHandler.bind(modelRef.modelId);
 
   const capabilities = boundModel.capabilities;
@@ -73,13 +73,14 @@ export function image<TParams = unknown>(
     params,
     capabilities,
 
-    async generate(input: ImageInput): Promise<ImageResult> {
+    async generate(input: ImageInput, options?: ImageGenerateOptions): Promise<ImageResult> {
       const prompt = normalizeInput(input);
 
       const response = await boundModel.generate({
         prompt,
         params,
         config,
+        signal: options?.signal,
       });
 
       return {
@@ -91,12 +92,12 @@ export function image<TParams = unknown>(
   };
 
   if (capabilities.streaming && boundModel.stream) {
-    const boundModelWithStream = boundModel;
+    const stream = boundModel.stream;
     instance.stream = function (input: ImageInput): ImageStreamResult {
       const prompt = normalizeInput(input);
 
       const abortController = new AbortController();
-      const providerStream = boundModelWithStream.stream!({
+      const providerStream = stream({
         prompt,
         params,
         config,
@@ -118,9 +119,9 @@ export function image<TParams = unknown>(
   }
 
   if (capabilities.edit && boundModel.edit) {
-    const boundModelWithEdit = boundModel;
+    const edit = boundModel.edit;
     instance.edit = async function (input: ImageEditInput): Promise<ImageResult> {
-      const response = await boundModelWithEdit.edit!({
+      const response = await edit({
         image: input.image,
         mask: input.mask,
         prompt: input.prompt,

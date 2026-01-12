@@ -8,6 +8,7 @@
  */
 
 import type { UPPError } from './errors.ts';
+import type { BoundImageModel } from './image.ts';
 
 /**
  * API key strategy interface for managing multiple keys.
@@ -83,6 +84,20 @@ export interface RetryStrategy {
    * Reset the strategy state (e.g., after a successful request).
    */
   reset?(): void;
+}
+
+/**
+ * Provider identity shape for structural typing.
+ *
+ * Used in model input types to accept any provider instance
+ * without generic variance constraints.
+ */
+export interface ProviderIdentity {
+  /** Provider name (e.g., 'openai', 'anthropic') */
+  readonly name: string;
+
+  /** Provider version string */
+  readonly version: string;
 }
 
 /**
@@ -381,14 +396,6 @@ export type EmbeddingInput = string | { type: 'text'; text: string } | { type: '
  *
  * @typeParam TParams - Provider-specific parameter type
  */
-export interface BoundImageModel<TParams = unknown> {
-  /** The model identifier */
-  readonly modelId: string;
-
-  /** Reference to the parent provider */
-  readonly provider: ImageProvider<TParams>;
-}
-
 /**
  * Provider factory function with metadata and modality handlers.
  *
@@ -408,10 +415,10 @@ export interface BoundImageModel<TParams = unknown> {
  * ```
  *
  * @remarks
- * Modality handlers are low-level and may not reflect per-model options.
- * Prefer the `llm()`, `embedding()`, or `image()` factories for normal usage.
+ * Providers are intended to be used with `llm()`, `embedding()`, or `image()`.
+ * Direct handler access is not part of the public API.
  */
-export interface Provider<TOptions = unknown> {
+export interface Provider<TOptions = unknown> extends ProviderIdentity {
   /**
    * Creates a model reference with optional provider-specific options.
    *
@@ -426,20 +433,6 @@ export interface Provider<TOptions = unknown> {
 
   /** Provider version string */
   readonly version: string;
-
-  /**
-   * Supported modalities and their handlers.
-   *
-   * @remarks
-   * These handlers are low-level and primarily intended for internal use.
-   * Prefer the higher-level factories (`llm()`, `embedding()`, `image()`) for
-   * request execution and per-model option handling.
-   */
-  readonly modalities: {
-    llm?: LLMHandler;
-    embedding?: EmbeddingHandler;
-    image?: ImageHandler;
-  };
 }
 
 /**
@@ -451,7 +444,8 @@ export interface Provider<TOptions = unknown> {
  * @typeParam TOptions - Provider-specific options type
  */
 export type LLMProvider<TParams = unknown, TOptions = unknown> = Provider<TOptions> & {
-  readonly modalities: { llm: LLMHandler<TParams> };
+  /** @internal */
+  readonly __params?: TParams;
 };
 
 /**
@@ -463,7 +457,8 @@ export type LLMProvider<TParams = unknown, TOptions = unknown> = Provider<TOptio
  * @typeParam TOptions - Provider-specific options type
  */
 export type EmbeddingProvider<TParams = unknown, TOptions = unknown> = Provider<TOptions> & {
-  readonly modalities: { embedding: EmbeddingHandler<TParams> };
+  /** @internal */
+  readonly __params?: TParams;
 };
 
 /**
@@ -475,5 +470,6 @@ export type EmbeddingProvider<TParams = unknown, TOptions = unknown> = Provider<
  * @typeParam TOptions - Provider-specific options type
  */
 export type ImageProvider<TParams = unknown, TOptions = unknown> = Provider<TOptions> & {
-  readonly modalities: { image: ImageHandler<TParams> };
+  /** @internal */
+  readonly __params?: TParams;
 };

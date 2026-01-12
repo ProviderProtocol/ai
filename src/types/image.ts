@@ -7,22 +7,22 @@
  * @module types/image
  */
 
-import type { ProviderConfig, ImageProvider } from './provider.ts';
+import type { ProviderConfig, ImageProvider, ProviderIdentity } from './provider.ts';
 import type { Image } from '../core/media/Image.ts';
 
 /**
  * Structural type for image model input.
  * Uses structural typing to avoid generic variance issues with Provider generics.
+ *
+ * @remarks
+ * This type mirrors {@link ModelReference} while keeping provider options
+ * structurally compatible across providers.
+ *
+ * @see ModelReference
  */
 export interface ImageModelInput {
   readonly modelId: string;
-  readonly provider: {
-    readonly name: string;
-    readonly version: string;
-    readonly modalities: {
-      image?: unknown;
-    };
-  };
+  readonly provider: ProviderIdentity;
 }
 
 /**
@@ -48,6 +48,14 @@ export interface ImageOptions<TParams = unknown> {
 
   /** Provider-specific parameters (passed through unchanged) */
   params?: TParams;
+}
+
+/**
+ * Options for image generation.
+ */
+export interface ImageGenerateOptions {
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
 }
 
 /**
@@ -174,9 +182,10 @@ export interface ImageInstance<TParams = unknown> {
    * Generate images from a text prompt.
    *
    * @param input - The prompt string or object with prompt
+   * @param options - Optional generation options
    * @returns Promise resolving to the generated images
    */
-  generate(input: ImageInput): Promise<ImageResult>;
+  generate(input: ImageInput, options?: ImageGenerateOptions): Promise<ImageResult>;
 
   /**
    * Generate with streaming progress (if supported).

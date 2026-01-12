@@ -1,20 +1,9 @@
-import type {
-  Provider,
-  ModelReference,
-  LLMHandler,
-  EmbeddingHandler,
-} from '../../types/provider.ts';
-import { createProvider, type LLMHandlerResolver } from '../../core/provider.ts';
+import type { Provider } from '../../types/provider.ts';
+import { createProvider } from '../../core/provider.ts';
+import type { LLMHandlerResolver } from '../../core/provider-handlers.ts';
 import { createCompletionsLLMHandler } from './llm.completions.ts';
 import { createResponsesLLMHandler } from './llm.responses.ts';
-import { createEmbeddingHandler, type OpenRouterEmbedParams } from './embed.ts';
-import type { OpenRouterCompletionsParams, OpenRouterResponsesParams } from './types.ts';
-
-/**
- * Union type for both Completions and Responses API parameter types.
- * Used internally to type the modalities handler.
- */
-type OpenRouterLLMParamsUnion = OpenRouterCompletionsParams | OpenRouterResponsesParams;
+import { createEmbeddingHandler } from './embed.ts';
 
 /**
  * Configuration options for creating an OpenRouter model reference.
@@ -55,33 +44,10 @@ export interface OpenRouterProviderOptions {
  * const model = openrouter('anthropic/claude-3.5-sonnet', { api: 'completions' });
  * ```
  */
-export interface OpenRouterProvider extends Provider<OpenRouterProviderOptions> {
-  /**
-   * Creates a model reference for the specified model ID.
-   *
-   * @param modelId - The OpenRouter model identifier in `provider/model` format
-   *                  (e.g., 'openai/gpt-4o', 'anthropic/claude-3.5-sonnet',
-   *                  'meta-llama/llama-3.1-70b-instruct')
-   * @param options - Optional configuration including API selection
-   * @returns A model reference that can be passed to llm()
-   */
-  (modelId: string, options?: OpenRouterProviderOptions): ModelReference<OpenRouterProviderOptions>;
-
-  /** Provider identifier. Always 'openrouter'. */
-  readonly name: 'openrouter';
-
-  /** Semantic version of this provider implementation. */
-  readonly version: string;
-
-  /**
-   * Supported modalities for this provider.
-   * OpenRouter supports LLM (text generation) and Embedding.
-   */
-  readonly modalities: {
-    llm: LLMHandler<OpenRouterLLMParamsUnion>;
-    embedding: EmbeddingHandler<OpenRouterEmbedParams>;
-  };
-}
+/**
+ * Type alias for the OpenRouter provider with its options.
+ */
+export type OpenRouterProvider = Provider<OpenRouterProviderOptions>;
 
 /**
  * LLM handler resolver for OpenRouter's dual API support.
@@ -151,7 +117,7 @@ const llmResolver: LLMHandlerResolver<OpenRouterProviderOptions> = {
 export const openrouter = createProvider<OpenRouterProviderOptions>({
   name: 'openrouter',
   version: '1.0.0',
-  modalities: {
+  handlers: {
     llm: llmResolver,
     embedding: createEmbeddingHandler(),
   },

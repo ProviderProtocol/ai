@@ -124,7 +124,7 @@ async function* parseOllamaStream(
  * const provider = createProvider({
  *   name: 'ollama',
  *   version: '1.0.0',
- *   modalities: { llm: handler }
+ *   handlers: { llm: handler }
  * });
  * ```
  */

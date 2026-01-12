@@ -13,28 +13,23 @@ import type { Tool, ToolUseStrategy } from './tool.ts';
 import type { JSONSchema } from './schema.ts';
 import type { Turn, TokenUsage } from './turn.ts';
 import type { StreamEvent, StreamResult } from './stream.ts';
-import type {
-  ModelReference,
-  ProviderConfig,
-  LLMProvider,
-} from './provider.ts';
+import type { ProviderConfig, LLMProvider, ProviderIdentity } from './provider.ts';
 import type { Thread } from './thread.ts';
 
 /**
  * Structural type for model input that accepts any ModelReference.
  * Uses structural typing to avoid generic variance issues with Provider generics.
  * The nested types use `unknown` to accept any provider parameter types.
+ *
+ * @remarks
+ * This type mirrors {@link ModelReference} while keeping provider options
+ * structurally compatible across providers.
+ *
+ * @see ModelReference
  */
 type ModelInput = {
   readonly modelId: string;
-  readonly provider: {
-    readonly name: string;
-    readonly version: string;
-    readonly modalities: {
-      // Use unknown for the handler to accept any LLMHandler regardless of TParams
-      llm?: unknown;
-    };
-  };
+  readonly provider: ProviderIdentity;
   /**
    * Optional provider-specific configuration that gets merged into request config.
    * Set when creating a model reference with provider-specific options.
@@ -87,7 +82,7 @@ export interface LLMCapabilities {
   /** Provider API supports audio input in messages */
   audioInput: boolean;
 
-  /** Provider API supports image generation output (via modalities or built-in tools) */
+  /** Provider API supports image generation output (via image() or built-in tools) */
   imageOutput?: boolean;
 }
 

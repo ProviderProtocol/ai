@@ -7,7 +7,7 @@ import { cache } from './cache.ts';
 const baseProvider = createProvider({
   name: 'google',
   version: '1.0.0',
-  modalities: {
+  handlers: {
     llm: createLLMHandler(),
     embedding: createEmbeddingHandler(),
     image: createImageHandler(),
@@ -24,25 +24,20 @@ const baseProvider = createProvider({
  * @example
  * ```typescript
  * import { google } from './providers/google';
+ * import { llm } from './core/llm';
  *
- * // Create a model instance
- * const gemini = google.llm.bind('gemini-1.5-pro');
- *
- * // Simple completion
- * const response = await gemini.complete({
- *   messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello!' }] }],
+ * const gemini = llm({
+ *   model: google('gemini-1.5-pro'),
  *   config: { apiKey: process.env.GOOGLE_API_KEY },
  * });
  *
- * // Streaming completion
- * const stream = gemini.stream({
- *   messages: [{ role: 'user', content: [{ type: 'text', text: 'Tell me a story' }] }],
- *   config: { apiKey: process.env.GOOGLE_API_KEY },
- * });
+ * const turn = await gemini.generate('Hello!');
+ * console.log(turn.response.text);
  *
+ * const stream = gemini.stream('Tell me a story');
  * for await (const event of stream) {
  *   if (event.type === 'text_delta') {
- *     process.stdout.write(event.delta.text);
+ *     process.stdout.write(event.delta.text ?? '');
  *   }
  * }
  * ```
@@ -59,11 +54,13 @@ const baseProvider = createProvider({
  * });
  *
  * // Use cache in requests
- * const response = await gemini.complete({
- *   messages: [userMessage('Review this function')],
+ * const cachedModel = llm({
+ *   model: google('gemini-3-flash-preview'),
  *   config: { apiKey: process.env.GOOGLE_API_KEY },
  *   params: { cachedContent: cacheEntry.name },
  * });
+ *
+ * const response = await cachedModel.generate('Review this function');
  *
  * // Manage caches
  * await google.cache.update(cacheEntry.name, { ttl: '7200s' }, apiKey);

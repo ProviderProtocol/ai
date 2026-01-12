@@ -92,6 +92,26 @@ describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Embeddings', () => {
     expect(emb.vector.length).toBeGreaterThan(0);
   });
 
+  test('aborts embedding request via signal', async () => {
+    const embedder = embedding<OpenAIEmbedParams>({
+      model: openai(OPENAI_MODEL),
+    });
+
+    const controller = new AbortController();
+    controller.abort();
+
+    try {
+      await embedder.embed('abort me', { signal: controller.signal });
+      throw new Error('Expected embed to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      if (error instanceof UPPError) {
+        expect(error.code).toBe('CANCELLED');
+        expect(error.modality).toBe('embedding');
+      }
+    }
+  });
+
   test('chunked streaming for large batches', async () => {
     const embedder = embedding<OpenAIEmbedParams>({
       model: openai(OPENAI_MODEL),

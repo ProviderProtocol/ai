@@ -221,7 +221,7 @@ export class NoRetry implements RetryStrategy {
    *
    * @returns Always returns null
    */
-  onRetry(): null {
+  onRetry(_error: UPPError, _attempt: number): null {
     return null;
   }
 }

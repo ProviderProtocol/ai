@@ -293,7 +293,7 @@ Internally, each provider combines modality handlers:
 // Provider implementation structure
 openai_provider = createProvider({
   name: "openai",
-  modalities: {
+  handlers: {
     llm: createLLMHandler(),
     embedding: createEmbeddingHandler(),
     image: createImageHandler()
@@ -605,7 +605,7 @@ All modalities normalize errors to `UPPError`:
 
 ### 4.5 Provider and ModelReference
 
-A provider is a factory function that returns a `ModelReference`. The modality functions resolve the appropriate handler based on the modality.
+A provider is a factory function that returns a `ModelReference`. The `llm()`, `embedding()`, and `image()` helpers resolve the appropriate internal handler for the requested capability.
 
 **ModelReference Structure:**
 
@@ -620,7 +620,6 @@ A provider is a factory function that returns a `ModelReference`. The modality f
 |-------|------|-------------|
 | `name` | String | Provider name |
 | `version` | String | Provider version |
-| `modalities` | Map | Supported modality handlers |
 
 The provider is also callable as a function:
 
@@ -631,9 +630,6 @@ modelRef = provider(modelId, options?)
 // Provider properties
 provider.name      // "openai"
 provider.version   // "1.0.0"
-provider.modalities.llm        // LLMHandler or null
-provider.modalities.embedding  // EmbeddingHandler or null
-provider.modalities.image      // ImageHandler or null
 ```
 
 **Handler Interfaces:**
@@ -2589,40 +2585,6 @@ Metadata applying to the entire response:
 print(result.metadata?.safetyRatings)
 ```
 
-### 12.12 Similarity Utilities
-
-UPP implementations SHOULD provide optional utilities for working with embeddings:
-
-**Cosine Similarity:**
-
-```pseudocode
-cosineSimilarity(a: List<Float>, b: List<Float>) -> Float
-// Returns value between -1 and 1
-```
-
-**Euclidean Distance:**
-
-```pseudocode
-euclideanDistance(a: List<Float>, b: List<Float>) -> Float
-// Returns non-negative value
-```
-
-**Dot Product:**
-
-```pseudocode
-dotProduct(a: List<Float>, b: List<Float>) -> Float
-```
-
-Usage:
-
-```pseudocode
-import { cosineSimilarity } from "upp/similarity"
-
-similarity = cosineSimilarity(embedding1.vector, embedding2.vector)
-```
-
----
-
 ## 13. Image Interface
 
 The image interface provides text-to-image generation and image editing capabilities. UPP acts as a soft wrapper around provider APIs—all provider-specific parameters (size, quality, steps, guidance, etc.) are passed through unchanged via the `params` field.
@@ -2653,7 +2615,7 @@ The `params` field is the primary mechanism for configuring image generation. Al
 
 | Method/Property | Type | Description |
 |-----------------|------|-------------|
-| `generate(input)` | Function | Generate images from a text prompt |
+| `generate(input, options?)` | Function | Generate images from a text prompt |
 | `stream(input)` | Function? | Generate with streaming progress (if supported) |
 | `edit(input)` | Function? | Edit an existing image (if supported) |
 | `model` | BoundImageModel | The bound model |
@@ -2671,6 +2633,16 @@ ImageInput = String | {
 ```
 
 Provider-specific generation options (negative prompts, seeds, reference images, etc.) belong in the `params` field at instance creation or as part of provider-specific request extensions, NOT in the core ImageInput type.
+
+**ImageGenerateOptions Type:**
+
+```pseudocode
+ImageGenerateOptions = {
+  signal?: AbortSignal
+}
+```
+
+Use `signal` to cancel an in-flight image generation request.
 
 ### 13.4 Image Results
 
@@ -3119,6 +3091,7 @@ UPP implementations SHOULD export the following types through their language's s
 - `ImageRequest`
 - `ImageResponse`
 - `ImagePrompt`
+- `ImageGenerateOptions`
 - `ImageResult`
 - `GeneratedImage`
 - `ImageUsage`
@@ -3157,11 +3130,6 @@ UPP implementations SHOULD export the following types through their language's s
 - `isAssistantMessage`
 - `isToolResultMessage`
 
-**Similarity Utilities (optional):**
-- `cosineSimilarity`
-- `euclideanDistance`
-- `dotProduct`
-
 ### 14.6 Provider Exports
 
 Each provider module exports a single factory function and its own parameter types. The model ID passed to the factory determines which modality handler is used.
@@ -3195,7 +3163,7 @@ import { createImageHandler } from "./image"
 openai = createProvider({
   name: "openai",
   version: "1.0.0",
-  modalities: {
+  handlers: {
     llm: createLLMHandler(),
     embedding: createEmbeddingHandler(),
     image: createImageHandler()
@@ -3219,7 +3187,7 @@ function createProvider(options: CreateProviderOptions) -> Provider {
 
   provider.name = options.name
   provider.version = options.version
-  provider.modalities = options.modalities
+  registerHandlers(provider, options.handlers)
 
   return provider
 }
@@ -3227,7 +3195,7 @@ function createProvider(options: CreateProviderOptions) -> Provider {
 CreateProviderOptions = {
   name: String,
   version: String,
-  modalities: {
+  handlers: {
     llm: LLMHandler?,
     embedding: EmbeddingHandler?,
     image: ImageHandler?
@@ -3428,7 +3396,7 @@ function createGoogleEmbeddingHandler() -> EmbeddingHandler {
 1. **Params pass-through:** Provider-specific parameters (`dimensions`, `taskType`, `encoding_format`, etc.) are passed through unchanged via `...request.params`
 2. **Metadata preservation:** Providers MUST NOT discard provider-specific response data. Include it in `metadata` fields at both the embedding and response level
 3. **Vector encoding:** The `vector` field can be `List<Float>` or a base64-encoded `String`. The `embedding()` core detects the type and normalizes to floats in the public result
-4. **Providers without embeddings:** Providers that do not offer embedding APIs (e.g., Anthropic) simply do not include an embedding handler in their `modalities` object
+4. **Providers without embeddings:** Providers that do not offer embedding APIs (e.g., Anthropic) simply omit the embedding handler when registering provider handlers (e.g., `createProvider({ handlers: { llm: ... } })`)
 
 ### 15.7 Image Handler Pattern
 
@@ -3979,40 +3947,6 @@ Tools execute arbitrary code based on LLM-provided arguments:
 
 ---
 
-## Appendix B: Similarity Functions
-
-For embedding operations, implementations MAY provide similarity utilities.
-
-**Cosine Similarity:**
-
-```
-cosine_similarity(a, b) = dot(a, b) / (norm(a) * norm(b))
-
-where:
-  dot(a, b) = sum(a[i] * b[i]) for all i
-  norm(x) = sqrt(sum(x[i]^2)) for all i
-```
-
-Returns a value between -1 and 1, where 1 indicates identical direction.
-
-**Euclidean Distance:**
-
-```
-euclidean_distance(a, b) = sqrt(sum((a[i] - b[i])^2)) for all i
-```
-
-Returns a non-negative value, where 0 indicates identical vectors.
-
-**Dot Product:**
-
-```
-dot_product(a, b) = sum(a[i] * b[i]) for all i
-```
-
-Returns a scalar value. For normalized vectors, equivalent to cosine similarity.
-
----
-
 ## Changelog
 
 ### 1.2.0-draft
@@ -4058,7 +3992,6 @@ Returns a scalar value. For normalized vectors, equivalent to cosine similarity.
 - **Added** `ImageCapabilities` for runtime feature detection
 - **Added** unified `embed()` interface for single, batch, and chunked embedding
 - **Added** `EmbeddingStream` for large-scale embedding with progress
-- **Added** optional similarity utilities
 - **Added** image editing, variation, and upscaling interfaces
 - **Added** `RetryStrategy` interface for pluggable retry/rate-limit handling
 - **Replaced** `RetryConfig` with `RetryStrategy` for flexibility

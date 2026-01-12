@@ -65,6 +65,31 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
     expect(turn.response.text).toContain('5');
   });
 
+  test('aborts stream before request starts', async () => {
+    const gpt = llm<OpenAIResponsesParams>({
+      model: openai('gpt-5.2'),
+      params: { max_output_tokens: 200 },
+    });
+
+    const stream = gpt.stream('Write a long response about the history of space travel.');
+    stream.abort();
+
+    const iterator = stream[Symbol.asyncIterator]();
+
+    try {
+      await iterator.next();
+      throw new Error('Expected stream to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      if (error instanceof UPPError) {
+        expect(error.code).toBe('CANCELLED');
+        expect(error.modality).toBe('llm');
+      }
+    }
+
+    await expect(stream.turn).rejects.toBeInstanceOf(UPPError);
+  });
+
   test('multi-turn conversation', async () => {
     const gpt = llm<OpenAIResponsesParams>({
       model: openai('gpt-5.2'),

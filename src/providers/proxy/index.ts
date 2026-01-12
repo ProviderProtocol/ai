@@ -31,7 +31,7 @@ export function proxy(options: ProxyProviderOptions) {
   return createProvider<ProxyRequestOptions>({
     name: 'proxy',
     version: '1.0.0',
-    modalities: {
+    handlers: {
       llm: createLLMHandler(options),
     },
   });

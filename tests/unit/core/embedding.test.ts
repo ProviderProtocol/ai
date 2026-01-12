@@ -1,8 +1,9 @@
 /**
  * @fileoverview Unit tests for the embedding core module.
  */
-import { test, expect, describe, mock } from 'bun:test';
+import { test, expect, describe } from 'bun:test';
 import { embedding } from '../../../src/core/embedding.ts';
+import { createProvider } from '../../../src/core/provider.ts';
 import { UPPError } from '../../../src/types/errors.ts';
 import type {
   EmbeddingHandler,
@@ -56,17 +57,13 @@ function createMockHandler(mockEmbed?: (inputs: unknown[]) => Promise<EmbeddingR
 function createMockProvider(handler?: EmbeddingHandler<{ dimensions?: number }>): Provider<object> {
   const embeddingHandler = handler ?? createMockHandler();
 
-  const provider = {
+  return createProvider<object>({
     name: 'mock-provider',
     version: '1.0.0',
-    modalities: {
+    handlers: {
       embedding: embeddingHandler,
     },
-  } as unknown as Provider<object>;
-
-  embeddingHandler._setProvider?.(provider as unknown as EmbeddingProvider<{ dimensions?: number }>);
-
-  return provider;
+  });
 }
 
 describe('embedding()', () => {
@@ -84,16 +81,13 @@ describe('embedding()', () => {
   });
 
   test('throws when provider does not support embedding', () => {
-    const provider = {
+    const provider = createProvider<object>({
       name: 'no-embedding',
       version: '1.0.0',
-      modalities: {},
-    } as unknown as Provider<object>;
+      handlers: {},
+    });
 
-    const modelRef: ModelReference<object> = {
-      modelId: 'some-model',
-      provider,
-    };
+    const modelRef: ModelReference<object> = provider('some-model');
 
     expect(() => embedding({ model: modelRef })).toThrow(UPPError);
   });
@@ -210,6 +204,33 @@ describe('embed() - base64 normalization', () => {
     expect(vec[1]).toBeCloseTo(0.25, 5);
     expect(vec[2]).toBeCloseTo(0.125, 5);
   });
+
+  test('throws on invalid base64 vectors', async () => {
+    const mockEmbed = async (): Promise<EmbeddingResponse> => ({
+      embeddings: [{ vector: 'not_base64', index: 0 }],
+      usage: { totalTokens: 1 },
+    });
+
+    const handler = createMockHandler(mockEmbed);
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const embedder = embedding({ model: modelRef });
+
+    try {
+      await embedder.embed('test');
+      throw new Error('Expected embed to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      if (error instanceof UPPError) {
+        expect(error.code).toBe('INVALID_RESPONSE');
+        expect(error.provider).toBe('mock-provider');
+      }
+    }
+  });
 });
 
 describe('embed() - chunked streaming', () => {
@@ -277,6 +298,126 @@ describe('embed() - chunked streaming', () => {
 
     const result = await stream.result;
     expect(result.embeddings).toHaveLength(3);
+  });
+});
+
+describe('embed() - cancellation', () => {
+  test('respects abort signal for single embed', async () => {
+    type EmptyParams = Record<string, never>;
+    let providerRef: EmbeddingProvider<EmptyParams> | null = null;
+    let capturedSignal: AbortSignal | undefined;
+
+    const handler: EmbeddingHandler<EmptyParams> = {
+      supportedInputs: ['text'],
+      _setProvider(provider: EmbeddingProvider<EmptyParams>) {
+        providerRef = provider;
+      },
+      bind(modelId: string): BoundEmbeddingModel<EmptyParams> {
+        return {
+          modelId,
+          maxBatchSize: 100,
+          maxInputLength: 8191,
+          dimensions: 3,
+          get provider() {
+            return providerRef!;
+          },
+          async embed(request) {
+            capturedSignal = request.signal;
+            return new Promise<EmbeddingResponse>((_resolve, reject) => {
+              if (request.signal?.aborted) {
+                reject(
+                  new UPPError(
+                    'Embedding cancelled',
+                    'CANCELLED',
+                    providerRef?.name ?? 'mock-provider',
+                    'embedding'
+                  )
+                );
+                return;
+              }
+
+              request.signal?.addEventListener(
+                'abort',
+                () => {
+                  reject(
+                    new UPPError(
+                      'Embedding cancelled',
+                      'CANCELLED',
+                      providerRef?.name ?? 'mock-provider',
+                      'embedding'
+                    )
+                  );
+                },
+                { once: true }
+              );
+            });
+          },
+        };
+      },
+    };
+
+    const provider = createProvider<EmptyParams>({
+      name: 'mock-provider',
+      version: '1.0.0',
+      handlers: { embedding: handler },
+    });
+
+    const modelRef: ModelReference<EmptyParams> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const embedder = embedding({ model: modelRef });
+    const controller = new AbortController();
+    const promise = embedder.embed('cancel me', { signal: controller.signal });
+
+    expect(capturedSignal).toBe(controller.signal);
+
+    controller.abort();
+
+    try {
+      await promise;
+      throw new Error('Expected embed to throw');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      if (error instanceof UPPError) {
+        expect(error.code).toBe('CANCELLED');
+        expect(error.modality).toBe('embedding');
+      }
+    }
+  });
+
+  test('stream abort cancels chunked embedding', async () => {
+    const provider = createMockProvider();
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const embedder = embedding({ model: modelRef });
+    const stream = embedder.embed(['a', 'b', 'c'], { chunked: true, batchSize: 1 });
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const first = await iterator.next();
+    expect(first.done).toBe(false);
+    if (!first.done) {
+      expect(first.value.completed).toBe(1);
+    }
+
+    stream.abort();
+
+    try {
+      await iterator.next();
+      throw new Error('Expected stream to throw after abort');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      if (error instanceof UPPError) {
+        expect(error.code).toBe('CANCELLED');
+        expect(error.modality).toBe('embedding');
+      }
+    }
+
+    await expect(stream.result).rejects.toBeInstanceOf(UPPError);
   });
 });
 

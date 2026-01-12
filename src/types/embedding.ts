@@ -12,21 +12,22 @@ import type {
   BoundEmbeddingModel,
   EmbeddingInput,
   EmbeddingUsage,
+  ProviderIdentity,
 } from './provider.ts';
 
 /**
  * Structural type for embedding model input.
  * Uses structural typing to avoid generic variance issues with Provider generics.
+ *
+ * @remarks
+ * This type mirrors {@link ModelReference} while keeping provider options
+ * structurally compatible across providers.
+ *
+ * @see ModelReference
  */
 export interface EmbeddingModelInput {
   readonly modelId: string;
-  readonly provider: {
-    readonly name: string;
-    readonly version: string;
-    readonly modalities: {
-      embedding?: unknown;
-    };
-  };
+  readonly provider: ProviderIdentity;
 }
 
 /**

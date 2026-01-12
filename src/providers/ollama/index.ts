@@ -33,10 +33,9 @@ import { createEmbeddingHandler } from './embed.ts';
  * import { llm } from 'provider-protocol';
  * import { ollama } from 'provider-protocol/ollama';
  *
- * const model = llm(ollama('llama3.2'));
- * const result = await model.complete({
- *   messages: [{ role: 'user', content: 'Hello!' }]
- * });
+ * const model = llm({ model: ollama('llama3.2') });
+ * const turn = await model.generate('Hello!');
+ * console.log(turn.response.text);
  * ```
  *
  * @example Custom Ollama server URL
@@ -44,17 +43,16 @@ import { createEmbeddingHandler } from './embed.ts';
  * import { llm } from 'provider-protocol';
  * import { ollama } from 'provider-protocol/ollama';
  *
- * const model = llm(ollama('llama3.2'), {
- *   baseUrl: 'http://my-ollama-server:11434',
+ * const model = llm({
+ *   model: ollama('llama3.2'),
+ *   config: { baseUrl: 'http://my-ollama-server:11434' },
  * });
  * ```
  *
  * @example Streaming responses
  * ```typescript
- * const model = llm(ollama('llama3.2'));
- * const stream = model.stream({
- *   messages: [{ role: 'user', content: 'Write a poem' }]
- * });
+ * const model = llm({ model: ollama('llama3.2') });
+ * const stream = model.stream('Write a poem');
  *
  * for await (const event of stream) {
  *   if (event.type === 'text_delta') {
@@ -65,15 +63,15 @@ import { createEmbeddingHandler } from './embed.ts';
  *
  * @example Using model parameters
  * ```typescript
- * const model = llm(ollama('llama3.2'));
- * const result = await model.complete({
- *   messages: [{ role: 'user', content: 'Be creative!' }],
+ * const model = llm({
+ *   model: ollama('llama3.2'),
  *   params: {
  *     temperature: 0.9,
  *     top_p: 0.95,
- *     num_predict: 500
- *   }
+ *     num_predict: 500,
+ *   },
  * });
+ * const result = await model.generate('Be creative!');
  * ```
  *
  * @see {@link OllamaLLMParams} for available model parameters
@@ -81,7 +79,7 @@ import { createEmbeddingHandler } from './embed.ts';
 export const ollama = createProvider({
   name: 'ollama',
   version: '1.0.0',
-  modalities: {
+  handlers: {
     llm: createLLMHandler(),
     embedding: createEmbeddingHandler(),
   },
