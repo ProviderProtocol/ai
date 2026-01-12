@@ -207,11 +207,6 @@ describe('xAI Built-in Tools', () => {
 
     const basic = tools.codeExecution();
     expect(basic.type).toBe('code_interpreter');
-
-    const withPackages = tools.codeExecution({
-      pip_packages: ['numpy', 'pandas'],
-    });
-    expect(withPackages.container?.pip_packages).toEqual(['numpy', 'pandas']);
   });
 
   test('fileSearchTool creates correct configuration', async () => {

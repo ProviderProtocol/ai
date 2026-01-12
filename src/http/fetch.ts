@@ -172,10 +172,16 @@ async function fetchWithTimeout(
   provider: string,
   modality: Modality
 ): Promise<Response> {
+  const existingSignal = init.signal;
+
+  // Check if already aborted before starting
+  if (existingSignal?.aborted) {
+    throw cancelledError(provider, modality);
+  }
+
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-  const existingSignal = init.signal;
   if (existingSignal) {
     existingSignal.addEventListener('abort', () => controller.abort());
   }

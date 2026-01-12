@@ -356,20 +356,12 @@ export interface XAIXSearchTool {
  * ```typescript
  * const tool: XAICodeExecutionTool = {
  *   type: 'code_interpreter',
- *   container: {
- *     pip_packages: ['numpy', 'pandas'],
- *   },
  * };
  * ```
  */
 export interface XAICodeExecutionTool {
   /** Tool type identifier */
   type: 'code_interpreter';
-  /** Container configuration */
-  container?: {
-    /** Additional pip packages to install */
-    pip_packages?: string[];
-  };
 }
 
 /**
@@ -536,26 +528,16 @@ export function xSearchTool(options?: {
  * Enables Grok to write and execute Python code in a sandbox.
  * Pricing: $5 per 1,000 successful tool invocations.
  *
- * @param options - Optional configuration for the execution environment
  * @returns A code execution tool configuration object
  *
  * @example
  * ```typescript
- * // Basic code execution
  * const codeExec = codeExecutionTool();
- *
- * // With additional packages
- * const codeExecWithPackages = codeExecutionTool({
- *   pip_packages: ['numpy', 'pandas', 'scipy'],
- * });
  * ```
  */
-export function codeExecutionTool(options?: {
-  pip_packages?: string[];
-}): XAICodeExecutionTool {
+export function codeExecutionTool(): XAICodeExecutionTool {
   return {
     type: 'code_interpreter',
-    ...(options?.pip_packages && { container: { pip_packages: options.pip_packages } }),
   };
 }
 

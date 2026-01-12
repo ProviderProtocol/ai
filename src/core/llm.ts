@@ -449,6 +449,11 @@ function executeStream<TParams>(
 
   async function* generateStream(): AsyncGenerator<StreamEvent, void, unknown> {
     try {
+      // Check if already aborted before starting
+      if (abortController.signal.aborted) {
+        throw new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
+      }
+
       while (cycles < maxIterations + 1) {
         cycles++;
 

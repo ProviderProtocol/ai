@@ -105,27 +105,6 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Live', () => {
     expect(turn.response.text).toMatch(/3628800/);
   }, 90000);
 
-  test('code execution tool - with packages', async () => {
-    const grok = llm<XAIResponsesParams>({
-      model: xai('grok-4-1-fast', { api: 'responses' }),
-      params: {
-        max_output_tokens: 2000,
-        tools: [
-          tools.codeExecution({
-            pip_packages: ['numpy'],
-          }),
-        ],
-      },
-    });
-
-    const turn = await grok.generate(
-      'Use numpy to calculate the mean and standard deviation of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]. Execute the code.'
-    );
-
-    expect(turn.response.text.length).toBeGreaterThan(0);
-    expect(turn.response.text).toMatch(/5\.5|mean/i);
-  }, 90000);
-
 });
 
 /**
