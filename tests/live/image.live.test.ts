@@ -17,7 +17,7 @@ import { google } from '../../src/providers/google/index.ts';
 import type { OpenAIImageParams } from '../../src/providers/openai/index.ts';
 import type { XAIImageParams } from '../../src/providers/xai/index.ts';
 import type { GoogleImagenParams } from '../../src/providers/google/index.ts';
-import { UPPError } from '../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../src/types/errors.ts';
 import { Image } from '../../src/core/media/Image.ts';
 
 // Check for API keys
@@ -312,7 +312,7 @@ describe('Image Generation Error Handling', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
-      expect(uppError.code).toBe('AUTHENTICATION_FAILED');
+      expect(uppError.code).toBe(ErrorCode.AuthenticationFailed);
     }
   }, 30000);
 });

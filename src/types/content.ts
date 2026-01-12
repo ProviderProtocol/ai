@@ -9,6 +9,72 @@
  */
 
 /**
+ * Content block type constants.
+ *
+ * Use these constants instead of raw strings for type-safe content handling:
+ *
+ * @example
+ * ```typescript
+ * import { ContentBlockType } from 'upp';
+ *
+ * if (block.type === ContentBlockType.Text) {
+ *   console.log(block.text);
+ * } else if (block.type === ContentBlockType.Image) {
+ *   console.log(block.mimeType);
+ * }
+ * ```
+ */
+export const ContentBlockType = {
+  /** Text content */
+  Text: 'text',
+  /** Image content */
+  Image: 'image',
+  /** Audio content */
+  Audio: 'audio',
+  /** Video content */
+  Video: 'video',
+  /** Binary/arbitrary data content */
+  Binary: 'binary',
+} as const;
+
+/**
+ * Content block type discriminator union.
+ *
+ * This type is derived from {@link ContentBlockType} constants.
+ */
+export type ContentBlockType = (typeof ContentBlockType)[keyof typeof ContentBlockType];
+
+/**
+ * Image source type constants.
+ *
+ * @example
+ * ```typescript
+ * import { ImageSourceType } from 'upp';
+ *
+ * if (source.type === ImageSourceType.Base64) {
+ *   // Handle base64 encoded image
+ * } else if (source.type === ImageSourceType.Url) {
+ *   // Handle URL reference
+ * }
+ * ```
+ */
+export const ImageSourceType = {
+  /** Base64-encoded image data */
+  Base64: 'base64',
+  /** URL reference to image */
+  Url: 'url',
+  /** Raw bytes image data */
+  Bytes: 'bytes',
+} as const;
+
+/**
+ * Image source type discriminator union.
+ *
+ * This type is derived from {@link ImageSourceType} constants.
+ */
+export type ImageSourceType = (typeof ImageSourceType)[keyof typeof ImageSourceType];
+
+/**
  * Image source variants for ImageBlock.
  *
  * Images can be provided as base64-encoded strings, URLs, or raw bytes.
@@ -236,7 +302,7 @@ export type AssistantContent =
  * ```
  */
 export function text(content: string): TextBlock {
-  return { type: 'text', text: content };
+  return { type: ContentBlockType.Text, text: content };
 }
 
 /**
@@ -253,7 +319,7 @@ export function text(content: string): TextBlock {
  * ```
  */
 export function isTextBlock(block: ContentBlock): block is TextBlock {
-  return block.type === 'text';
+  return block.type === ContentBlockType.Text;
 }
 
 /**
@@ -270,7 +336,7 @@ export function isTextBlock(block: ContentBlock): block is TextBlock {
  * ```
  */
 export function isImageBlock(block: ContentBlock): block is ImageBlock {
-  return block.type === 'image';
+  return block.type === ContentBlockType.Image;
 }
 
 /**
@@ -287,7 +353,7 @@ export function isImageBlock(block: ContentBlock): block is ImageBlock {
  * ```
  */
 export function isAudioBlock(block: ContentBlock): block is AudioBlock {
-  return block.type === 'audio';
+  return block.type === ContentBlockType.Audio;
 }
 
 /**
@@ -304,7 +370,7 @@ export function isAudioBlock(block: ContentBlock): block is AudioBlock {
  * ```
  */
 export function isVideoBlock(block: ContentBlock): block is VideoBlock {
-  return block.type === 'video';
+  return block.type === ContentBlockType.Video;
 }
 
 /**
@@ -321,5 +387,5 @@ export function isVideoBlock(block: ContentBlock): block is VideoBlock {
  * ```
  */
 export function isBinaryBlock(block: ContentBlock): block is BinaryBlock {
-  return block.type === 'binary';
+  return block.type === ContentBlockType.Binary;
 }

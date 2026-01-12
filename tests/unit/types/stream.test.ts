@@ -1,5 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import {
+  StreamEventType,
   textDelta,
   toolCallDelta,
   messageStart,
@@ -14,7 +15,7 @@ describe('Stream event creators', () => {
   describe('textDelta', () => {
     test('creates text delta event', () => {
       const event = textDelta('Hello');
-      expect(event.type).toBe('text_delta');
+      expect(event.type).toBe(StreamEventType.TextDelta);
       expect(event.index).toBe(0);
       expect(event.delta.text).toBe('Hello');
     });
@@ -28,7 +29,7 @@ describe('Stream event creators', () => {
   describe('toolCallDelta', () => {
     test('creates tool call delta event', () => {
       const event = toolCallDelta('call_123', 'getWeather', '{"city":"Tokyo"}');
-      expect(event.type).toBe('tool_call_delta');
+      expect(event.type).toBe(StreamEventType.ToolCallDelta);
       expect(event.index).toBe(0);
       expect(event.delta.toolCallId).toBe('call_123');
       expect(event.delta.toolName).toBe('getWeather');
@@ -44,7 +45,7 @@ describe('Stream event creators', () => {
   describe('messageStart', () => {
     test('creates message start event', () => {
       const event = messageStart();
-      expect(event.type).toBe('message_start');
+      expect(event.type).toBe(StreamEventType.MessageStart);
       expect(event.index).toBe(0);
       expect(event.delta).toEqual({});
     });
@@ -53,7 +54,7 @@ describe('Stream event creators', () => {
   describe('messageStop', () => {
     test('creates message stop event', () => {
       const event = messageStop();
-      expect(event.type).toBe('message_stop');
+      expect(event.type).toBe(StreamEventType.MessageStop);
       expect(event.index).toBe(0);
       expect(event.delta).toEqual({});
     });
@@ -62,7 +63,7 @@ describe('Stream event creators', () => {
   describe('contentBlockStart', () => {
     test('creates content block start event', () => {
       const event = contentBlockStart(1);
-      expect(event.type).toBe('content_block_start');
+      expect(event.type).toBe(StreamEventType.ContentBlockStart);
       expect(event.index).toBe(1);
       expect(event.delta).toEqual({});
     });
@@ -71,7 +72,7 @@ describe('Stream event creators', () => {
   describe('contentBlockStop', () => {
     test('creates content block stop event', () => {
       const event = contentBlockStop(2);
-      expect(event.type).toBe('content_block_stop');
+      expect(event.type).toBe(StreamEventType.ContentBlockStop);
       expect(event.index).toBe(2);
       expect(event.delta).toEqual({});
     });
@@ -82,7 +83,7 @@ describe('Stream event creators', () => {
       const timestamp = Date.now();
       const event = toolExecutionStart('call_123', 'getWeather', timestamp);
 
-      expect(event.type).toBe('tool_execution_start');
+      expect(event.type).toBe(StreamEventType.ToolExecutionStart);
       expect(event.index).toBe(0);
       expect(event.delta.toolCallId).toBe('call_123');
       expect(event.delta.toolName).toBe('getWeather');
@@ -111,7 +112,7 @@ describe('Stream event creators', () => {
       const timestamp = Date.now();
       const event = toolExecutionEnd('call_123', 'getWeather', 'Tokyo: 75°F', false, timestamp);
 
-      expect(event.type).toBe('tool_execution_end');
+      expect(event.type).toBe(StreamEventType.ToolExecutionEnd);
       expect(event.index).toBe(0);
       expect(event.delta.toolCallId).toBe('call_123');
       expect(event.delta.toolName).toBe('getWeather');

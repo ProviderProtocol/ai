@@ -1,7 +1,7 @@
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
@@ -74,9 +74,9 @@ export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> 
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'xai',
-          'llm'
+          ModalityType.LLM
         );
       }
 
@@ -189,9 +189,9 @@ export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> 
               if (!response.body) {
                 const error = new UPPError(
                   'No response body for streaming request',
-                  'PROVIDER_ERROR',
+                  ErrorCode.ProviderError,
                   'xai',
-                  'llm'
+                  ModalityType.LLM
                 );
                 responseReject(error);
                 throw error;
@@ -212,9 +212,9 @@ export function createCompletionsLLMHandler(): LLMHandler<XAICompletionsParams> 
                     const errorData = chunk.error as { message?: string; type?: string };
                     const error = new UPPError(
                       errorData.message ?? 'Unknown error',
-                      'PROVIDER_ERROR',
+                      ErrorCode.ProviderError,
                       'xai',
-                      'llm'
+                      ModalityType.LLM
                     );
                     responseReject(error);
                     throw error;

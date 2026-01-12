@@ -15,7 +15,7 @@ import type {
   EmbeddingResponse,
   EmbeddingProvider,
 } from '../../types/provider.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
 import { parseJsonResponse } from '../../http/json.ts';
@@ -103,9 +103,9 @@ export function createEmbeddingHandler(): EmbeddingHandler<OpenRouterEmbedParams
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'openrouter',
-          'embedding'
+          ModalityType.Embedding
         );
       }
 
@@ -139,9 +139,9 @@ export function createEmbeddingHandler(): EmbeddingHandler<OpenRouterEmbedParams
             }
             throw new UPPError(
               'OpenRouter embeddings only support text input',
-              'INVALID_REQUEST',
+              ErrorCode.InvalidRequest,
               'openrouter',
-              'embedding'
+              ModalityType.Embedding
             );
           });
 

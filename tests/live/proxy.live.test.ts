@@ -1,6 +1,7 @@
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
 import type { Server } from 'bun';
 import { llm } from '../../src/index.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 
 type BunServer = Server<unknown>;
 import { anthropic } from '../../src/anthropic/index.ts';
@@ -152,7 +153,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Proxy Live API', () => {
 
     for await (const event of stream) {
       eventCount++;
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         text += event.delta.text;
       }
     }
@@ -332,7 +333,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('Proxy Live API - OpenAI', () => {
 
     let text = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         text += event.delta.text;
       }
     }

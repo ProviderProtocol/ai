@@ -32,11 +32,43 @@ export type MessageJSON = Pick<Message, 'id' | 'type' | 'metadata'> & {
 };
 
 /**
- * Message type discriminator.
+ * Message role/type constants.
  *
- * Used to distinguish between different message types in a conversation.
+ * Use these constants instead of raw strings for type-safe message handling:
+ *
+ * @example
+ * ```typescript
+ * import { MessageRole, isUserMessage } from 'upp';
+ *
+ * if (message.type === MessageRole.User) {
+ *   console.log('User said:', message.text);
+ * } else if (message.type === MessageRole.Assistant) {
+ *   console.log('Assistant replied:', message.text);
+ * }
+ * ```
  */
-export type MessageType = 'user' | 'assistant' | 'tool_result';
+export const MessageRole = {
+  /** User message */
+  User: 'user',
+  /** Assistant/model response */
+  Assistant: 'assistant',
+  /** Tool execution result */
+  ToolResult: 'tool_result',
+} as const;
+
+/**
+ * Message type discriminator union.
+ *
+ * This type is derived from {@link MessageRole} constants. The name `MessageType`
+ * is kept for backward compatibility; `MessageRole` works as both the const
+ * object and this type.
+ */
+export type MessageType = (typeof MessageRole)[keyof typeof MessageRole];
+
+/**
+ * Type alias for MessageType, allowing `MessageRole` to work as both const and type.
+ */
+export type MessageRole = MessageType;
 
 /**
  * Provider-namespaced metadata for messages.
@@ -308,7 +340,7 @@ export class ToolResultMessage extends Message {
  * ```
  */
 export function isUserMessage(msg: Message): msg is UserMessage {
-  return msg.type === 'user';
+  return msg.type === MessageRole.User;
 }
 
 /**
@@ -328,7 +360,7 @@ export function isUserMessage(msg: Message): msg is UserMessage {
  * ```
  */
 export function isAssistantMessage(msg: Message): msg is AssistantMessage {
-  return msg.type === 'assistant';
+  return msg.type === MessageRole.Assistant;
 }
 
 /**
@@ -347,5 +379,5 @@ export function isAssistantMessage(msg: Message): msg is AssistantMessage {
  * ```
  */
 export function isToolResultMessage(msg: Message): msg is ToolResultMessage {
-  return msg.type === 'tool_result';
+  return msg.type === MessageRole.ToolResult;
 }

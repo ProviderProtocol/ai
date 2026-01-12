@@ -1,5 +1,6 @@
 import { test, expect, describe } from 'bun:test';
 import { parseSSEStream } from '../../../src/http/sse.ts';
+import { StreamEventType } from '../../../src/types/stream.ts';
 
 /**
  * Helper to create a ReadableStream from text
@@ -83,7 +84,7 @@ describe('parseSSEStream', () => {
 
   test('handles event types', async () => {
     const stream = textToStream(
-      'event: message_start\ndata: {"type": "start"}\n\n'
+      `event: ${StreamEventType.MessageStart}\ndata: {"type": "start"}\n\n`
     );
     const events: unknown[] = [];
     for await (const event of parseSSEStream(stream)) {
@@ -91,7 +92,7 @@ describe('parseSSEStream', () => {
     }
     expect(events).toHaveLength(1);
     const event = events[0] as { _eventType?: string; type?: string };
-    expect(event._eventType).toBe('message_start');
+    expect(event._eventType).toBe(StreamEventType.MessageStart);
     expect(event.type).toBe('start');
   });
 
@@ -165,7 +166,7 @@ describe('parseSSEStream', () => {
 
   test('does not carry event type across events', async () => {
     const stream = textToStream(
-      'event: message_start\ndata: {"type": "start"}\n\n' +
+      `event: ${StreamEventType.MessageStart}\ndata: {"type": "start"}\n\n` +
       'data: {"type": "next"}\n\n'
     );
     const events: unknown[] = [];
@@ -175,7 +176,7 @@ describe('parseSSEStream', () => {
     expect(events).toHaveLength(2);
     const first = events[0] as { _eventType?: string };
     const second = events[1] as { _eventType?: string };
-    expect(first._eventType).toBe('message_start');
+    expect(first._eventType).toBe(StreamEventType.MessageStart);
     expect(second._eventType).toBeUndefined();
   });
 

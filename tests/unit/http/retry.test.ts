@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import { ExponentialBackoff, LinearBackoff, NoRetry, TokenBucket, RetryAfterStrategy } from '../../../src/http/retry.ts';
-import { UPPError } from '../../../src/types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../../src/types/errors.ts';
 
 describe('retry strategies', () => {
   test('ExponentialBackoff retries on transient errors', () => {
     const strategy = new ExponentialBackoff({ maxAttempts: 2, baseDelay: 100, maxDelay: 1000, jitter: false });
-    const error = new UPPError('rate limit', 'RATE_LIMITED', 'mock', 'llm');
+    const error = new UPPError('rate limit', ErrorCode.RateLimited, 'mock', ModalityType.LLM);
 
     expect(strategy.onRetry(error, 1)).toBe(100);
     expect(strategy.onRetry(error, 2)).toBe(200);
@@ -14,14 +14,14 @@ describe('retry strategies', () => {
 
   test('ExponentialBackoff ignores non-retryable errors', () => {
     const strategy = new ExponentialBackoff({ maxAttempts: 3, baseDelay: 100, jitter: false });
-    const error = new UPPError('invalid', 'INVALID_REQUEST', 'mock', 'llm');
+    const error = new UPPError('invalid', ErrorCode.InvalidRequest, 'mock', ModalityType.LLM);
 
     expect(strategy.onRetry(error, 1)).toBeNull();
   });
 
   test('ExponentialBackoff caps delay at maxDelay', () => {
     const strategy = new ExponentialBackoff({ maxAttempts: 5, baseDelay: 1000, maxDelay: 2500, jitter: false });
-    const error = new UPPError('timeout', 'TIMEOUT', 'mock', 'llm');
+    const error = new UPPError('timeout', ErrorCode.Timeout, 'mock', ModalityType.LLM);
 
     expect(strategy.onRetry(error, 1)).toBe(1000);
     expect(strategy.onRetry(error, 2)).toBe(2000);
@@ -33,7 +33,7 @@ describe('retry strategies', () => {
     Math.random = () => 0;
     try {
       const strategy = new ExponentialBackoff({ maxAttempts: 1, baseDelay: 1000, maxDelay: 10000, jitter: true });
-      const error = new UPPError('rate limit', 'RATE_LIMITED', 'mock', 'llm');
+      const error = new UPPError('rate limit', ErrorCode.RateLimited, 'mock', ModalityType.LLM);
       const delay = strategy.onRetry(error, 1);
       expect(delay).toBe(500);
     } finally {
@@ -43,14 +43,14 @@ describe('retry strategies', () => {
 
   test('NoRetry disables retry attempts', () => {
     const strategy = new NoRetry();
-    const error = new UPPError('timeout', 'TIMEOUT', 'mock', 'llm');
+    const error = new UPPError('timeout', ErrorCode.Timeout, 'mock', ModalityType.LLM);
 
     expect(strategy.onRetry(error, 1)).toBeNull();
   });
 
   test('LinearBackoff retries with linear delay', () => {
     const strategy = new LinearBackoff({ maxAttempts: 3, delay: 100 });
-    const error = new UPPError('rate limit', 'RATE_LIMITED', 'mock', 'llm');
+    const error = new UPPError('rate limit', ErrorCode.RateLimited, 'mock', ModalityType.LLM);
 
     expect(strategy.onRetry(error, 1)).toBe(100);
     expect(strategy.onRetry(error, 2)).toBe(200);
@@ -85,7 +85,7 @@ describe('retry strategies', () => {
     const forked = strategy.fork();
     strategy.setRetryAfter(2);
 
-    const error = new UPPError('rate limit', 'RATE_LIMITED', 'mock', 'llm');
+    const error = new UPPError('rate limit', ErrorCode.RateLimited, 'mock', ModalityType.LLM);
     expect(strategy.onRetry(error, 1)).toBe(2000);
     expect(forked.onRetry(error, 1)).toBe(1000);
   });

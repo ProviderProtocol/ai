@@ -11,6 +11,7 @@
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
@@ -20,7 +21,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
 import type {
   OpenRouterCompletionsParams,
@@ -146,9 +147,9 @@ function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemC
   if (!Array.isArray(system)) {
     throw new UPPError(
       'System prompt must be a string or an array of text blocks',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'openrouter',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -157,26 +158,26 @@ function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemC
     if (!block || typeof block !== 'object') {
       throw new UPPError(
         'System prompt array must contain objects with type "text"',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openrouter',
-        'llm'
+        ModalityType.LLM
       );
     }
     const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
     if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
       throw new UPPError(
         'OpenRouter system blocks must be of type "text" with a string text field',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openrouter',
-        'llm'
+        ModalityType.LLM
       );
     }
     if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
       throw new UPPError(
         'Invalid cache_control for OpenRouter system prompt',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openrouter',
-        'llm'
+        ModalityType.LLM
       );
     }
     blocks.push(block as OpenRouterSystemContent);
@@ -589,7 +590,7 @@ export function transformStreamEvent(
 
   if (chunk.id && !state.id) {
     state.id = chunk.id;
-    events.push({ type: 'message_start', index: 0, delta: {} });
+    events.push({ type: StreamEventType.MessageStart, index: 0, delta: {} });
   }
   if (chunk.model) {
     state.model = chunk.model;
@@ -600,7 +601,7 @@ export function transformStreamEvent(
     if (choice.delta.content) {
       state.text += choice.delta.content;
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: 0,
         delta: { text: choice.delta.content },
       });
@@ -625,7 +626,7 @@ export function transformStreamEvent(
         if (toolCallDelta.function?.arguments) {
           toolCall.arguments += toolCallDelta.function.arguments;
           events.push({
-            type: 'tool_call_delta',
+            type: StreamEventType.ToolCallDelta,
             index: index,
             delta: {
               toolCallId: toolCall.id,
@@ -645,7 +646,7 @@ export function transformStreamEvent(
 
     if (choice.finish_reason) {
       state.finishReason = choice.finish_reason;
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
     }
   }
 

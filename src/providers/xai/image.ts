@@ -17,7 +17,7 @@ import type {
   ImageHandler,
   GeneratedImage,
 } from '../../types/image.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
 import { parseJsonResponse } from '../../http/json.ts';
@@ -93,9 +93,9 @@ export function createImageHandler(): ImageHandler<XAIImageParams> {
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'xai',
-          'image'
+          ModalityType.Image
         );
       }
 
@@ -187,9 +187,9 @@ function transformResponse(data: XAIImagesResponse): ImageResponse {
     } else {
       throw new UPPError(
         'No image data in response',
-        'PROVIDER_ERROR',
+        ErrorCode.ProviderError,
         'xai',
-        'image'
+        ModalityType.Image
       );
     }
 

@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { doFetch, doStreamFetch } from '../../../src/http/fetch.ts';
 import type { RetryStrategy } from '../../../src/types/provider.ts';
-import { UPPError } from '../../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../../src/types/errors.ts';
 
 class RetryAfterCapture implements RetryStrategy {
   retryAfterSeconds?: number;
@@ -202,7 +202,7 @@ describe('doFetch', () => {
         'mock',
         'llm'
       )
-    ).rejects.toMatchObject({ code: 'TIMEOUT' });
+    ).rejects.toMatchObject({ code: ErrorCode.Timeout });
   });
 
   test('throws CANCELLED when signal is already aborted', async () => {
@@ -217,7 +217,7 @@ describe('doFetch', () => {
         'mock',
         'llm'
       )
-    ).rejects.toMatchObject({ code: 'CANCELLED' });
+    ).rejects.toMatchObject({ code: ErrorCode.Cancelled });
   });
 
   test('wraps network failures as NETWORK_ERROR', async () => {
@@ -238,7 +238,7 @@ describe('doFetch', () => {
         'mock',
         'llm'
       )
-    ).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    ).rejects.toMatchObject({ code: ErrorCode.NetworkError });
   });
 });
 
@@ -283,6 +283,6 @@ describe('doStreamFetch', () => {
         'mock',
         'llm'
       )
-    ).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
+    ).rejects.toMatchObject({ code: ErrorCode.NetworkError });
   });
 });

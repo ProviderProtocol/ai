@@ -1,6 +1,7 @@
 import { test, expect, describe } from 'bun:test';
 import { llm, UserMessage } from '../../src/index.ts';
 import { openai, tools, type OpenAIResponsesParams } from '../../src/openai/index.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 
 /**
  * Live API tests for OpenAI Responses API Built-in Tools
@@ -105,7 +106,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Built-in Tools Streaming', 
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         textContent += event.delta.text;
       }
     }
@@ -115,7 +116,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Built-in Tools Streaming', 
     // Should have received streaming events
     expect(events.length).toBeGreaterThan(0);
     // Should have text deltas
-    expect(events.filter(e => e === 'text_delta').length).toBeGreaterThan(0);
+    expect(events.filter(e => e === StreamEventType.TextDelta).length).toBeGreaterThan(0);
     // Accumulated text should match final response
     expect(textContent.length).toBeGreaterThan(0);
     expect(turn.response.text.length).toBeGreaterThan(0);
@@ -139,7 +140,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Built-in Tools Streaming', 
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         textContent += event.delta.text;
       }
     }
@@ -184,7 +185,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Built-in Tools Streaming', 
 
     for await (const event of stream) {
       eventCounts[event.type] = (eventCounts[event.type] || 0) + 1;
-      if (event.type === 'content_block_start') {
+      if (event.type === StreamEventType.ContentBlockStart) {
         contentBlockCount++;
       }
     }

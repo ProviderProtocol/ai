@@ -11,6 +11,7 @@
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
@@ -20,7 +21,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
 import type {
   OpenRouterResponsesParams,
@@ -145,9 +146,9 @@ function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemC
   if (!Array.isArray(system)) {
     throw new UPPError(
       'System prompt must be a string or an array of text blocks',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'openrouter',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -156,26 +157,26 @@ function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemC
     if (!block || typeof block !== 'object') {
       throw new UPPError(
         'System prompt array must contain objects with type "text"',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openrouter',
-        'llm'
+        ModalityType.LLM
       );
     }
     const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
     if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
       throw new UPPError(
         'OpenRouter system blocks must be of type "text" with a string text field',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openrouter',
-        'llm'
+        ModalityType.LLM
       );
     }
     if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
       throw new UPPError(
         'Invalid cache_control for OpenRouter system prompt',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openrouter',
-        'llm'
+        ModalityType.LLM
       );
     }
     blocks.push(block as OpenRouterSystemContent);
@@ -570,7 +571,7 @@ export function transformStreamEvent(
     case 'response.created':
       state.id = event.response.id;
       state.model = event.response.model;
-      events.push({ type: 'message_start', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStart, index: 0, delta: {} });
       break;
 
     case 'response.in_progress':
@@ -601,12 +602,12 @@ export function transformStreamEvent(
           }
         }
       }
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
       break;
 
     case 'response.failed':
       state.status = 'failed';
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
       break;
 
     case 'response.output_item.added':
@@ -624,7 +625,7 @@ export function transformStreamEvent(
         state.toolCalls.set(event.output_index, existing);
       }
       events.push({
-        type: 'content_block_start',
+        type: StreamEventType.ContentBlockStart,
         index: event.output_index,
         delta: {},
       });
@@ -653,7 +654,7 @@ export function transformStreamEvent(
               // Only use done text if we didn't get incremental deltas
               state.textByIndex.set(event.output_index, content.text);
               events.push({
-                type: 'text_delta',
+                type: StreamEventType.TextDelta,
                 index: event.output_index,
                 delta: { text: content.text },
               });
@@ -667,7 +668,7 @@ export function transformStreamEvent(
         }
       }
       events.push({
-        type: 'content_block_stop',
+        type: StreamEventType.ContentBlockStop,
         index: event.output_index,
         delta: {},
       });
@@ -679,7 +680,7 @@ export function transformStreamEvent(
       const currentText = state.textByIndex.get(event.output_index) ?? '';
       state.textByIndex.set(event.output_index, currentText + textDelta);
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: event.output_index,
         delta: { text: textDelta },
       });
@@ -698,7 +699,7 @@ export function transformStreamEvent(
       const currentRefusal = state.textByIndex.get(event.output_index) ?? '';
       state.textByIndex.set(event.output_index, currentRefusal + event.delta);
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: event.output_index,
         delta: { text: event.delta },
       });
@@ -724,7 +725,7 @@ export function transformStreamEvent(
       }
       toolCall.arguments += event.delta;
       events.push({
-        type: 'tool_call_delta',
+        type: StreamEventType.ToolCallDelta,
         index: event.output_index,
         delta: {
           toolCallId: toolCall.callId ?? toolCall.itemId ?? '',
@@ -755,7 +756,7 @@ export function transformStreamEvent(
     case 'response.reasoning.delta':
       // Emit reasoning as a reasoning_delta event
       events.push({
-        type: 'reasoning_delta',
+        type: StreamEventType.ReasoningDelta,
         index: 0,
         delta: { text: event.delta },
       });

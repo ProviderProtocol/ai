@@ -4,8 +4,7 @@
  * @module http/json
  */
 
-import type { Modality } from '../types/errors.ts';
-import { UPPError } from '../types/errors.ts';
+import { ErrorCode, UPPError, type Modality } from '../types/errors.ts';
 import { toError } from '../utils/error.ts';
 
 /**
@@ -30,7 +29,7 @@ export async function parseJsonResponse<T>(
     const cause = toError(error);
     throw new UPPError(
       'Failed to read response body',
-      'INVALID_RESPONSE',
+      ErrorCode.InvalidResponse,
       provider,
       modality,
       response.status,
@@ -41,7 +40,7 @@ export async function parseJsonResponse<T>(
   if (!bodyText) {
     throw new UPPError(
       'Empty response body',
-      'INVALID_RESPONSE',
+      ErrorCode.InvalidResponse,
       provider,
       modality,
       response.status
@@ -54,7 +53,7 @@ export async function parseJsonResponse<T>(
     const cause = toError(error);
     throw new UPPError(
       'Failed to parse JSON response',
-      'INVALID_RESPONSE',
+      ErrorCode.InvalidResponse,
       provider,
       modality,
       response.status,

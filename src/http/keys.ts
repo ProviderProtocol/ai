@@ -4,7 +4,7 @@
  */
 
 import type { ProviderConfig, KeyStrategy } from '../types/provider.ts';
-import { UPPError, type Modality } from '../types/errors.ts';
+import { ErrorCode, UPPError, type Modality } from '../types/errors.ts';
 
 /**
  * Distributes API requests across multiple keys using round-robin selection.
@@ -267,7 +267,7 @@ export async function resolveApiKey(
     envVar
       ? `API key not found. Set ${envVar} environment variable or provide apiKey in config.`
       : 'API key not found. Provide apiKey in config.',
-    'AUTHENTICATION_FAILED',
+    ErrorCode.AuthenticationFailed,
     provider,
     modality
   );

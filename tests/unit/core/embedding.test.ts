@@ -4,7 +4,7 @@
 import { test, expect, describe } from 'bun:test';
 import { embedding } from '../../../src/core/embedding.ts';
 import { createProvider } from '../../../src/core/provider.ts';
-import { UPPError } from '../../../src/types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../../src/types/errors.ts';
 import type {
   EmbeddingHandler,
   EmbeddingProvider,
@@ -337,7 +337,7 @@ describe('embed() - base64 normalization', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
-        expect(error.code).toBe('INVALID_RESPONSE');
+        expect(error.code).toBe(ErrorCode.InvalidResponse);
         expect(error.provider).toBe('mock-provider');
       }
     }
@@ -466,9 +466,9 @@ describe('embed() - cancellation', () => {
                 reject(
                   new UPPError(
                     'Embedding cancelled',
-                    'CANCELLED',
+                    ErrorCode.Cancelled,
                     providerRef?.name ?? 'mock-provider',
-                    'embedding'
+                    ModalityType.Embedding
                   )
                 );
                 return;
@@ -480,9 +480,9 @@ describe('embed() - cancellation', () => {
                   reject(
                     new UPPError(
                       'Embedding cancelled',
-                      'CANCELLED',
+                      ErrorCode.Cancelled,
                       providerRef?.name ?? 'mock-provider',
-                      'embedding'
+                      ModalityType.Embedding
                     )
                   );
                 },
@@ -519,8 +519,8 @@ describe('embed() - cancellation', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
-        expect(error.code).toBe('CANCELLED');
-        expect(error.modality).toBe('embedding');
+        expect(error.code).toBe(ErrorCode.Cancelled);
+        expect(error.modality).toBe(ModalityType.Embedding);
       }
     }
   });
@@ -550,8 +550,8 @@ describe('embed() - cancellation', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
-        expect(error.code).toBe('CANCELLED');
-        expect(error.modality).toBe('embedding');
+        expect(error.code).toBe(ErrorCode.Cancelled);
+        expect(error.modality).toBe(ModalityType.Embedding);
       }
     }
 

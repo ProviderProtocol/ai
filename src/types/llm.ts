@@ -153,6 +153,8 @@ export interface LLMOptions<TParams = unknown> {
  *
  * @example
  * ```typescript
+ * import { llm, openai, StreamEventType } from 'provider-protocol';
+ *
  * const instance = llm({ model: openai('gpt-4') });
  *
  * // Simple generation
@@ -162,7 +164,7 @@ export interface LLMOptions<TParams = unknown> {
  * // Streaming
  * const stream = instance.stream('Tell me a story');
  * for await (const event of stream) {
- *   if (event.type === 'text_delta') {
+ *   if (event.type === StreamEventType.TextDelta) {
  *     process.stdout.write(event.delta.text ?? '');
  *   }
  * }

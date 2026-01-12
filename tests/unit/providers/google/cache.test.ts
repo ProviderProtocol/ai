@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach, afterEach, mock } from 'bun:test';
 import { cache } from '../../../../src/providers/google/cache.ts';
-import { UPPError } from '../../../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../../../src/types/errors.ts';
 
 const MOCK_API_KEY = 'test-api-key';
 const MOCK_CACHE_NAME = 'cachedContents/abc123xyz';
@@ -170,7 +170,7 @@ describe('Google Cache Utilities', () => {
         expect(true).toBe(false);
       } catch (error) {
         expect(error).toBeInstanceOf(UPPError);
-        expect((error as UPPError).code).toBe('INVALID_REQUEST');
+        expect((error as UPPError).code).toBe(ErrorCode.InvalidRequest);
         expect((error as UPPError).provider).toBe('google');
         expect((error as UPPError).statusCode).toBe(400);
       }
@@ -270,7 +270,7 @@ describe('Google Cache Utilities', () => {
         expect(true).toBe(false);
       } catch (error) {
         expect(error).toBeInstanceOf(UPPError);
-        expect((error as UPPError).code).toBe('MODEL_NOT_FOUND');
+        expect((error as UPPError).code).toBe(ErrorCode.ModelNotFound);
         expect((error as UPPError).provider).toBe('google');
         expect((error as UPPError).statusCode).toBe(404);
       }
@@ -346,7 +346,7 @@ describe('Google Cache Utilities', () => {
         expect(true).toBe(false);
       } catch (error) {
         expect(error).toBeInstanceOf(UPPError);
-        expect((error as UPPError).code).toBe('AUTHENTICATION_FAILED');
+        expect((error as UPPError).code).toBe(ErrorCode.AuthenticationFailed);
         expect((error as UPPError).provider).toBe('google');
         expect((error as UPPError).statusCode).toBe(401);
       }
@@ -410,7 +410,7 @@ describe('Google Cache Utilities', () => {
         expect(true).toBe(false);
       } catch (error) {
         expect(error).toBeInstanceOf(UPPError);
-        expect((error as UPPError).code).toBe('MODEL_NOT_FOUND');
+        expect((error as UPPError).code).toBe(ErrorCode.ModelNotFound);
         expect((error as UPPError).provider).toBe('google');
         expect((error as UPPError).statusCode).toBe(404);
       }
@@ -445,7 +445,7 @@ describe('Google Cache Utilities', () => {
         expect(true).toBe(false);
       } catch (error) {
         expect(error).toBeInstanceOf(UPPError);
-        expect((error as UPPError).code).toBe('MODEL_NOT_FOUND');
+        expect((error as UPPError).code).toBe(ErrorCode.ModelNotFound);
         expect((error as UPPError).provider).toBe('google');
         expect((error as UPPError).statusCode).toBe(404);
       }

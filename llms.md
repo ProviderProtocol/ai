@@ -97,11 +97,13 @@ console.log(turn.usage.outputTokens); // Output tokens
 ## Streaming
 
 ```ts
+import { StreamEventType } from '@providerprotocol/ai';
+
 const stream = model.stream('Count from 1 to 5.');
 
 // Iterate over events
 for await (const event of stream) {
-  if (event.type === 'text_delta' && event.delta.text) {
+  if (event.type === StreamEventType.TextDelta && event.delta.text) {
     process.stdout.write(event.delta.text);
   }
 }
@@ -255,22 +257,24 @@ const model = llm({
 ### Streaming with Tools
 
 ```ts
+import { StreamEventType } from '@providerprotocol/ai';
+
 const stream = model.stream('What is 7 + 15?');
 
 for await (const event of stream) {
-  if (event.type === 'tool_call_delta') {
+  if (event.type === StreamEventType.ToolCallDelta) {
     console.log('Tool:', event.delta.toolName, event.delta.argumentsJson);
   }
-  if (event.type === 'tool_execution_start') {
+  if (event.type === StreamEventType.ToolExecutionStart) {
     console.log(`Starting ${event.delta.toolName}...`);
   }
-  if (event.type === 'tool_execution_end') {
+  if (event.type === StreamEventType.ToolExecutionEnd) {
     console.log(`${event.delta.toolName} completed:`, event.delta.result);
     if (event.delta.isError) {
       console.error('Tool error:', event.delta.result);
     }
   }
-  if (event.type === 'text_delta') {
+  if (event.type === StreamEventType.TextDelta) {
     process.stdout.write(event.delta.text ?? '');
   }
 }
@@ -310,11 +314,13 @@ console.log(turn.data);
 Different providers stream structured output differently:
 
 ```ts
+import { StreamEventType } from '@providerprotocol/ai';
+
 // OpenAI/Google: Accumulate text_delta events
 const stream = gpt.stream('Tell me about Tokyo.');
 let json = '';
 for await (const event of stream) {
-  if (event.type === 'text_delta' && event.delta.text) {
+  if (event.type === StreamEventType.TextDelta && event.delta.text) {
     json += event.delta.text;
   }
 }
@@ -324,7 +330,7 @@ const data = JSON.parse(json);
 const stream = claude.stream('Tell me about Tokyo.');
 let json = '';
 for await (const event of stream) {
-  if (event.type === 'tool_call_delta' && event.delta.argumentsJson) {
+  if (event.type === StreamEventType.ToolCallDelta && event.delta.argumentsJson) {
     json += event.delta.argumentsJson;
   }
 }

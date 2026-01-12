@@ -2,6 +2,7 @@ import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { xai, tools } from '../../src/xai/index.ts';
 import type { XAIResponsesParams } from '../../src/xai/index.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 
 /**
  * Live API tests for xAI Built-in Tools (Responses API)
@@ -130,7 +131,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Streaming', () => 
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         textContent += event.delta.text;
       }
     }
@@ -138,7 +139,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Streaming', () => 
     const turn = await stream.turn;
 
     expect(events.length).toBeGreaterThan(0);
-    expect(events.filter(e => e === 'text_delta').length).toBeGreaterThan(0);
+    expect(events.filter(e => e === StreamEventType.TextDelta).length).toBeGreaterThan(0);
     expect(textContent.length).toBeGreaterThan(0);
     expect(turn.response.text.length).toBeGreaterThan(0);
   }, 60000);
@@ -161,7 +162,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Streaming', () => 
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         textContent += event.delta.text;
       }
     }
@@ -191,7 +192,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Built-in Tools Streaming', () => 
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         textContent += event.delta.text;
       }
     }

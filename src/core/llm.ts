@@ -31,7 +31,7 @@ import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
 import type { Thread } from '../types/thread.ts';
 import type { ProviderConfig } from '../types/provider.ts';
-import { UPPError } from '../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveLLMHandler } from './provider-handlers.ts';
 import {
   Message,
@@ -107,9 +107,9 @@ export function llm<TParams = unknown>(
   if (!llmHandler) {
     throw new UPPError(
       `Provider '${provider.name}' does not support LLM modality`,
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       provider.name,
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -123,9 +123,9 @@ export function llm<TParams = unknown>(
   if (structure && !capabilities.structuredOutput) {
     throw new UPPError(
       `Provider '${provider.name}' does not support structured output`,
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       provider.name,
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -133,9 +133,9 @@ export function llm<TParams = unknown>(
   if (tools && tools.length > 0 && !capabilities.tools) {
     throw new UPPError(
       `Provider '${provider.name}' does not support tools`,
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       provider.name,
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -172,9 +172,9 @@ export function llm<TParams = unknown>(
       if (!capabilities.streaming) {
         throw new UPPError(
           `Provider '${provider.name}' does not support streaming`,
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           provider.name,
-          'llm'
+          ModalityType.LLM
         );
       }
       const { history, messages } = parseInputs(historyOrInput, inputs);
@@ -385,9 +385,9 @@ async function executeGenerate<TParams>(
         await toolStrategy?.onMaxIterations?.(maxIterations);
         throw new UPPError(
           `Tool execution exceeded maximum iterations (${maxIterations})`,
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           model.provider.name,
-          'llm'
+          ModalityType.LLM
         );
       }
 
@@ -490,7 +490,7 @@ function executeStream<TParams>(
   const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
 
   const onAbort = () => {
-    const error = new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
+    const error = new UPPError('Stream cancelled', ErrorCode.Cancelled, model.provider.name, ModalityType.LLM);
     generatorError = error;
     rejectGenerator(error);
   };
@@ -498,7 +498,7 @@ function executeStream<TParams>(
 
   const ensureNotAborted = () => {
     if (abortController.signal.aborted) {
-      throw new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
+      throw new UPPError('Stream cancelled', ErrorCode.Cancelled, model.provider.name, ModalityType.LLM);
     }
   };
 
@@ -545,9 +545,9 @@ function executeStream<TParams>(
             await toolStrategy?.onMaxIterations?.(maxIterations);
             throw new UPPError(
               `Tool execution exceeded maximum iterations (${maxIterations})`,
-              'INVALID_REQUEST',
+              ErrorCode.InvalidRequest,
               model.provider.name,
-              'llm'
+              ModalityType.LLM
             );
           }
 
@@ -582,7 +582,7 @@ function executeStream<TParams>(
     } finally {
       abortController.signal.removeEventListener('abort', onAbort);
       if (!generatorCompleted && !generatorSettled) {
-        const error = new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
+        const error = new UPPError('Stream cancelled', ErrorCode.Cancelled, model.provider.name, ModalityType.LLM);
         generatorError = error;
         if (!abortController.signal.aborted) {
           abortController.abort();
@@ -823,25 +823,25 @@ function validateMediaCapabilities(
       if (block.type === 'image' && !capabilities.imageInput) {
         throw new UPPError(
           `Provider '${providerName}' does not support image input`,
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           providerName,
-          'llm'
+          ModalityType.LLM
         );
       }
       if (block.type === 'video' && !capabilities.videoInput) {
         throw new UPPError(
           `Provider '${providerName}' does not support video input`,
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           providerName,
-          'llm'
+          ModalityType.LLM
         );
       }
       if (block.type === 'audio' && !capabilities.audioInput) {
         throw new UPPError(
           `Provider '${providerName}' does not support audio input`,
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           providerName,
-          'llm'
+          ModalityType.LLM
         );
       }
     }

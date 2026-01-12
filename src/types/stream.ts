@@ -10,36 +10,55 @@
 import type { Turn } from './turn.ts';
 
 /**
- * Stream event type discriminators.
+ * Stream event type constants.
  *
- * Each event type represents a different kind of streaming update
- * from the LLM provider.
+ * Use these constants instead of raw strings for type-safe event handling:
+ *
+ * @example
+ * ```typescript
+ * import { StreamEventType } from 'upp';
+ *
+ * for await (const event of stream) {
+ *   if (event.type === StreamEventType.TextDelta) {
+ *     process.stdout.write(event.delta.text ?? '');
+ *   }
+ * }
+ * ```
  */
-export type StreamEventType =
+export const StreamEventType = {
   /** Incremental text output */
-  | 'text_delta'
+  TextDelta: 'text_delta',
   /** Incremental reasoning/thinking output */
-  | 'reasoning_delta'
+  ReasoningDelta: 'reasoning_delta',
   /** Incremental image data */
-  | 'image_delta'
+  ImageDelta: 'image_delta',
   /** Incremental audio data */
-  | 'audio_delta'
+  AudioDelta: 'audio_delta',
   /** Incremental video data */
-  | 'video_delta'
+  VideoDelta: 'video_delta',
   /** Incremental tool call data (arguments being streamed) */
-  | 'tool_call_delta'
+  ToolCallDelta: 'tool_call_delta',
   /** Tool execution has started (may be emitted after completion in some implementations) */
-  | 'tool_execution_start'
+  ToolExecutionStart: 'tool_execution_start',
   /** Tool execution has completed */
-  | 'tool_execution_end'
+  ToolExecutionEnd: 'tool_execution_end',
   /** Beginning of a message */
-  | 'message_start'
+  MessageStart: 'message_start',
   /** End of a message */
-  | 'message_stop'
+  MessageStop: 'message_stop',
   /** Beginning of a content block */
-  | 'content_block_start'
+  ContentBlockStart: 'content_block_start',
   /** End of a content block */
-  | 'content_block_stop';
+  ContentBlockStop: 'content_block_stop',
+} as const;
+
+/**
+ * Stream event type discriminator union.
+ *
+ * This type is derived from {@link StreamEventType} constants. Use `StreamEventType.TextDelta`
+ * for constants or `type MyType = StreamEventType` for type annotations.
+ */
+export type StreamEventType = (typeof StreamEventType)[keyof typeof StreamEventType];
 
 /**
  * Event delta data payload.
@@ -81,10 +100,12 @@ export interface EventDelta {
  *
  * @example
  * ```typescript
+ * import { StreamEventType } from 'upp';
+ *
  * for await (const event of stream) {
- *   if (event.type === 'text_delta') {
+ *   if (event.type === StreamEventType.TextDelta) {
  *     process.stdout.write(event.delta.text ?? '');
- *   } else if (event.type === 'tool_call_delta') {
+ *   } else if (event.type === StreamEventType.ToolCallDelta) {
  *     console.log('Tool:', event.delta.toolName);
  *   }
  * }
@@ -111,11 +132,13 @@ export interface StreamEvent {
  *
  * @example
  * ```typescript
+ * import { StreamEventType } from 'upp';
+ *
  * const stream = instance.stream('Tell me a story');
  *
  * // Consume streaming events
  * for await (const event of stream) {
- *   if (event.type === 'text_delta') {
+ *   if (event.type === StreamEventType.TextDelta) {
  *     process.stdout.write(event.delta.text ?? '');
  *   }
  * }
@@ -200,7 +223,7 @@ export function createStreamResult<TData = unknown>(
  */
 export function textDelta(text: string, index = 0): StreamEvent {
   return {
-    type: 'text_delta',
+    type: StreamEventType.TextDelta,
     index,
     delta: { text },
   };
@@ -222,7 +245,7 @@ export function toolCallDelta(
   index = 0
 ): StreamEvent {
   return {
-    type: 'tool_call_delta',
+    type: StreamEventType.ToolCallDelta,
     index,
     delta: { toolCallId, toolName, argumentsJson },
   };
@@ -235,7 +258,7 @@ export function toolCallDelta(
  */
 export function messageStart(): StreamEvent {
   return {
-    type: 'message_start',
+    type: StreamEventType.MessageStart,
     index: 0,
     delta: {},
   };
@@ -248,7 +271,7 @@ export function messageStart(): StreamEvent {
  */
 export function messageStop(): StreamEvent {
   return {
-    type: 'message_stop',
+    type: StreamEventType.MessageStop,
     index: 0,
     delta: {},
   };
@@ -262,7 +285,7 @@ export function messageStop(): StreamEvent {
  */
 export function contentBlockStart(index: number): StreamEvent {
   return {
-    type: 'content_block_start',
+    type: StreamEventType.ContentBlockStart,
     index,
     delta: {},
   };
@@ -276,7 +299,7 @@ export function contentBlockStart(index: number): StreamEvent {
  */
 export function contentBlockStop(index: number): StreamEvent {
   return {
-    type: 'content_block_stop',
+    type: StreamEventType.ContentBlockStop,
     index,
     delta: {},
   };
@@ -298,7 +321,7 @@ export function toolExecutionStart(
   index = 0
 ): StreamEvent {
   return {
-    type: 'tool_execution_start',
+    type: StreamEventType.ToolExecutionStart,
     index,
     delta: { toolCallId, toolName, timestamp },
   };
@@ -324,7 +347,7 @@ export function toolExecutionEnd(
   index = 0
 ): StreamEvent {
   return {
-    type: 'tool_execution_end',
+    type: StreamEventType.ToolExecutionEnd,
     index,
     delta: { toolCallId, toolName, result, isError, timestamp },
   };

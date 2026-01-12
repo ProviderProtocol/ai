@@ -21,7 +21,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import type { TurnJSON } from '../../types/turn.ts';
 import { AssistantMessage } from '../../types/messages.ts';
 import { emptyUsage } from '../../types/turn.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
 import { parseJsonResponse } from '../../http/json.ts';
@@ -86,9 +86,9 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'proxy',
-          'llm'
+          ModalityType.LLM
         );
       }
 
@@ -162,9 +162,9 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
               if (!response.body) {
                 throw new UPPError(
                   'Response body is null',
-                  'PROVIDER_ERROR',
+                  ErrorCode.ProviderError,
                   'proxy',
-                  'llm'
+                  ModalityType.LLM
                 );
               }
 

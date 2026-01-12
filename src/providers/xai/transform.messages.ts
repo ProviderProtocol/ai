@@ -1,6 +1,7 @@
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
@@ -10,7 +11,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
 import type {
   XAIMessagesParams,
@@ -33,9 +34,9 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
   if (!Array.isArray(system)) {
     throw new UPPError(
       'System prompt must be a string or an array of text blocks',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'xai',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -44,18 +45,18 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
     if (!block || typeof block !== 'object' || !('text' in block)) {
       throw new UPPError(
         'System prompt array must contain objects with a text field',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'xai',
-        'llm'
+        ModalityType.LLM
       );
     }
     const textValue = (block as { text?: unknown }).text;
     if (typeof textValue !== 'string') {
       throw new UPPError(
         'System prompt text must be a string',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'xai',
-        'llm'
+        ModalityType.LLM
       );
     }
     if (textValue.length > 0) {
@@ -383,7 +384,7 @@ export function transformStreamEvent(
       state.inputTokens = event.message.usage.input_tokens;
       state.cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
       state.cacheWriteTokens = event.message.usage.cache_creation_input_tokens ?? 0;
-      return { type: 'message_start', index: 0, delta: {} };
+      return { type: StreamEventType.MessageStart, index: 0, delta: {} };
 
     case 'content_block_start':
       state.currentIndex = event.index;
@@ -397,7 +398,7 @@ export function transformStreamEvent(
           input: '',
         };
       }
-      return { type: 'content_block_start', index: event.index, delta: {} };
+      return { type: StreamEventType.ContentBlockStart, index: event.index, delta: {} };
 
     case 'content_block_delta': {
       const delta = event.delta;
@@ -409,7 +410,7 @@ export function transformStreamEvent(
         state.content[index]!.text =
           (state.content[index]!.text ?? '') + delta.text;
         return {
-          type: 'text_delta',
+          type: StreamEventType.TextDelta,
           index: index,
           delta: { text: delta.text },
         };
@@ -421,7 +422,7 @@ export function transformStreamEvent(
         state.content[index]!.input =
           (state.content[index]!.input ?? '') + delta.partial_json;
         return {
-          type: 'tool_call_delta',
+          type: StreamEventType.ToolCallDelta,
           index: index,
           delta: {
             argumentsJson: delta.partial_json,
@@ -432,7 +433,7 @@ export function transformStreamEvent(
       }
       if (delta.type === 'thinking_delta') {
         return {
-          type: 'reasoning_delta',
+          type: StreamEventType.ReasoningDelta,
           index: index,
           delta: { text: delta.thinking },
         };
@@ -441,7 +442,7 @@ export function transformStreamEvent(
     }
 
     case 'content_block_stop':
-      return { type: 'content_block_stop', index: event.index ?? state.currentIndex, delta: {} };
+      return { type: StreamEventType.ContentBlockStop, index: event.index ?? state.currentIndex, delta: {} };
 
     case 'message_delta':
       state.stopReason = event.delta.stop_reason;
@@ -449,7 +450,7 @@ export function transformStreamEvent(
       return null;
 
     case 'message_stop':
-      return { type: 'message_stop', index: 0, delta: {} };
+      return { type: StreamEventType.MessageStop, index: 0, delta: {} };
 
     case 'ping':
     case 'error':

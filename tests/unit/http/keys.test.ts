@@ -5,7 +5,7 @@ import {
   WeightedKeys,
   DynamicKey,
 } from '../../../src/http/keys.ts';
-import { UPPError } from '../../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../../src/types/errors.ts';
 
 describe('RoundRobinKeys', () => {
   test('cycles through keys', () => {
@@ -109,7 +109,7 @@ describe('resolveApiKey', () => {
       expect(true).toBe(false); // Should not reach here
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
-      expect((error as UPPError).code).toBe('AUTHENTICATION_FAILED');
+      expect((error as UPPError).code).toBe(ErrorCode.AuthenticationFailed);
     }
   });
 

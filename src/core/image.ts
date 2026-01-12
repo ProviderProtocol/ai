@@ -20,7 +20,7 @@ import type {
   ImageGenerateOptions,
 } from '../types/image.ts';
 import type { ProviderConfig } from '../types/provider.ts';
-import { UPPError } from '../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveImageHandler } from './provider-handlers.ts';
 import { toError } from '../utils/error.ts';
 
@@ -69,9 +69,9 @@ export function image<TParams = unknown>(
   if (!imageHandler) {
     throw new UPPError(
       `Provider '${provider.name}' does not support image modality`,
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       provider.name,
-      'image'
+      ModalityType.Image
     );
   }
 
@@ -84,7 +84,7 @@ export function image<TParams = unknown>(
       return error;
     }
     const err = toError(error);
-    return new UPPError(err.message, 'PROVIDER_ERROR', provider.name, 'image', undefined, err);
+    return new UPPError(err.message, ErrorCode.ProviderError, provider.name, ModalityType.Image, undefined, err);
   };
 
   const instance: ImageInstance<TParams> = {

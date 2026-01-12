@@ -15,6 +15,7 @@
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
@@ -24,7 +25,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import type {
   GoogleLLMParams,
   GoogleRequest,
@@ -133,9 +134,9 @@ function normalizeSystem(system: string | unknown[] | undefined): string | Googl
   if (!Array.isArray(system)) {
     throw new UPPError(
       'System prompt must be a string or an array of text parts',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'google',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -144,18 +145,18 @@ function normalizeSystem(system: string | unknown[] | undefined): string | Googl
     if (!part || typeof part !== 'object' || !('text' in part)) {
       throw new UPPError(
         'Google system prompt array must contain text parts',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'google',
-        'llm'
+        ModalityType.LLM
       );
     }
     const textValue = (part as { text?: unknown }).text;
     if (typeof textValue !== 'string') {
       throw new UPPError(
         'Google system prompt text must be a string',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'google',
-        'llm'
+        ModalityType.LLM
       );
     }
     parts.push(part as GooglePart);
@@ -499,7 +500,7 @@ export function transformStreamChunk(
   const events: StreamEvent[] = [];
 
   if (state.isFirstChunk) {
-    events.push({ type: 'message_start', index: 0, delta: {} });
+    events.push({ type: StreamEventType.MessageStart, index: 0, delta: {} });
     state.isFirstChunk = false;
   }
 
@@ -518,7 +519,7 @@ export function transformStreamChunk(
     if ('text' in part) {
       state.content += part.text;
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: 0,
         delta: { text: part.text },
       });
@@ -532,7 +533,7 @@ export function transformStreamChunk(
         thoughtSignature: fc.thoughtSignature,
       });
       events.push({
-        type: 'tool_call_delta',
+        type: StreamEventType.ToolCallDelta,
         index: state.toolCalls.length - 1,
         delta: {
           toolCallId,
@@ -547,7 +548,7 @@ export function transformStreamChunk(
         const outputText = `\n\`\`\`\n${codeResult.codeExecutionResult.output}\`\`\`\n`;
         state.content += outputText;
         events.push({
-          type: 'text_delta',
+          type: StreamEventType.TextDelta,
           index: 0,
           delta: { text: outputText },
         });
@@ -558,7 +559,7 @@ export function transformStreamChunk(
 
   if (candidate.finishReason) {
     state.finishReason = candidate.finishReason;
-    events.push({ type: 'message_stop', index: 0, delta: {} });
+    events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
   }
 
   return events;

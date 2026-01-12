@@ -4,7 +4,8 @@ import { google } from '../../src/google/index.ts';
 import type { GoogleLLMParams } from '../../src/google/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import type { Message } from '../../src/types/messages.ts';
-import { UPPError } from '../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../src/types/errors.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 
@@ -42,7 +43,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
     let text = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         text += event.delta.text;
       }
     }
@@ -183,7 +184,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'tool_call_delta') {
+      if (event.type === StreamEventType.ToolCallDelta) {
         hasToolCallDelta = true;
       }
     }
@@ -307,7 +308,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     // Google uses native structured output, so we accumulate text_delta events
     let accumulatedJson = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         accumulatedJson += event.delta.text;
       }
     }
@@ -349,7 +350,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Error Handling', () => {
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
       // Google returns INVALID_REQUEST for bad API keys (not AUTHENTICATION_FAILED)
-      expect(['AUTHENTICATION_FAILED', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect([ErrorCode.AuthenticationFailed, ErrorCode.InvalidRequest] as string[]).toContain(uppError.code);
       expect(uppError.provider).toBe('google');
       expect(uppError.modality).toBe('llm');
     }
@@ -367,7 +368,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Error Handling', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
-      expect(['MODEL_NOT_FOUND', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect([ErrorCode.ModelNotFound, ErrorCode.InvalidRequest] as string[]).toContain(uppError.code);
       expect(uppError.provider).toBe('google');
     }
   });

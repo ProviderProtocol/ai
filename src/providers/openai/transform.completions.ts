@@ -19,6 +19,7 @@
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
@@ -28,7 +29,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
 import type {
   OpenAICompletionsParams,
@@ -114,9 +115,9 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
   if (!Array.isArray(system)) {
     throw new UPPError(
       'System prompt must be a string or an array of text blocks',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'openai',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -125,18 +126,18 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
     if (!block || typeof block !== 'object' || !('text' in block)) {
       throw new UPPError(
         'System prompt array must contain objects with a text field',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openai',
-        'llm'
+        ModalityType.LLM
       );
     }
     const textValue = (block as { text?: unknown }).text;
     if (typeof textValue !== 'string') {
       throw new UPPError(
         'System prompt text must be a string',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openai',
-        'llm'
+        ModalityType.LLM
       );
     }
     if (textValue.length > 0) {
@@ -559,7 +560,7 @@ export function transformStreamEvent(
 
   if (chunk.id && !state.id) {
     state.id = chunk.id;
-    events.push({ type: 'message_start', index: 0, delta: {} });
+    events.push({ type: StreamEventType.MessageStart, index: 0, delta: {} });
   }
   if (chunk.model) {
     state.model = chunk.model;
@@ -570,7 +571,7 @@ export function transformStreamEvent(
     if (choice.delta.content) {
       state.text += choice.delta.content;
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: 0,
         delta: { text: choice.delta.content },
       });
@@ -579,7 +580,7 @@ export function transformStreamEvent(
       state.hadRefusal = true;
       state.text += choice.delta.refusal;
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: 0,
         delta: { text: choice.delta.refusal },
       });
@@ -604,7 +605,7 @@ export function transformStreamEvent(
         if (toolCallDelta.function?.arguments) {
           toolCall.arguments += toolCallDelta.function.arguments;
           events.push({
-            type: 'tool_call_delta',
+            type: StreamEventType.ToolCallDelta,
             index: index,
             delta: {
               toolCallId: toolCall.id,
@@ -618,7 +619,7 @@ export function transformStreamEvent(
 
     if (choice.finish_reason) {
       state.finishReason = choice.finish_reason;
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
     }
   }
 

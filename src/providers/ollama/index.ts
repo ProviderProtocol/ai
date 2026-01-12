@@ -51,11 +51,14 @@ import { createEmbeddingHandler } from './embed.ts';
  *
  * @example Streaming responses
  * ```typescript
+ * import { llm, StreamEventType } from 'provider-protocol';
+ * import { ollama } from 'provider-protocol/ollama';
+ *
  * const model = llm({ model: ollama('llama3.2') });
  * const stream = model.stream('Write a poem');
  *
  * for await (const event of stream) {
- *   if (event.type === 'text_delta') {
+ *   if (event.type === StreamEventType.TextDelta) {
  *     process.stdout.write(event.delta.text);
  *   }
  * }

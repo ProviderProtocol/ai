@@ -3,7 +3,11 @@
  * @module http/errors
  */
 
-import { UPPError, type ErrorCode, type Modality } from '../types/errors.ts';
+import {
+  UPPError,
+  ErrorCode,
+  type Modality,
+} from '../types/errors.ts';
 import { toError } from '../utils/error.ts';
 
 /**
@@ -33,33 +37,33 @@ import { toError } from '../utils/error.ts';
 export function statusToErrorCode(status: number): ErrorCode {
   switch (status) {
     case 400:
-      return 'INVALID_REQUEST';
+      return ErrorCode.InvalidRequest;
     case 402:
-      return 'QUOTA_EXCEEDED';
+      return ErrorCode.QuotaExceeded;
     case 401:
     case 403:
-      return 'AUTHENTICATION_FAILED';
+      return ErrorCode.AuthenticationFailed;
     case 404:
-      return 'MODEL_NOT_FOUND';
+      return ErrorCode.ModelNotFound;
     case 408:
-      return 'TIMEOUT';
+      return ErrorCode.Timeout;
     case 409:
-      return 'INVALID_REQUEST';
+      return ErrorCode.InvalidRequest;
     case 422:
-      return 'INVALID_REQUEST';
+      return ErrorCode.InvalidRequest;
     case 413:
-      return 'CONTEXT_LENGTH_EXCEEDED';
+      return ErrorCode.ContextLengthExceeded;
     case 451:
-      return 'CONTENT_FILTERED';
+      return ErrorCode.ContentFiltered;
     case 429:
-      return 'RATE_LIMITED';
+      return ErrorCode.RateLimited;
     case 500:
     case 502:
     case 503:
     case 504:
-      return 'PROVIDER_ERROR';
+      return ErrorCode.ProviderError;
     default:
-      return 'PROVIDER_ERROR';
+      return ErrorCode.ProviderError;
   }
 }
 
@@ -147,7 +151,7 @@ export function networkError(
 ): UPPError {
   return new UPPError(
     `Network error: ${error.message}`,
-    'NETWORK_ERROR',
+    ErrorCode.NetworkError,
     provider,
     modality,
     undefined,
@@ -173,7 +177,7 @@ export function timeoutError(
 ): UPPError {
   return new UPPError(
     `Request timed out after ${timeout}ms`,
-    'TIMEOUT',
+    ErrorCode.Timeout,
     provider,
     modality
   );
@@ -190,5 +194,10 @@ export function timeoutError(
  * @returns A UPPError with CANCELLED code
  */
 export function cancelledError(provider: string, modality: Modality): UPPError {
-  return new UPPError('Request was cancelled', 'CANCELLED', provider, modality);
+  return new UPPError(
+    'Request was cancelled',
+    ErrorCode.Cancelled,
+    provider,
+    modality
+  );
 }

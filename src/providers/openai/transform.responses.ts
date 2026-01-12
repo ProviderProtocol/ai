@@ -19,6 +19,7 @@
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
@@ -28,7 +29,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
 import type {
   OpenAIResponsesParams,
@@ -125,9 +126,9 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
   if (!Array.isArray(system)) {
     throw new UPPError(
       'System prompt must be a string or an array of text blocks',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'openai',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -136,18 +137,18 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
     if (!block || typeof block !== 'object' || !('text' in block)) {
       throw new UPPError(
         'System prompt array must contain objects with a text field',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openai',
-        'llm'
+        ModalityType.LLM
       );
     }
     const textValue = (block as { text?: unknown }).text;
     if (typeof textValue !== 'string') {
       throw new UPPError(
         'System prompt text must be a string',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'openai',
-        'llm'
+        ModalityType.LLM
       );
     }
     if (textValue.length > 0) {
@@ -618,7 +619,7 @@ export function transformStreamEvent(
   switch (event.type) {
     case 'response.created':
       updateFromResponse(event.response);
-      events.push({ type: 'message_start', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStart, index: 0, delta: {} });
       break;
 
     case 'response.in_progress':
@@ -627,12 +628,12 @@ export function transformStreamEvent(
 
     case 'response.completed':
       updateFromResponse(event.response);
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
       break;
 
     case 'response.failed':
       updateFromResponse(event.response);
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
       break;
 
     case 'response.output_item.added':
@@ -650,7 +651,7 @@ export function transformStreamEvent(
         state.toolCalls.set(event.output_index, existing);
       }
       events.push({
-        type: 'content_block_start',
+        type: StreamEventType.ContentBlockStart,
         index: event.output_index,
         delta: {},
       });
@@ -679,7 +680,7 @@ export function transformStreamEvent(
         }
       }
       events.push({
-        type: 'content_block_stop',
+        type: StreamEventType.ContentBlockStop,
         index: event.output_index,
         delta: {},
       });
@@ -689,7 +690,7 @@ export function transformStreamEvent(
       const currentText = state.textByIndex.get(event.output_index) ?? '';
       state.textByIndex.set(event.output_index, currentText + event.delta);
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: event.output_index,
         delta: { text: event.delta },
       });
@@ -705,7 +706,7 @@ export function transformStreamEvent(
       const currentRefusal = state.textByIndex.get(event.output_index) ?? '';
       state.textByIndex.set(event.output_index, currentRefusal + event.delta);
       events.push({
-        type: 'text_delta',
+        type: StreamEventType.TextDelta,
         index: event.output_index,
         delta: { text: event.delta },
       });
@@ -731,7 +732,7 @@ export function transformStreamEvent(
       }
       toolCall.arguments += event.delta;
       events.push({
-        type: 'tool_call_delta',
+        type: StreamEventType.ToolCallDelta,
         index: event.output_index,
         delta: {
           toolCallId: toolCall.callId ?? toolCall.itemId ?? '',

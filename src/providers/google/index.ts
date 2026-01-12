@@ -25,6 +25,7 @@ const baseProvider = createProvider({
  * ```typescript
  * import { google } from './providers/google';
  * import { llm } from './core/llm';
+ * import { StreamEventType } from './types/stream';
  *
  * const gemini = llm({
  *   model: google('gemini-1.5-pro'),
@@ -36,7 +37,7 @@ const baseProvider = createProvider({
  *
  * const stream = gemini.stream('Tell me a story');
  * for await (const event of stream) {
- *   if (event.type === 'text_delta') {
+ *   if (event.type === StreamEventType.TextDelta) {
  *     process.stdout.write(event.delta.text ?? '');
  *   }
  * }

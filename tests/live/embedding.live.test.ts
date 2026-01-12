@@ -17,7 +17,7 @@ import type { OpenAIEmbedParams } from '../../src/openai/index.ts';
 import type { GoogleEmbedParams } from '../../src/google/index.ts';
 import type { OllamaEmbedParams } from '../../src/ollama/index.ts';
 import type { OpenRouterEmbedParams } from '../../src/openrouter/index.ts';
-import { UPPError } from '../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../src/types/errors.ts';
 
 // Test models for each provider
 const OPENAI_MODEL = 'text-embedding-3-small';
@@ -106,7 +106,7 @@ describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Embeddings', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
-        expect(error.code).toBe('CANCELLED');
+        expect(error.code).toBe(ErrorCode.Cancelled);
         expect(error.modality).toBe('embedding');
       }
     }
@@ -265,7 +265,7 @@ describe('Ollama Embeddings', () => {
       expect(emb.vector.length).toBeGreaterThan(0);
     } catch (error) {
       // Skip if Ollama not running or model not available
-      if (error instanceof UPPError && error.code === 'NETWORK_ERROR') {
+      if (error instanceof UPPError && error.code === ErrorCode.NetworkError) {
         console.log('Skipping Ollama test: server not running');
         return;
       }
@@ -287,7 +287,7 @@ describe('Ollama Embeddings', () => {
         expect(emb.vector.length).toBeGreaterThan(0);
       }
     } catch (error) {
-      if (error instanceof UPPError && error.code === 'NETWORK_ERROR') {
+      if (error instanceof UPPError && error.code === ErrorCode.NetworkError) {
         console.log('Skipping Ollama test: server not running');
         return;
       }
@@ -306,7 +306,7 @@ describe('Ollama Embeddings', () => {
 
       expect(result.embeddings).toHaveLength(1);
     } catch (error) {
-      if (error instanceof UPPError && error.code === 'NETWORK_ERROR') {
+      if (error instanceof UPPError && error.code === ErrorCode.NetworkError) {
         console.log('Skipping Ollama test: server not running');
         return;
       }
@@ -327,7 +327,7 @@ describe('Ollama Embeddings', () => {
       // Ollama includes timing metadata
       expect(result.metadata).toBeDefined();
     } catch (error) {
-      if (error instanceof UPPError && error.code === 'NETWORK_ERROR') {
+      if (error instanceof UPPError && error.code === ErrorCode.NetworkError) {
         console.log('Skipping Ollama test: server not running');
         return;
       }
@@ -348,7 +348,7 @@ describe('Ollama Embeddings', () => {
 
       expect(result.embeddings).toHaveLength(1);
     } catch (error) {
-      if (error instanceof UPPError && error.code === 'NETWORK_ERROR') {
+      if (error instanceof UPPError && error.code === ErrorCode.NetworkError) {
         console.log('Skipping Ollama test: server not running');
         return;
       }
@@ -480,7 +480,7 @@ describe('Embedding Error Handling', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
-      expect(uppError.code).toBe('AUTHENTICATION_FAILED');
+      expect(uppError.code).toBe(ErrorCode.AuthenticationFailed);
     }
   });
 });

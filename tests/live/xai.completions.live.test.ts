@@ -4,7 +4,8 @@ import { xai } from '../../src/xai/index.ts';
 import type { XAICompletionsParams } from '../../src/xai/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import type { Message } from '../../src/types/messages.ts';
-import { UPPError } from '../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../src/types/errors.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { safeEvaluateExpression } from '../helpers/math.ts';
@@ -46,7 +47,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
 
     let text = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         text += event.delta.text;
       }
     }
@@ -174,7 +175,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'tool_call_delta') {
+      if (event.type === StreamEventType.ToolCallDelta) {
         hasToolCallDelta = true;
       }
     }
@@ -289,7 +290,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Error Handling', 
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
       // xAI may return either AUTHENTICATION_FAILED (401) or INVALID_REQUEST (400) for invalid keys
-      expect(['AUTHENTICATION_FAILED', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect([ErrorCode.AuthenticationFailed, ErrorCode.InvalidRequest] as ErrorCode[]).toContain(uppError.code);
       expect(uppError.provider).toBe('xai');
       expect(uppError.modality).toBe('llm');
     }
@@ -307,7 +308,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Error Handling', 
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
-      expect(['MODEL_NOT_FOUND', 'INVALID_REQUEST']).toContain(uppError.code);
+      expect([ErrorCode.ModelNotFound, ErrorCode.InvalidRequest] as ErrorCode[]).toContain(uppError.code);
       expect(uppError.provider).toBe('xai');
     }
   });

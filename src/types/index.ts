@@ -11,7 +11,12 @@
  * Error handling types for normalized cross-provider error handling.
  * @see {@link UPPError} for the main error class
  */
-export { UPPError, type ErrorCode, type Modality } from './errors.ts';
+export {
+  UPPError,
+  ErrorCode,
+  ModalityType,
+  type Modality,
+} from './errors.ts';
 
 /**
  * JSON Schema types for tool parameters and structured outputs.
@@ -39,6 +44,8 @@ export type {
   AssistantContent,
 } from './content.ts';
 export {
+  ContentBlockType,
+  ImageSourceType,
   text,
   isTextBlock,
   isImageBlock,
@@ -71,6 +78,7 @@ export {
   UserMessage,
   AssistantMessage,
   ToolResultMessage,
+  MessageRole,
   isUserMessage,
   isAssistantMessage,
   isToolResultMessage,
@@ -97,11 +105,11 @@ export type { ThreadJSON, MessageJSON } from './thread.ts';
  */
 export type {
   StreamEvent,
-  StreamEventType,
   EventDelta,
   StreamResult,
 } from './stream.ts';
 export {
+  StreamEventType,
   createStreamResult,
   textDelta,
   toolCallDelta,

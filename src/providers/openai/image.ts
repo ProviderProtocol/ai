@@ -20,7 +20,7 @@ import type {
   ImageStreamEvent,
   GeneratedImage,
 } from '../../types/image.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch } from '../../http/fetch.ts';
 import { Image } from '../../core/media/Image.ts';
@@ -139,9 +139,9 @@ export function createImageHandler(): ImageHandler<OpenAIImageParams> {
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'openai',
-          'image'
+          ModalityType.Image
         );
       }
 
@@ -353,9 +353,9 @@ function executeStream(
       if (!reader) {
         throw new UPPError(
           'No response body for streaming',
-          'PROVIDER_ERROR',
+          ErrorCode.ProviderError,
           'openai',
-          'image'
+          ModalityType.Image
         );
       }
 
@@ -502,9 +502,9 @@ function transformResponse(data: OpenAIImagesResponse): ImageResponse {
     } else {
       throw new UPPError(
         'No image data in response',
-        'PROVIDER_ERROR',
+        ErrorCode.ProviderError,
         'openai',
-        'image'
+        ModalityType.Image
       );
     }
 

@@ -22,7 +22,7 @@ import type {
   EmbeddingResponse,
   ProviderConfig,
 } from '../types/provider.ts';
-import { UPPError } from '../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveEmbeddingHandler } from './provider-handlers.ts';
 import { toError } from '../utils/error.ts';
 
@@ -80,9 +80,9 @@ export function embedding<TParams = unknown>(
   if (!handler) {
     throw new UPPError(
       `Provider '${provider.name}' does not support embedding modality`,
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       provider.name,
-      'embedding'
+      ModalityType.Embedding
     );
   }
 
@@ -201,9 +201,9 @@ function decodeBase64(b64: string, providerName: string): number[] {
     const cause = error instanceof Error ? error : new Error('Failed to decode base64 vector');
     throw new UPPError(
       'Invalid base64 embedding vector',
-      'INVALID_RESPONSE',
+      ErrorCode.InvalidResponse,
       providerName,
-      'embedding',
+      ModalityType.Embedding,
       undefined,
       cause
     );
@@ -251,9 +251,9 @@ function createChunkedStream<TParams>(
 
   const cancelError = () => new UPPError(
     'Embedding cancelled',
-    'CANCELLED',
+    ErrorCode.Cancelled,
     model.provider.name,
-    'embedding'
+    ModalityType.Embedding
   );
 
   const onAbort = () => {

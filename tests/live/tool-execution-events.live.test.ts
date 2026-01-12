@@ -7,6 +7,7 @@ import type { OpenAICompletionsParams } from '../../src/openai/index.ts';
 import type { AnthropicLLMParams } from '../../src/anthropic/index.ts';
 import type { GoogleLLMParams } from '../../src/google/index.ts';
 import type { StreamEvent } from '../../src/types/stream.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 
 /**
  * Live tests for tool execution streaming events
@@ -77,10 +78,10 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Tool Execution Events', () 
 
     for await (const event of stream) {
       events.push(event);
-      if (event.type === 'tool_execution_start') {
+      if (event.type === StreamEventType.ToolExecutionStart) {
         startEvents.push(event);
       }
-      if (event.type === 'tool_execution_end') {
+      if (event.type === StreamEventType.ToolExecutionEnd) {
         endEvents.push(event);
       }
     }
@@ -142,10 +143,10 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Tool Execution Events', () 
     const endEvents: StreamEvent[] = [];
 
     for await (const event of stream) {
-      if (event.type === 'tool_execution_start') {
+      if (event.type === StreamEventType.ToolExecutionStart) {
         startEvents.push(event);
       }
-      if (event.type === 'tool_execution_end') {
+      if (event.type === StreamEventType.ToolExecutionEnd) {
         endEvents.push(event);
       }
     }
@@ -177,7 +178,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Tool Execution Events', () 
     const endEvents: StreamEvent[] = [];
 
     for await (const event of stream) {
-      if (event.type === 'tool_execution_end') {
+      if (event.type === StreamEventType.ToolExecutionEnd) {
         endEvents.push(event);
       }
     }
@@ -206,8 +207,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Tool Execution Events', () 
 
     for await (const event of stream) {
       if (
-        event.type === 'tool_execution_start' ||
-        event.type === 'tool_execution_end'
+        event.type === StreamEventType.ToolExecutionStart ||
+        event.type === StreamEventType.ToolExecutionEnd
       ) {
         events.push(event);
       }
@@ -240,10 +241,10 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Tool Execution Events
     const endEvents: StreamEvent[] = [];
 
     for await (const event of stream) {
-      if (event.type === 'tool_execution_start') {
+      if (event.type === StreamEventType.ToolExecutionStart) {
         startEvents.push(event);
       }
-      if (event.type === 'tool_execution_end') {
+      if (event.type === StreamEventType.ToolExecutionEnd) {
         endEvents.push(event);
       }
     }
@@ -277,10 +278,10 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Tool Execution Events', () 
     const endEvents: StreamEvent[] = [];
 
     for await (const event of stream) {
-      if (event.type === 'tool_execution_start') {
+      if (event.type === StreamEventType.ToolExecutionStart) {
         startEvents.push(event);
       }
-      if (event.type === 'tool_execution_end') {
+      if (event.type === StreamEventType.ToolExecutionEnd) {
         endEvents.push(event);
       }
     }

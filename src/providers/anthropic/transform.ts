@@ -11,7 +11,7 @@
 
 import type { LLMRequest, LLMResponse } from '../../types/llm.ts';
 import type { Message } from '../../types/messages.ts';
-import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType, type StreamEvent } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
 import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
@@ -21,7 +21,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../types/messages.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
 import type {
   AnthropicLLMParams,
@@ -155,9 +155,9 @@ function normalizeSystem(
   if (!Array.isArray(system)) {
     throw new UPPError(
       'System prompt must be a string or an array of text blocks',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'anthropic',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -166,26 +166,26 @@ function normalizeSystem(
     if (!block || typeof block !== 'object') {
       throw new UPPError(
         'System prompt array must contain objects with type "text"',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'anthropic',
-        'llm'
+        ModalityType.LLM
       );
     }
     const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
     if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
       throw new UPPError(
         'Anthropic system blocks must be of type "text" with a string text field',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'anthropic',
-        'llm'
+        ModalityType.LLM
       );
     }
     if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
       throw new UPPError(
         'Invalid cache_control for Anthropic system prompt',
-        'INVALID_REQUEST',
+        ErrorCode.InvalidRequest,
         'anthropic',
-        'llm'
+        ModalityType.LLM
       );
     }
     blocks.push(block as AnthropicSystemContent);
@@ -603,7 +603,7 @@ export function transformStreamEvent(
       state.inputTokens = event.message.usage.input_tokens;
       state.cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;
       state.cacheWriteTokens = event.message.usage.cache_creation_input_tokens ?? 0;
-      events.push({ type: 'message_start', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStart, index: 0, delta: {} });
       break;
 
     case 'content_block_start':
@@ -648,7 +648,7 @@ export function transformStreamEvent(
           fileContent: resultBlock.content?.content ?? '',
         };
       }
-      events.push({ type: 'content_block_start', index: event.index, delta: {} });
+      events.push({ type: StreamEventType.ContentBlockStart, index: event.index, delta: {} });
       break;
 
     case 'content_block_delta': {
@@ -659,7 +659,7 @@ export function transformStreamEvent(
             (state.content[event.index]!.text ?? '') + delta.text;
         }
         events.push({
-          type: 'text_delta',
+          type: StreamEventType.TextDelta,
           index: event.index,
           delta: { text: delta.text },
         });
@@ -671,7 +671,7 @@ export function transformStreamEvent(
             (state.content[event.index]!.input ?? '') + delta.partial_json;
         }
         events.push({
-          type: 'tool_call_delta',
+          type: StreamEventType.ToolCallDelta,
           index: event.index,
           delta: {
             argumentsJson: delta.partial_json,
@@ -683,7 +683,7 @@ export function transformStreamEvent(
       }
       if (delta.type === 'thinking_delta') {
         events.push({
-          type: 'reasoning_delta',
+          type: StreamEventType.ReasoningDelta,
           index: event.index,
           delta: { text: delta.thinking },
         });
@@ -693,7 +693,7 @@ export function transformStreamEvent(
     }
 
     case 'content_block_stop':
-      events.push({ type: 'content_block_stop', index: event.index, delta: {} });
+      events.push({ type: StreamEventType.ContentBlockStop, index: event.index, delta: {} });
       break;
 
     case 'message_delta':
@@ -702,7 +702,7 @@ export function transformStreamEvent(
       return [];
 
     case 'message_stop':
-      events.push({ type: 'message_stop', index: 0, delta: {} });
+      events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
       break;
 
     case 'ping':

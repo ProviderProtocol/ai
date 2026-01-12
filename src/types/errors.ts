@@ -8,71 +8,104 @@
  */
 
 /**
- * Normalized error codes for cross-provider error handling.
+ * Error code constants for cross-provider error handling.
  *
- * These codes provide a consistent way to identify and handle errors
- * regardless of which AI provider generated them.
+ * Use these constants instead of raw strings for type-safe error handling:
  *
  * @example
  * ```typescript
+ * import { ErrorCode } from 'upp';
+ *
  * try {
  *   await llm.generate('Hello');
  * } catch (error) {
  *   if (error instanceof UPPError) {
  *     switch (error.code) {
- *       case 'RATE_LIMITED':
+ *       case ErrorCode.RateLimited:
  *         await delay(error.retryAfter);
  *         break;
- *       case 'AUTHENTICATION_FAILED':
+ *       case ErrorCode.AuthenticationFailed:
  *         throw new Error('Invalid API key');
  *     }
  *   }
  * }
  * ```
  */
-export type ErrorCode =
+export const ErrorCode = {
   /** API key is invalid or expired */
-  | 'AUTHENTICATION_FAILED'
+  AuthenticationFailed: 'AUTHENTICATION_FAILED',
   /** Rate limit exceeded, retry after delay */
-  | 'RATE_LIMITED'
+  RateLimited: 'RATE_LIMITED',
   /** Input exceeds model's context window */
-  | 'CONTEXT_LENGTH_EXCEEDED'
+  ContextLengthExceeded: 'CONTEXT_LENGTH_EXCEEDED',
   /** Requested model does not exist */
-  | 'MODEL_NOT_FOUND'
+  ModelNotFound: 'MODEL_NOT_FOUND',
   /** Request parameters are malformed */
-  | 'INVALID_REQUEST'
+  InvalidRequest: 'INVALID_REQUEST',
   /** Provider returned an unexpected response format */
-  | 'INVALID_RESPONSE'
+  InvalidResponse: 'INVALID_RESPONSE',
   /** Content was blocked by safety filters */
-  | 'CONTENT_FILTERED'
+  ContentFiltered: 'CONTENT_FILTERED',
   /** Account quota or credits exhausted */
-  | 'QUOTA_EXCEEDED'
+  QuotaExceeded: 'QUOTA_EXCEEDED',
   /** Provider-specific error not covered by other codes */
-  | 'PROVIDER_ERROR'
+  ProviderError: 'PROVIDER_ERROR',
   /** Network connectivity issue */
-  | 'NETWORK_ERROR'
+  NetworkError: 'NETWORK_ERROR',
   /** Request exceeded timeout limit */
-  | 'TIMEOUT'
+  Timeout: 'TIMEOUT',
   /** Request was cancelled via AbortSignal */
-  | 'CANCELLED';
+  Cancelled: 'CANCELLED',
+} as const;
 
 /**
- * Modality types supported by UPP.
+ * Error code discriminator union.
  *
- * Each modality represents a different type of AI capability that
- * can be provided by a UPP-compatible provider.
+ * This type is derived from {@link ErrorCode} constants. Use `ErrorCode.RateLimited`
+ * for constants or `type MyCode = ErrorCode` for type annotations.
  */
-export type Modality =
+export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
+
+/**
+ * Modality type constants.
+ *
+ * Use these constants for type-safe modality handling:
+ *
+ * @example
+ * ```typescript
+ * import { ModalityType } from 'upp';
+ *
+ * if (provider.modality === ModalityType.LLM) {
+ *   // Handle LLM provider
+ * }
+ * ```
+ */
+export const ModalityType = {
   /** Large language model for text generation */
-  | 'llm'
+  LLM: 'llm',
   /** Text/image embedding model */
-  | 'embedding'
+  Embedding: 'embedding',
   /** Image generation model */
-  | 'image'
+  Image: 'image',
   /** Audio processing/generation model */
-  | 'audio'
+  Audio: 'audio',
   /** Video processing/generation model */
-  | 'video';
+  Video: 'video',
+} as const;
+
+/**
+ * Modality type discriminator union.
+ *
+ * This type is derived from {@link ModalityType} constants. The name `Modality`
+ * is kept for backward compatibility; `ModalityType` works as both the const
+ * object and this type.
+ */
+export type Modality = (typeof ModalityType)[keyof typeof ModalityType];
+
+/**
+ * Type alias for Modality, allowing `ModalityType` to work as both const and type.
+ */
+export type ModalityType = Modality;
 
 /**
  * Unified Provider Protocol Error.
@@ -82,26 +115,30 @@ export type Modality =
  *
  * @example
  * ```typescript
+ * import { ErrorCode, ModalityType } from 'upp';
+ *
  * throw new UPPError(
  *   'API key is invalid',
- *   'AUTHENTICATION_FAILED',
+ *   ErrorCode.AuthenticationFailed,
  *   'openai',
- *   'llm',
+ *   ModalityType.LLM,
  *   401
  * );
  * ```
  *
  * @example
  * ```typescript
+ * import { ErrorCode, ModalityType } from 'upp';
+ *
  * // Wrapping a provider error
  * try {
  *   await openai.chat.completions.create({ ... });
  * } catch (err) {
  *   throw new UPPError(
  *     'OpenAI request failed',
- *     'PROVIDER_ERROR',
+ *     ErrorCode.ProviderError,
  *     'openai',
- *     'llm',
+ *     ModalityType.LLM,
  *     err.status,
  *     err
  *   );

@@ -5,6 +5,7 @@ import type { OpenAIResponsesParams } from '../../src/openai/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import type { Message } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { safeEvaluateExpression } from '../helpers/math.ts';
@@ -55,7 +56,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
 
     let text = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         text += event.delta.text;
       }
     }
@@ -220,7 +221,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'tool_call_delta') {
+      if (event.type === StreamEventType.ToolCallDelta) {
         hasToolCallDelta = true;
       }
     }
@@ -315,7 +316,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
     // OpenAI uses native structured output, so we accumulate text_delta events
     let accumulatedJson = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         accumulatedJson += event.delta.text;
       }
     }

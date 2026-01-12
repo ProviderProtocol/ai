@@ -6,22 +6,22 @@ import {
   timeoutError,
   cancelledError,
 } from '../../../src/http/errors.ts';
-import { UPPError } from '../../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../../src/types/errors.ts';
 
 test('statusToErrorCode maps 402 to QUOTA_EXCEEDED', () => {
-  expect(statusToErrorCode(402)).toBe('QUOTA_EXCEEDED');
+  expect(statusToErrorCode(402)).toBe(ErrorCode.QuotaExceeded);
 });
 
 test('statusToErrorCode maps 422 to INVALID_REQUEST', () => {
-  expect(statusToErrorCode(422)).toBe('INVALID_REQUEST');
+  expect(statusToErrorCode(422)).toBe(ErrorCode.InvalidRequest);
 });
 
 test('statusToErrorCode maps 451 to CONTENT_FILTERED', () => {
-  expect(statusToErrorCode(451)).toBe('CONTENT_FILTERED');
+  expect(statusToErrorCode(451)).toBe(ErrorCode.ContentFiltered);
 });
 
 test('statusToErrorCode maps 409 to INVALID_REQUEST', () => {
-  expect(statusToErrorCode(409)).toBe('INVALID_REQUEST');
+  expect(statusToErrorCode(409)).toBe(ErrorCode.InvalidRequest);
 });
 
 test('normalizeHttpError extracts message from nested error', async () => {
@@ -33,7 +33,7 @@ test('normalizeHttpError extracts message from nested error', async () => {
   const error = await normalizeHttpError(response, 'mock', 'llm');
   expect(error).toBeInstanceOf(UPPError);
   expect(error.message).toBe('bad request');
-  expect(error.code).toBe('INVALID_REQUEST');
+  expect(error.code).toBe(ErrorCode.InvalidRequest);
   expect(error.statusCode).toBe(400);
 });
 
@@ -45,7 +45,7 @@ test('normalizeHttpError uses detail field when present', async () => {
 
   const error = await normalizeHttpError(response, 'mock', 'llm');
   expect(error.message).toBe('nope');
-  expect(error.code).toBe('INVALID_REQUEST');
+  expect(error.code).toBe(ErrorCode.InvalidRequest);
 });
 
 test('normalizeHttpError falls back to plain text body', async () => {
@@ -56,25 +56,25 @@ test('normalizeHttpError falls back to plain text body', async () => {
 
   const error = await normalizeHttpError(response, 'mock', 'llm');
   expect(error.message).toBe('plain error');
-  expect(error.code).toBe('PROVIDER_ERROR');
+  expect(error.code).toBe(ErrorCode.ProviderError);
 });
 
 test('networkError wraps underlying error', () => {
   const error = networkError(new Error('offline'), 'mock', 'llm');
   expect(error).toBeInstanceOf(UPPError);
-  expect(error.code).toBe('NETWORK_ERROR');
+  expect(error.code).toBe(ErrorCode.NetworkError);
   expect(error.message).toContain('offline');
 });
 
 test('timeoutError reports timeout duration', () => {
   const error = timeoutError(1500, 'mock', 'llm');
   expect(error).toBeInstanceOf(UPPError);
-  expect(error.code).toBe('TIMEOUT');
+  expect(error.code).toBe(ErrorCode.Timeout);
   expect(error.message).toContain('1500');
 });
 
 test('cancelledError returns CANCELLED code', () => {
   const error = cancelledError('mock', 'llm');
   expect(error).toBeInstanceOf(UPPError);
-  expect(error.code).toBe('CANCELLED');
+  expect(error.code).toBe(ErrorCode.Cancelled);
 });

@@ -4,7 +4,8 @@ import { openrouter } from '../../src/openrouter/index.ts';
 import type { OpenRouterCompletionsParams } from '../../src/openrouter/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import type { Message } from '../../src/types/messages.ts';
-import { UPPError } from '../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../src/types/errors.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { safeEvaluateExpression } from '../helpers/math.ts';
@@ -59,7 +60,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
 
     let text = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         text += event.delta.text;
       }
     }
@@ -211,7 +212,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
 
     for await (const event of stream) {
       events.push(event.type);
-      if (event.type === 'tool_call_delta') {
+      if (event.type === StreamEventType.ToolCallDelta) {
         hasToolCallDelta = true;
       }
     }
@@ -305,7 +306,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Liv
     // OpenRouter uses native structured output, so we accumulate text_delta events
     let accumulatedJson = '';
     for await (const event of stream) {
-      if (event.type === 'text_delta' && event.delta.text) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
         accumulatedJson += event.delta.text;
       }
     }
@@ -399,7 +400,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Err
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
-      expect(uppError.code).toBe('AUTHENTICATION_FAILED');
+      expect(uppError.code).toBe(ErrorCode.AuthenticationFailed);
       expect(uppError.provider).toBe('openrouter');
       expect(uppError.modality).toBe('llm');
     }
@@ -417,7 +418,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions API Err
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       const uppError = error as UPPError;
-      expect(['MODEL_NOT_FOUND', 'INVALID_REQUEST', 'PROVIDER_ERROR']).toContain(uppError.code);
+      expect([ErrorCode.ModelNotFound, ErrorCode.InvalidRequest, ErrorCode.ProviderError] as ErrorCode[]).toContain(uppError.code);
       expect(uppError.provider).toBe('openrouter');
     }
   });

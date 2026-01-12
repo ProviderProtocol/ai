@@ -14,7 +14,7 @@
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
@@ -93,7 +93,7 @@ const OPENAI_CAPABILITIES: LLMCapabilities = {
  * });
  *
  * for await (const event of stream) {
- *   if (event.type === 'text_delta') {
+ *   if (event.type === StreamEventType.TextDelta) {
  *     process.stdout.write(event.delta.text);
  *   }
  * }
@@ -114,9 +114,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'openai',
-          'llm'
+          ModalityType.LLM
         );
       }
 
@@ -171,9 +171,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
           if (data.status === 'failed' && data.error) {
             throw new UPPError(
               data.error.message,
-              'PROVIDER_ERROR',
+              ErrorCode.ProviderError,
               'openai',
-              'llm'
+              ModalityType.LLM
             );
           }
 
@@ -239,9 +239,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
               if (!response.body) {
                 const error = new UPPError(
                   'No response body for streaming request',
-                  'PROVIDER_ERROR',
+                  ErrorCode.ProviderError,
                   'openai',
-                  'llm'
+                  ModalityType.LLM
                 );
                 responseReject(error);
                 throw error;
@@ -262,9 +262,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenAIResponsesParams> {
                     const errorEvent = event as OpenAIResponseErrorEvent;
                     const error = new UPPError(
                       errorEvent.error.message,
-                      'PROVIDER_ERROR',
+                      ErrorCode.ProviderError,
                       'openai',
-                      'llm'
+                      ModalityType.LLM
                     );
                     responseReject(error);
                     throw error;

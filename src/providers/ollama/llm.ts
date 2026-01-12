@@ -18,7 +18,7 @@ import type {
 } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { normalizeHttpError } from '../../http/errors.ts';
@@ -91,9 +91,9 @@ async function* parseOllamaStream(
         } catch (error) {
           throw new UPPError(
             'Invalid JSON in Ollama stream',
-            'INVALID_RESPONSE',
+            ErrorCode.InvalidResponse,
             'ollama',
-            'llm',
+            ModalityType.LLM,
             undefined,
             toError(error)
           );
@@ -110,9 +110,9 @@ async function* parseOllamaStream(
       } catch (error) {
         throw new UPPError(
           'Invalid JSON in Ollama stream',
-          'INVALID_RESPONSE',
+          ErrorCode.InvalidResponse,
           'ollama',
-          'llm',
+          ModalityType.LLM,
           undefined,
           toError(error)
         );
@@ -158,9 +158,9 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'ollama',
-          'llm'
+          ModalityType.LLM
         );
       }
 
@@ -292,9 +292,9 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
               if (!response.body) {
                 const error = new UPPError(
                   'No response body for streaming request',
-                  'PROVIDER_ERROR',
+                  ErrorCode.ProviderError,
                   'ollama',
-                  'llm'
+                  ModalityType.LLM
                 );
                 responseReject(error);
                 throw error;
@@ -306,9 +306,9 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
                 if ('error' in chunk && typeof (chunk as Record<string, unknown>).error === 'string') {
                   const error = new UPPError(
                     (chunk as Record<string, unknown>).error as string,
-                    'PROVIDER_ERROR',
+                    ErrorCode.ProviderError,
                     'ollama',
-                    'llm'
+                    ModalityType.LLM
                   );
                   responseReject(error);
                   throw error;

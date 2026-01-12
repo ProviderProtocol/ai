@@ -4,7 +4,7 @@
 import { test, expect, describe } from 'bun:test';
 import { image } from '../../../src/core/image.ts';
 import { createProvider } from '../../../src/core/provider.ts';
-import { UPPError } from '../../../src/types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../../src/types/errors.ts';
 import type {
   ImageHandler,
   BoundImageModel,
@@ -386,9 +386,9 @@ describe('generate()', () => {
 
     const imageInstance = image({ model: modelRef });
     await expect(imageInstance.generate('Test')).rejects.toMatchObject({
-      code: 'PROVIDER_ERROR',
+      code: ErrorCode.ProviderError,
       provider: 'mock-provider',
-      modality: 'image',
+      modality: ModalityType.Image,
     });
   });
 });
@@ -519,9 +519,9 @@ describe('stream()', () => {
     if (!stream) return;
 
     await expect(stream.result).rejects.toMatchObject({
-      code: 'PROVIDER_ERROR',
+      code: ErrorCode.ProviderError,
       provider: 'mock-provider',
-      modality: 'image',
+      modality: ModalityType.Image,
     });
   });
 
@@ -556,9 +556,9 @@ describe('stream()', () => {
     };
 
     await expect(consume()).rejects.toMatchObject({
-      code: 'PROVIDER_ERROR',
+      code: ErrorCode.ProviderError,
       provider: 'mock-provider',
-      modality: 'image',
+      modality: ModalityType.Image,
     });
   });
 });

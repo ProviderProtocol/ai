@@ -4,7 +4,7 @@
  */
 
 import type { RetryStrategy } from '../types/provider.ts';
-import type { UPPError } from '../types/errors.ts';
+import { ErrorCode, type UPPError } from '../types/errors.ts';
 
 /**
  * Implements exponential backoff with optional jitter for retry delays.
@@ -101,10 +101,10 @@ export class ExponentialBackoff implements RetryStrategy {
    */
   private isRetryable(error: UPPError): boolean {
     return (
-      error.code === 'RATE_LIMITED' ||
-      error.code === 'NETWORK_ERROR' ||
-      error.code === 'TIMEOUT' ||
-      error.code === 'PROVIDER_ERROR'
+      error.code === ErrorCode.RateLimited ||
+      error.code === ErrorCode.NetworkError ||
+      error.code === ErrorCode.Timeout ||
+      error.code === ErrorCode.ProviderError
     );
   }
 }
@@ -188,10 +188,10 @@ export class LinearBackoff implements RetryStrategy {
    */
   private isRetryable(error: UPPError): boolean {
     return (
-      error.code === 'RATE_LIMITED' ||
-      error.code === 'NETWORK_ERROR' ||
-      error.code === 'TIMEOUT' ||
-      error.code === 'PROVIDER_ERROR'
+      error.code === ErrorCode.RateLimited ||
+      error.code === ErrorCode.NetworkError ||
+      error.code === ErrorCode.Timeout ||
+      error.code === ErrorCode.ProviderError
     );
   }
 }
@@ -337,7 +337,7 @@ export class TokenBucket implements RetryStrategy {
       return null;
     }
 
-    if (error.code !== 'RATE_LIMITED') {
+    if (error.code !== ErrorCode.RateLimited) {
       return null;
     }
 
@@ -463,7 +463,7 @@ export class RetryAfterStrategy implements RetryStrategy {
       return null;
     }
 
-    if (error.code !== 'RATE_LIMITED') {
+    if (error.code !== ErrorCode.RateLimited) {
       return null;
     }
 

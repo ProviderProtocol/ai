@@ -20,7 +20,7 @@ import type {
 import type { ProviderConfig } from '../../types/provider.ts';
 import { parseJsonResponse } from '../../http/json.ts';
 import { doFetch } from '../../http/fetch.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 
 const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -313,9 +313,9 @@ export async function update(
   if (updateRequest.expireTime && updateRequest.ttl) {
     throw new UPPError(
       'Provide either expireTime or ttl (not both)',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'google',
-      'llm'
+      ModalityType.LLM
     );
   }
 
@@ -330,9 +330,9 @@ export async function update(
   if (updateMaskParts.length === 0) {
     throw new UPPError(
       'Update request must include expireTime or ttl',
-      'INVALID_REQUEST',
+      ErrorCode.InvalidRequest,
       'google',
-      'llm'
+      ModalityType.LLM
     );
   }
 

@@ -2,6 +2,7 @@ import { test, expect, describe } from 'bun:test';
 import { llm } from '../../src/index.ts';
 import { openrouter } from '../../src/openrouter/index.ts';
 import type { OpenRouterCompletionsParams } from '../../src/openrouter/index.ts';
+import { StreamEventType } from '../../src/types/stream.ts';
 import { isImageBlock } from '../../src/types/content.ts';
 
 const IMAGE_MODEL = 'google/gemini-2.5-flash-image';
@@ -104,8 +105,8 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Image Generation Li
 
     const turn = await stream.turn;
 
-    expect(events).toContain('message_start');
-    expect(events).toContain('message_stop');
+    expect(events).toContain(StreamEventType.MessageStart);
+    expect(events).toContain(StreamEventType.MessageStop);
 
     const images = turn.response.content.filter(isImageBlock);
     expect(images.length).toBeGreaterThan(0);

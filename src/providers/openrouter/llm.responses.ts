@@ -10,7 +10,7 @@
 import type { LLMHandler, BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { LLMProvider } from '../../types/provider.ts';
-import { UPPError } from '../../types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { parseSSEStream } from '../../http/sse.ts';
@@ -73,9 +73,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParam
       if (!providerRef) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider() or have _setProvider called.',
-          'INVALID_REQUEST',
+          ErrorCode.InvalidRequest,
           'openrouter',
-          'llm'
+          ModalityType.LLM
         );
       }
 
@@ -130,9 +130,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParam
           if (data.status === 'failed' && data.error) {
             throw new UPPError(
               data.error.message,
-              'PROVIDER_ERROR',
+              ErrorCode.ProviderError,
               'openrouter',
-              'llm'
+              ModalityType.LLM
             );
           }
 
@@ -198,9 +198,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParam
               if (!response.body) {
                 const error = new UPPError(
                   'No response body for streaming request',
-                  'PROVIDER_ERROR',
+                  ErrorCode.ProviderError,
                   'openrouter',
-                  'llm'
+                  ModalityType.LLM
                 );
                 responseReject(error);
                 throw error;
@@ -221,9 +221,9 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParam
                     const errorEvent = event as OpenRouterResponseErrorEvent;
                     const error = new UPPError(
                       errorEvent.error.message,
-                      'PROVIDER_ERROR',
+                      ErrorCode.ProviderError,
                       'openrouter',
-                      'llm'
+                      ModalityType.LLM
                     );
                     responseReject(error);
                     throw error;

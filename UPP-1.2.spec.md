@@ -3130,6 +3130,119 @@ UPP implementations SHOULD export the following types through their language's s
 - `isAssistantMessage`
 - `isToolResultMessage`
 
+**Type Constants:**
+- `StreamEventType`
+- `ContentBlockType`
+- `ImageSourceType`
+- `MessageRole`
+- `ErrorCode`
+- `ModalityType`
+
+### 14.5.1 Type Constants
+
+UPP exports named constant objects for all discriminated union types. These constants SHOULD be used instead of raw string literals for type-safe code:
+
+**StreamEventType Constants:**
+
+| Constant | Value |
+|----------|-------|
+| `StreamEventType.TextDelta` | `'text_delta'` |
+| `StreamEventType.ReasoningDelta` | `'reasoning_delta'` |
+| `StreamEventType.ImageDelta` | `'image_delta'` |
+| `StreamEventType.AudioDelta` | `'audio_delta'` |
+| `StreamEventType.VideoDelta` | `'video_delta'` |
+| `StreamEventType.ToolCallDelta` | `'tool_call_delta'` |
+| `StreamEventType.ToolExecutionStart` | `'tool_execution_start'` |
+| `StreamEventType.ToolExecutionEnd` | `'tool_execution_end'` |
+| `StreamEventType.MessageStart` | `'message_start'` |
+| `StreamEventType.MessageStop` | `'message_stop'` |
+| `StreamEventType.ContentBlockStart` | `'content_block_start'` |
+| `StreamEventType.ContentBlockStop` | `'content_block_stop'` |
+
+**ContentBlockType Constants:**
+
+| Constant | Value |
+|----------|-------|
+| `ContentBlockType.Text` | `'text'` |
+| `ContentBlockType.Image` | `'image'` |
+| `ContentBlockType.Audio` | `'audio'` |
+| `ContentBlockType.Video` | `'video'` |
+| `ContentBlockType.Binary` | `'binary'` |
+
+**ImageSourceType Constants:**
+
+| Constant | Value |
+|----------|-------|
+| `ImageSourceType.Base64` | `'base64'` |
+| `ImageSourceType.Url` | `'url'` |
+| `ImageSourceType.Bytes` | `'bytes'` |
+
+**MessageRole Constants:**
+
+| Constant | Value |
+|----------|-------|
+| `MessageRole.User` | `'user'` |
+| `MessageRole.Assistant` | `'assistant'` |
+| `MessageRole.ToolResult` | `'tool_result'` |
+
+**ErrorCode Constants:**
+
+| Constant | Value |
+|----------|-------|
+| `ErrorCode.AuthenticationFailed` | `'AUTHENTICATION_FAILED'` |
+| `ErrorCode.RateLimited` | `'RATE_LIMITED'` |
+| `ErrorCode.ContextLengthExceeded` | `'CONTEXT_LENGTH_EXCEEDED'` |
+| `ErrorCode.ModelNotFound` | `'MODEL_NOT_FOUND'` |
+| `ErrorCode.InvalidRequest` | `'INVALID_REQUEST'` |
+| `ErrorCode.InvalidResponse` | `'INVALID_RESPONSE'` |
+| `ErrorCode.ContentFiltered` | `'CONTENT_FILTERED'` |
+| `ErrorCode.QuotaExceeded` | `'QUOTA_EXCEEDED'` |
+| `ErrorCode.ProviderError` | `'PROVIDER_ERROR'` |
+| `ErrorCode.NetworkError` | `'NETWORK_ERROR'` |
+| `ErrorCode.Timeout` | `'TIMEOUT'` |
+| `ErrorCode.Cancelled` | `'CANCELLED'` |
+
+**ModalityType Constants:**
+
+| Constant | Value |
+|----------|-------|
+| `ModalityType.LLM` | `'llm'` |
+| `ModalityType.Embedding` | `'embedding'` |
+| `ModalityType.Image` | `'image'` |
+| `ModalityType.Audio` | `'audio'` |
+| `ModalityType.Video` | `'video'` |
+
+**Usage Example:**
+
+```pseudocode
+import { StreamEventType, ErrorCode, MessageRole } from "upp"
+
+// Streaming with type constants
+for await (event in stream) {
+  if (event.type == StreamEventType.TextDelta) {
+    print(event.delta.text)
+  } else if (event.type == StreamEventType.ToolCallDelta) {
+    print("Tool call:", event.delta.toolName)
+  }
+}
+
+// Error handling with type constants
+try {
+  await instance.generate("Hello")
+} catch (error) {
+  if (error.code == ErrorCode.RateLimited) {
+    // Handle rate limiting
+  } else if (error.code == ErrorCode.AuthenticationFailed) {
+    // Handle auth failure
+  }
+}
+
+// Message type checking with constants
+if (message.type == MessageRole.Assistant) {
+  print("Assistant:", message.text)
+}
+```
+
 ### 14.6 Provider Exports
 
 Each provider module exports a single factory function and its own parameter types. The model ID passed to the factory determines which modality handler is used.

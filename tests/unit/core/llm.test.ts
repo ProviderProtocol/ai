@@ -6,14 +6,14 @@
 import { test, expect, describe } from 'bun:test';
 import { llm } from '../../../src/core/llm.ts';
 import { createProvider } from '../../../src/core/provider.ts';
-import { UPPError } from '../../../src/types/errors.ts';
+import { UPPError, ErrorCode, ModalityType } from '../../../src/types/errors.ts';
 import type { LLMHandler, LLMRequest, LLMResponse, LLMCapabilities } from '../../../src/types/llm.ts';
 import type { TokenUsage } from '../../../src/types/turn.ts';
 import type { Tool, ToolCall } from '../../../src/types/tool.ts';
 import { AssistantMessage, UserMessage } from '../../../src/types/messages.ts';
 import { Thread } from '../../../src/types/thread.ts';
 import type { StreamEvent } from '../../../src/types/stream.ts';
-import { textDelta } from '../../../src/types/stream.ts';
+import { StreamEventType, textDelta } from '../../../src/types/stream.ts';
 import type { LLMProvider } from '../../../src/types/provider.ts';
 import type { ImageBlock } from '../../../src/types/content.ts';
 
@@ -407,7 +407,7 @@ describe('LLM generate execution', () => {
       expect(onMaxIterationsCalled).toBe(true);
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
-        expect(error.code).toBe('INVALID_REQUEST');
+        expect(error.code).toBe(ErrorCode.InvalidRequest);
       }
     }
   });
@@ -566,9 +566,9 @@ describe('LLM stream execution', () => {
 
     const turn = await stream.turn;
 
-    expect(events.some((event) => event.type === 'text_delta')).toBe(true);
-    expect(events.some((event) => event.type === 'tool_execution_start')).toBe(true);
-    expect(events.some((event) => event.type === 'tool_execution_end')).toBe(true);
+    expect(events.some((event) => event.type === StreamEventType.TextDelta)).toBe(true);
+    expect(events.some((event) => event.type === StreamEventType.ToolExecutionStart)).toBe(true);
+    expect(events.some((event) => event.type === StreamEventType.ToolExecutionEnd)).toBe(true);
     expect(turn.cycles).toBe(2);
     expect(turn.toolExecutions).toHaveLength(1);
   });
@@ -606,9 +606,9 @@ describe('LLM stream execution', () => {
               if (request.signal?.aborted) {
                 throw new UPPError(
                   'LLM stream cancelled',
-                  'CANCELLED',
+                  ErrorCode.Cancelled,
                   providerRef?.name ?? 'mock-llm',
-                  'llm'
+                  ModalityType.LLM
                 );
               }
             }
@@ -637,7 +637,7 @@ describe('LLM stream execution', () => {
     const first = await iterator.next();
     expect(first.done).toBe(false);
     if (!first.done) {
-      expect(first.value.type).toBe('text_delta');
+      expect(first.value.type).toBe(StreamEventType.TextDelta);
     }
 
     expect(capturedSignal).toBeDefined();
@@ -650,8 +650,8 @@ describe('LLM stream execution', () => {
     } catch (error) {
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
-        expect(error.code).toBe('CANCELLED');
-        expect(error.modality).toBe('llm');
+        expect(error.code).toBe(ErrorCode.Cancelled);
+        expect(error.modality).toBe(ModalityType.LLM);
       }
     }
 
@@ -679,7 +679,7 @@ describe('LLM stream execution', () => {
     const stream = instance.stream('Start');
 
     for await (const event of stream) {
-      expect(event.type).toBe('text_delta');
+      expect(event.type).toBe(StreamEventType.TextDelta);
       break;
     }
 
