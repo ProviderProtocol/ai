@@ -23,6 +23,8 @@ import type { Image } from '../core/media/Image.ts';
 export interface ImageModelInput {
   readonly modelId: string;
   readonly provider: ProviderIdentity;
+  /** Optional provider configuration merged into requests */
+  readonly providerConfig?: Partial<ProviderConfig>;
 }
 
 /**

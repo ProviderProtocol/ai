@@ -8,6 +8,7 @@ import { UPPError } from '../../src/types/errors.ts';
 import { isImageBlock } from '../../src/types/content.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { safeEvaluateExpression } from '../helpers/math.ts';
 
 /** Structured output type for city information tests */
 interface CityData {
@@ -139,11 +140,8 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
         required: ['expression'],
       },
       run: async (params: { expression: string }) => {
-        try {
-          return `Result: ${eval(params.expression)}`;
-        } catch {
-          return 'Error evaluating expression';
-        }
+        const result = safeEvaluateExpression(params.expression);
+        return result === null ? 'Error evaluating expression' : `Result: ${result}`;
       },
     };
 

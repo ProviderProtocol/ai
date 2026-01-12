@@ -19,8 +19,10 @@ import type {
   BoundImageModel,
   ImageGenerateOptions,
 } from '../types/image.ts';
+import type { ProviderConfig } from '../types/provider.ts';
 import { UPPError } from '../types/errors.ts';
 import { resolveImageHandler } from './provider-handlers.ts';
+import { toError } from '../utils/error.ts';
 
 /**
  * Creates an image generation instance configured with the specified options.
@@ -51,7 +53,16 @@ import { resolveImageHandler } from './provider-handlers.ts';
 export function image<TParams = unknown>(
   options: ImageOptions<TParams>
 ): ImageInstance<TParams> {
-  const { model: modelRef, config = {}, params } = options;
+  const { model: modelRef, config: explicitConfig = {}, params } = options;
+  const providerConfig = modelRef.providerConfig ?? {};
+  const config: ProviderConfig = {
+    ...providerConfig,
+    ...explicitConfig,
+    headers: {
+      ...providerConfig.headers,
+      ...explicitConfig.headers,
+    },
+  };
 
   const provider = modelRef.provider;
   const imageHandler = resolveImageHandler<TParams>(provider);
@@ -68,6 +79,14 @@ export function image<TParams = unknown>(
 
   const capabilities = boundModel.capabilities;
 
+  const normalizeImageError = (error: unknown): UPPError => {
+    if (error instanceof UPPError) {
+      return error;
+    }
+    const err = toError(error);
+    return new UPPError(err.message, 'PROVIDER_ERROR', provider.name, 'image', undefined, err);
+  };
+
   const instance: ImageInstance<TParams> = {
     model: boundModel,
     params,
@@ -76,18 +95,22 @@ export function image<TParams = unknown>(
     async generate(input: ImageInput, options?: ImageGenerateOptions): Promise<ImageResult> {
       const prompt = normalizeInput(input);
 
-      const response = await boundModel.generate({
-        prompt,
-        params,
-        config,
-        signal: options?.signal,
-      });
+      try {
+        const response = await boundModel.generate({
+          prompt,
+          params,
+          config,
+          signal: options?.signal,
+        });
 
-      return {
-        images: response.images,
-        metadata: response.metadata,
-        usage: response.usage,
-      };
+        return {
+          images: response.images,
+          metadata: response.metadata,
+          usage: response.usage,
+        };
+      } catch (error) {
+        throw normalizeImageError(error);
+      }
     },
   };
 
@@ -104,14 +127,28 @@ export function image<TParams = unknown>(
         signal: abortController.signal,
       });
 
-      const resultPromise = providerStream.response.then((response) => ({
-        images: response.images,
-        metadata: response.metadata,
-        usage: response.usage,
-      }));
+      const resultPromise = providerStream.response
+        .then((response) => ({
+          images: response.images,
+          metadata: response.metadata,
+          usage: response.usage,
+        }))
+        .catch((error) => {
+          throw normalizeImageError(error);
+        });
+
+      async function* wrappedStream(): AsyncGenerator<ImageStreamEvent, void, unknown> {
+        try {
+          for await (const event of providerStream) {
+            yield event;
+          }
+        } catch (error) {
+          throw normalizeImageError(error);
+        }
+      }
 
       return {
-        [Symbol.asyncIterator]: () => providerStream[Symbol.asyncIterator](),
+        [Symbol.asyncIterator]: () => wrappedStream(),
         result: resultPromise,
         abort: () => abortController.abort(),
       };
@@ -121,19 +158,23 @@ export function image<TParams = unknown>(
   if (capabilities.edit && boundModel.edit) {
     const edit = boundModel.edit;
     instance.edit = async function (input: ImageEditInput): Promise<ImageResult> {
-      const response = await edit({
-        image: input.image,
-        mask: input.mask,
-        prompt: input.prompt,
-        params,
-        config,
-      });
+      try {
+        const response = await edit({
+          image: input.image,
+          mask: input.mask,
+          prompt: input.prompt,
+          params,
+          config,
+        });
 
-      return {
-        images: response.images,
-        metadata: response.metadata,
-        usage: response.usage,
-      };
+        return {
+          images: response.images,
+          metadata: response.metadata,
+          usage: response.usage,
+        };
+      } catch (error) {
+        throw normalizeImageError(error);
+      }
     };
   }
 

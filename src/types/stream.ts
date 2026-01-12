@@ -28,7 +28,7 @@ export type StreamEventType =
   | 'video_delta'
   /** Incremental tool call data (arguments being streamed) */
   | 'tool_call_delta'
-  /** Tool execution has started */
+  /** Tool execution has started (may be emitted after completion in some implementations) */
   | 'tool_execution_start'
   /** Tool execution has completed */
   | 'tool_execution_end'
@@ -129,11 +129,13 @@ export interface StreamResult<TData = unknown>
   extends AsyncIterable<StreamEvent> {
   /**
    * Promise that resolves to the complete Turn after streaming finishes.
+   * Rejects if the stream is aborted or terminated early.
    */
   readonly turn: Promise<Turn<TData>>;
 
   /**
    * Aborts the stream, stopping further events and cancelling the request.
+   * This will cause {@link StreamResult.turn} to reject.
    */
   abort(): void;
 }
@@ -143,7 +145,7 @@ export interface StreamResult<TData = unknown>
  *
  * @typeParam TData - Type of the structured output data
  * @param generator - Async generator that yields stream events
- * @param turnPromise - Promise that resolves to the complete Turn
+ * @param turnPromiseOrFactory - Promise or factory that resolves to the complete Turn
  * @param abortController - Controller for aborting the stream
  * @returns A StreamResult that can be iterated and awaited
  *
@@ -159,14 +161,30 @@ export interface StreamResult<TData = unknown>
  */
 export function createStreamResult<TData = unknown>(
   generator: AsyncGenerator<StreamEvent, void, unknown>,
-  turnPromise: Promise<Turn<TData>>,
+  turnPromiseOrFactory: Promise<Turn<TData>> | (() => Promise<Turn<TData>>),
   abortController: AbortController
 ): StreamResult<TData> {
+  let cachedTurn: Promise<Turn<TData>> | null = null;
+
+  const getTurn = (): Promise<Turn<TData>> => {
+    // Lazily build the turn promise to avoid work (or rejections) when unused.
+    if (typeof turnPromiseOrFactory === 'function') {
+      if (!cachedTurn) {
+        cachedTurn = turnPromiseOrFactory();
+      }
+      return cachedTurn;
+    }
+
+    return turnPromiseOrFactory;
+  };
+
   return {
     [Symbol.asyncIterator]() {
       return generator;
     },
-    turn: turnPromise,
+    get turn() {
+      return getTurn();
+    },
     abort() {
       abortController.abort();
     },

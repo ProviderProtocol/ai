@@ -302,6 +302,9 @@ export class TokenBucket implements RetryStrategy {
    * - Returns 0 if a token is available (consumed immediately)
    * - Returns the wait time in milliseconds until the next token
    *
+   * This method may allow tokens to go negative to reserve future capacity
+   * and avoid concurrent callers oversubscribing the same refill.
+   *
    * @returns Delay in milliseconds before the request can proceed
    */
   beforeRequest(): Promise<number> {
@@ -313,8 +316,10 @@ export class TokenBucket implements RetryStrategy {
         return 0;
       }
 
+      const deficit = 1 - this.tokens;
       const msPerToken = 1000 / this.refillRate;
-      return Math.ceil(msPerToken);
+      this.tokens -= 1;
+      return Math.ceil(deficit * msPerToken);
     });
   }
 

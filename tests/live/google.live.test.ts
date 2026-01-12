@@ -3,6 +3,7 @@ import { llm } from '../../src/index.ts';
 import { google } from '../../src/google/index.ts';
 import type { GoogleLLMParams } from '../../src/google/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
+import type { Message } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
@@ -10,6 +11,8 @@ import { join } from 'path';
 // Load duck.png for vision tests
 const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
 const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
+
+type CityData = { city: string; population: number; isCapital: boolean };
 
 /**
  * Live API tests for Google Gemini
@@ -59,7 +62,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
       params: { maxOutputTokens: 100 },
     });
 
-    const history: any[] = [];
+    const history: Message[] = [];
 
     // First turn
     const turn1 = await gemini.generate(history, 'My name is Charlie.');
@@ -242,8 +245,9 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
     // The 'data' field should be automatically populated and typed
     expect(turn.data).toBeDefined();
-    expect((turn.data as any).city).toContain('Paris');
-    expect(typeof (turn.data as any).population).toBe('number');
+    const data = turn.data as CityData;
+    expect(data.city).toContain('Paris');
+    expect(typeof data.population).toBe('number');
   });
 
   test('parallel tool execution', async () => {
@@ -267,7 +271,12 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
     const turn = await gemini.generate('What is the weather in Tokyo and San Francisco? Use the tool for both cities.');
 
     // Verify multiple executions occurred in the same turn
-    const cities = turn.toolExecutions.map(t => (t.arguments as any).city);
+    const cities = turn.toolExecutions
+      .map((execution) => {
+        const city = execution.arguments.city;
+        return typeof city === 'string' ? city : undefined;
+      })
+      .filter((city): city is string => city !== undefined);
     expect(cities).toContain('Tokyo');
     expect(cities).toContain('San Francisco');
     expect(turn.toolExecutions.length).toBeGreaterThanOrEqual(2);
@@ -305,19 +314,20 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Live API', () => {
 
     // The accumulated JSON should be valid and parseable
     expect(accumulatedJson.length).toBeGreaterThan(0);
-    const streamedData = JSON.parse(accumulatedJson);
+    const streamedData = JSON.parse(accumulatedJson) as CityData;
     expect(streamedData.city).toContain('Tokyo');
 
     const turn = await stream.turn;
 
     // The 'data' field should match what we accumulated
     expect(turn.data).toBeDefined();
-    expect((turn.data as any).city).toContain('Tokyo');
-    expect(typeof (turn.data as any).population).toBe('number');
-    expect((turn.data as any).isCapital).toBe(true);
+    const data = turn.data as CityData;
+    expect(data.city).toContain('Tokyo');
+    expect(typeof data.population).toBe('number');
+    expect(data.isCapital).toBe(true);
 
     // Verify streamed matches final
-    expect(streamedData.city).toBe((turn.data as any).city);
+    expect(streamedData.city).toBe(data.city);
   });
 });
 

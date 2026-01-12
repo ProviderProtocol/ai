@@ -12,6 +12,7 @@ import type {
   EmbeddingResponse,
   Provider,
   ModelReference,
+  ProviderConfig,
 } from '../../../src/types/provider.ts';
 
 /**
@@ -106,6 +107,69 @@ describe('embedding()', () => {
 
     expect(embedder.params).toEqual({ dimensions: 256 });
   });
+
+  test('merges providerConfig with explicit config', async () => {
+    let providerRef: EmbeddingProvider<{ dimensions?: number }> | null = null;
+    let capturedConfig: ProviderConfig | undefined;
+
+    const handler: EmbeddingHandler<{ dimensions?: number }> = {
+      supportedInputs: ['text'],
+      _setProvider(provider: EmbeddingProvider<{ dimensions?: number }>) {
+        providerRef = provider;
+      },
+      bind(modelId: string): BoundEmbeddingModel<{ dimensions?: number }> {
+        return {
+          modelId,
+          maxBatchSize: 10,
+          maxInputLength: 8191,
+          dimensions: 3,
+          get provider() {
+            return providerRef!;
+          },
+          async embed(request) {
+            capturedConfig = request.config;
+            return {
+              embeddings: [{
+                vector: [0.1, 0.2, 0.3],
+                index: 0,
+              }],
+              usage: { totalTokens: 1 },
+            };
+          },
+        };
+      },
+    };
+
+    const provider = createProvider<object>({
+      name: 'mock-provider',
+      version: '1.0.0',
+      handlers: { embedding: handler },
+    });
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+      providerConfig: {
+        timeout: 1000,
+        headers: { 'x-model': 'yes' },
+      },
+    };
+
+    const embedder = embedding({
+      model: modelRef,
+      config: {
+        timeout: 2000,
+        headers: { 'x-explicit': 'true' },
+      },
+    });
+
+    await embedder.embed('Hello');
+
+    expect(capturedConfig?.timeout).toBe(2000);
+    expect(capturedConfig?.headers).toEqual({
+      'x-model': 'yes',
+      'x-explicit': 'true',
+    });
+  });
 });
 
 describe('embed() - single input', () => {
@@ -157,6 +221,20 @@ describe('embed() - batch input', () => {
     expect(result.embeddings[2]!.index).toBe(2);
   });
 
+  test('handles empty input array', async () => {
+    const provider = createMockProvider();
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const embedder = embedding({ model: modelRef });
+    const result = await embedder.embed([]);
+
+    expect(result.embeddings).toHaveLength(0);
+    expect(result.usage.totalTokens).toBe(0);
+  });
+
   test('embeds mixed input types', async () => {
     const provider = createMockProvider();
     const modelRef: ModelReference<object> = {
@@ -171,6 +249,39 @@ describe('embed() - batch input', () => {
     ]);
 
     expect(result.embeddings).toHaveLength(2);
+  });
+});
+
+describe('embed() - chunked concurrency', () => {
+  test('preserves indices across concurrent batches', async () => {
+    const handler = createMockHandler(async (inputs: unknown[]) => ({
+      embeddings: (inputs as string[]).map((_, index) => ({
+        vector: [0.1, 0.2, 0.3],
+        index,
+      })),
+      usage: { totalTokens: inputs.length },
+    }));
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const embedder = embedding({ model: modelRef });
+    const stream = embedder.embed(['a', 'b', 'c', 'd'], { chunked: true, batchSize: 1, concurrency: 2 });
+
+    const received: number[] = [];
+    for await (const progress of stream) {
+      for (const embeddingResult of progress.embeddings) {
+        received.push(embeddingResult.index);
+      }
+    }
+
+    const result = await stream.result;
+    const indices = result.embeddings.map((embeddingResult) => embeddingResult.index);
+
+    expect(received).toHaveLength(4);
+    expect(indices).toEqual([0, 1, 2, 3]);
   });
 });
 

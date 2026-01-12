@@ -924,6 +924,7 @@ export interface OpenAIResponsesImageGenerationOutput {
   type: 'image_generation_call';
   id: string;
   result?: string;
+  mime_type?: string;
   status: 'completed' | 'in_progress';
 }
 

@@ -468,9 +468,10 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
     } else if (item.type === 'image_generation_call') {
       const imageGen = item;
       if (imageGen.result) {
+        const mimeType = imageGen.mime_type ?? 'image/png';
         content.push({
           type: 'image',
-          mimeType: 'image/png',
+          mimeType,
           source: { type: 'base64', data: imageGen.result },
         } as ImageBlock);
       }
@@ -545,9 +546,11 @@ export interface ResponsesStreamState {
     { itemId?: string; callId?: string; name?: string; arguments: string }
   >;
   /** Base64 image data from image_generation_call outputs */
-  images: string[];
+  images: Array<{ data: string; mimeType: string }>;
   /** Current response status */
   status: string;
+  /** Reason for incomplete responses (if provided) */
+  incompleteReason?: string;
   /** Input token count */
   inputTokens: number;
   /** Output token count */
@@ -571,6 +574,7 @@ export function createStreamState(): ResponsesStreamState {
     toolCalls: new Map(),
     images: [],
     status: 'in_progress',
+    incompleteReason: undefined,
     inputTokens: 0,
     outputTokens: 0,
     cacheReadTokens: 0,
@@ -595,29 +599,39 @@ export function transformStreamEvent(
 ): StreamEvent[] {
   const events: StreamEvent[] = [];
 
+  const updateFromResponse = (response: OpenAIResponsesResponse): void => {
+    state.id = response.id || state.id;
+    state.model = response.model || state.model;
+    state.status = response.status;
+    if (response.incomplete_details?.reason) {
+      state.incompleteReason = response.incomplete_details.reason;
+    } else if (response.status !== 'incomplete') {
+      state.incompleteReason = undefined;
+    }
+    if (response.usage) {
+      state.inputTokens = response.usage.input_tokens;
+      state.outputTokens = response.usage.output_tokens;
+      state.cacheReadTokens = response.usage.input_tokens_details?.cached_tokens ?? 0;
+    }
+  };
+
   switch (event.type) {
     case 'response.created':
-      state.id = event.response.id;
-      state.model = event.response.model;
+      updateFromResponse(event.response);
       events.push({ type: 'message_start', index: 0, delta: {} });
       break;
 
     case 'response.in_progress':
-      state.status = 'in_progress';
+      updateFromResponse(event.response);
       break;
 
     case 'response.completed':
-      state.status = 'completed';
-      if (event.response.usage) {
-        state.inputTokens = event.response.usage.input_tokens;
-        state.outputTokens = event.response.usage.output_tokens;
-        state.cacheReadTokens = event.response.usage.input_tokens_details?.cached_tokens ?? 0;
-      }
+      updateFromResponse(event.response);
       events.push({ type: 'message_stop', index: 0, delta: {} });
       break;
 
     case 'response.failed':
-      state.status = 'failed';
+      updateFromResponse(event.response);
       events.push({ type: 'message_stop', index: 0, delta: {} });
       break;
 
@@ -658,7 +672,10 @@ export function transformStreamEvent(
       } else if (event.item.type === 'image_generation_call') {
         const imageGen = event.item;
         if (imageGen.result) {
-          state.images.push(imageGen.result);
+          state.images.push({
+            data: imageGen.result,
+            mimeType: imageGen.mime_type ?? 'image/png',
+          });
         }
       }
       events.push({
@@ -766,7 +783,10 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
   const content: AssistantContent[] = [];
   let structuredData: unknown;
 
-  for (const [, text] of state.textByIndex) {
+  const orderedTextEntries = [...state.textByIndex.entries()].sort(
+    ([leftIndex], [rightIndex]) => leftIndex - rightIndex
+  );
+  for (const [, text] of orderedTextEntries) {
     if (text) {
       content.push({ type: 'text', text });
       if (structuredData === undefined) {
@@ -782,8 +802,8 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
   for (const imageData of state.images) {
     content.push({
       type: 'image',
-      mimeType: 'image/png',
-      source: { type: 'base64', data: imageData },
+      mimeType: imageData.mimeType,
+      source: { type: 'base64', data: imageData.data },
     } as ImageBlock);
   }
 
@@ -794,7 +814,10 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     name: string;
     arguments: string;
   }> = [];
-  for (const [, toolCall] of state.toolCalls) {
+  const orderedToolEntries = [...state.toolCalls.entries()].sort(
+    ([leftIndex], [rightIndex]) => leftIndex - rightIndex
+  );
+  for (const [, toolCall] of orderedToolEntries) {
     let args: Record<string, unknown> = {};
     if (toolCall.arguments) {
       try {
@@ -806,6 +829,9 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
     const itemId = toolCall.itemId ?? '';
     const callId = toolCall.callId ?? toolCall.itemId ?? '';
     const name = toolCall.name ?? '';
+    if (!name || !callId) {
+      continue;
+    }
     toolCalls.push({
       toolCallId: callId,
       toolName: name,
@@ -851,6 +877,8 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
   let stopReason = 'end_turn';
   if (state.status === 'completed') {
     stopReason = toolCalls.length > 0 ? 'tool_use' : 'end_turn';
+  } else if (state.status === 'incomplete') {
+    stopReason = state.incompleteReason === 'max_output_tokens' ? 'max_tokens' : 'end_turn';
   } else if (state.status === 'failed') {
     stopReason = 'error';
   }

@@ -131,7 +131,10 @@ export interface ProviderConfig {
   /** Override the base API URL (for proxies, local models) */
   baseUrl?: string;
 
-  /** Request timeout in milliseconds */
+  /**
+   * Request timeout in milliseconds.
+   * Applied per attempt; total wall time can exceed this when retries are enabled.
+   */
   timeout?: number;
 
   /** Custom fetch implementation (for logging, caching, custom TLS) */
@@ -160,6 +163,12 @@ export interface ProviderConfig {
    * ```
    */
   headers?: Record<string, string | undefined>;
+
+  /**
+   * Maximum Retry-After delay in seconds when honoring server headers.
+   * Defaults to 3600 seconds (1 hour).
+   */
+  retryAfterMaxSeconds?: number;
 }
 
 /**

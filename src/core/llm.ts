@@ -18,7 +18,14 @@ import type {
   LLMHandler,
 } from '../types/llm.ts';
 import type { UserMessage, AssistantMessage } from '../types/messages.ts';
-import type { ContentBlock, TextBlock } from '../types/content.ts';
+import type { ContentBlock } from '../types/content.ts';
+import {
+  isTextBlock,
+  isImageBlock,
+  isAudioBlock,
+  isVideoBlock,
+  isBinaryBlock,
+} from '../types/content.ts';
 import type { AfterCallResult, BeforeCallResult, Tool, ToolExecution, ToolResult } from '../types/tool.ts';
 import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
@@ -201,16 +208,26 @@ function isMessageInstance(value: unknown): value is Message {
   if (value instanceof Message) {
     return true;
   }
-  if (
-    typeof value === 'object' &&
-    value !== null &&
-    'timestamp' in value &&
-    'type' in value &&
-    'id' in value
-  ) {
+  if (typeof value === 'object' && value !== null) {
     const obj = value as Record<string, unknown>;
-    const messageTypes = ['user', 'assistant', 'tool_result'];
-    return messageTypes.includes(obj.type as string);
+    const type = obj.type;
+    const id = obj.id;
+    const timestamp = obj.timestamp;
+    const hasValidTimestamp =
+      timestamp instanceof Date ||
+      (typeof timestamp === 'string' && !Number.isNaN(Date.parse(timestamp)));
+
+    if (typeof id !== 'string' || id.length === 0 || !hasValidTimestamp) {
+      return false;
+    }
+
+    if (type === 'user' || type === 'assistant') {
+      return Array.isArray(obj.content);
+    }
+
+    if (type === 'tool_result') {
+      return Array.isArray(obj.results);
+    }
   }
   return false;
 }
@@ -277,12 +294,20 @@ function inputToMessage(input: InferenceInput): Message {
     return input as Message;
   }
 
-  const block = input as ContentBlock;
-  if (block.type === 'text') {
-    return new UserMessageClass((block as TextBlock).text);
+  if (typeof input !== 'object' || input === null || !('type' in input)) {
+    throw new Error('Invalid inference input');
   }
 
-  return new UserMessageClass([block]);
+  const block = input as ContentBlock;
+  if (isTextBlock(block)) {
+    return new UserMessageClass(block.text);
+  }
+
+  if (isImageBlock(block) || isAudioBlock(block) || isVideoBlock(block) || isBinaryBlock(block)) {
+    return new UserMessageClass([block]);
+  }
+
+  throw new Error('Invalid inference input');
 }
 
 /**
@@ -437,6 +462,7 @@ function executeStream<TParams>(
   let cycles = 0;
   let generatorError: Error | null = null;
   let structuredData: unknown;
+  let generatorCompleted = false;
 
   let resolveGenerator: () => void;
   let rejectGenerator: (error: Error) => void;
@@ -454,6 +480,11 @@ function executeStream<TParams>(
         reject(error);
       }
     };
+  });
+  void generatorDone.catch((error) => {
+    if (!generatorError) {
+      generatorError = toError(error);
+    }
   });
 
   const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
@@ -541,6 +572,7 @@ function executeStream<TParams>(
 
         break;
       }
+      generatorCompleted = true;
       resolveGenerator();
     } catch (error) {
       const err = toError(error);
@@ -549,10 +581,18 @@ function executeStream<TParams>(
       throw err;
     } finally {
       abortController.signal.removeEventListener('abort', onAbort);
+      if (!generatorCompleted && !generatorSettled) {
+        const error = new UPPError('Stream cancelled', 'CANCELLED', model.provider.name, 'llm');
+        generatorError = error;
+        if (!abortController.signal.aborted) {
+          abortController.abort();
+        }
+        rejectGenerator(error);
+      }
     }
   }
 
-  const turnPromise = (async (): Promise<Turn> => {
+  const createTurnPromise = async (): Promise<Turn> => {
     await generatorDone;
 
     if (generatorError) {
@@ -568,9 +608,9 @@ function executeStream<TParams>(
       cycles,
       data
     );
-  })();
+  };
 
-  return createStreamResult(generateStream(), turnPromise, abortController);
+  return createStreamResult(generateStream(), createTurnPromise, abortController);
 }
 
 /**

@@ -16,6 +16,7 @@ import { toError } from '../utils/error.ts';
 
 /** Default request timeout in milliseconds (2 minutes). */
 const DEFAULT_TIMEOUT = 120000;
+const MAX_RETRY_AFTER_SECONDS = 3600;
 
 type ForkableRetryStrategy = RetryStrategy & {
   fork: () => RetryStrategy | undefined;
@@ -29,7 +30,7 @@ function hasFork(strategy: RetryStrategy | undefined): strategy is ForkableRetry
  * Executes an HTTP fetch request with automatic retry, timeout handling, and error normalization.
  *
  * This function wraps the standard fetch API with additional capabilities:
- * - Configurable timeout with automatic request cancellation
+ * - Configurable timeout with automatic request cancellation (per attempt)
  * - Retry strategy support (exponential backoff, linear, token bucket, etc.)
  * - Pre-request delay support for rate limiting strategies
  * - Automatic Retry-After header parsing and handling
@@ -75,20 +76,21 @@ export async function doFetch(
   const baseStrategy = config.retryStrategy;
   const strategy = hasFork(baseStrategy) ? baseStrategy.fork() : baseStrategy;
 
-  if (strategy?.beforeRequest) {
-    const delay = await strategy.beforeRequest();
-    if (delay > 0) {
-      await sleep(delay);
-    }
-  }
-
   let attempt = 0;
 
   while (true) {
     attempt++;
 
+    if (strategy?.beforeRequest) {
+      const delay = await strategy.beforeRequest();
+      if (delay > 0) {
+        await sleep(delay);
+      }
+    }
+
+    let response: Response;
     try {
-      const response = await fetchWithTimeout(
+      response = await fetchWithTimeout(
         fetchFn,
         url,
         init,
@@ -96,31 +98,6 @@ export async function doFetch(
         provider,
         modality
       );
-
-      if (!response.ok) {
-        const error = await normalizeHttpError(response, provider, modality);
-
-        const retryAfterSeconds = parseRetryAfter(response.headers.get('Retry-After'));
-        if (retryAfterSeconds !== null && strategy && 'setRetryAfter' in strategy) {
-          (strategy as { setRetryAfter: (s: number) => void }).setRetryAfter(
-            retryAfterSeconds
-          );
-        }
-
-        if (strategy) {
-          const delay = await strategy.onRetry(error, attempt);
-          if (delay !== null) {
-            await sleep(delay);
-            continue;
-          }
-        }
-
-        throw error;
-      }
-
-      strategy?.reset?.();
-
-      return response;
     } catch (error) {
       if (error instanceof UPPError) {
         if (strategy) {
@@ -145,6 +122,34 @@ export async function doFetch(
 
       throw uppError;
     }
+
+    if (!response.ok) {
+      const error = await normalizeHttpError(response, provider, modality);
+
+      const retryAfterSeconds = parseRetryAfter(
+        response.headers.get('Retry-After'),
+        config.retryAfterMaxSeconds ?? MAX_RETRY_AFTER_SECONDS
+      );
+      if (retryAfterSeconds !== null && strategy && 'setRetryAfter' in strategy) {
+        (strategy as { setRetryAfter: (s: number) => void }).setRetryAfter(
+          retryAfterSeconds
+        );
+      }
+
+      if (strategy) {
+        const delay = await strategy.onRetry(error, attempt);
+        if (delay !== null) {
+          await sleep(delay);
+          continue;
+        }
+      }
+
+      throw error;
+    }
+
+    strategy?.reset?.();
+
+    return response;
   }
 }
 
@@ -313,14 +318,14 @@ export async function doStreamFetch(
  *
  * Supports both delta-seconds and HTTP-date formats.
  */
-function parseRetryAfter(headerValue: string | null): number | null {
+function parseRetryAfter(headerValue: string | null, maxSeconds: number): number | null {
   if (!headerValue) {
     return null;
   }
 
   const seconds = parseInt(headerValue, 10);
   if (!Number.isNaN(seconds)) {
-    return seconds;
+    return Math.min(maxSeconds, Math.max(0, seconds));
   }
 
   const dateMillis = Date.parse(headerValue);
@@ -333,5 +338,6 @@ function parseRetryAfter(headerValue: string | null): number | null {
     return 0;
   }
 
-  return Math.ceil(deltaMs / 1000);
+  const deltaSeconds = Math.ceil(deltaMs / 1000);
+  return Math.min(maxSeconds, Math.max(0, deltaSeconds));
 }

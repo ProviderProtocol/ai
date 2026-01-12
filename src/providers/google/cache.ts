@@ -17,10 +17,20 @@ import type {
   GoogleContent,
   GoogleTool,
 } from './types.ts';
-import { normalizeHttpError } from '../../http/errors.ts';
+import type { ProviderConfig } from '../../types/provider.ts';
 import { parseJsonResponse } from '../../http/json.ts';
+import { doFetch } from '../../http/fetch.ts';
+import { UPPError } from '../../types/errors.ts';
 
-const CACHE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/cachedContents';
+const DEFAULT_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+
+function resolveBaseUrl(config?: ProviderConfig): string {
+  if (config?.baseUrl) {
+    const trimmed = config.baseUrl.replace(/\/$/, '');
+    return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`;
+  }
+  return DEFAULT_BASE_URL;
+}
 
 /**
  * Options for creating a cached content entry.
@@ -28,6 +38,10 @@ const CACHE_API_BASE = 'https://generativelanguage.googleapis.com/v1beta/cachedC
 export interface CacheCreateOptions {
   /** API key for authentication */
   apiKey: string;
+  /** Provider configuration (timeout, retry strategy, custom fetch) */
+  config?: ProviderConfig;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
   /** Model to associate with this cache (e.g., "gemini-3-flash-preview") */
   model: string;
   /** Optional display name for the cache (max 128 chars) */
@@ -50,6 +64,10 @@ export interface CacheCreateOptions {
 export interface CacheListOptions {
   /** API key for authentication */
   apiKey: string;
+  /** Provider configuration (timeout, retry strategy, custom fetch) */
+  config?: ProviderConfig;
+  /** Abort signal for cancellation */
+  signal?: AbortSignal;
   /** Maximum number of caches to return per page */
   pageSize?: number;
   /** Token for fetching the next page of results */
@@ -92,6 +110,8 @@ export interface CacheListOptions {
 export async function create(options: CacheCreateOptions): Promise<GoogleCacheResponse> {
   const {
     apiKey,
+    config,
+    signal,
     model,
     displayName,
     contents,
@@ -100,6 +120,8 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
     ttl,
     expireTime,
   } = options;
+  const baseUrl = resolveBaseUrl(config);
+  const requestConfig: ProviderConfig = { ...config, apiKey };
 
   const requestBody: GoogleCacheCreateRequest = {
     model: model.startsWith('models/') ? model : `models/${model}`,
@@ -129,15 +151,30 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
     requestBody.expireTime = expireTime;
   }
 
-  const response = await fetch(CACHE_API_BASE, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify(requestBody),
-  });
-
-  if (!response.ok) {
-    throw await normalizeHttpError(response, 'google', 'llm');
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-goog-api-key': apiKey,
+  };
+  if (config?.headers) {
+    for (const [key, value] of Object.entries(config.headers)) {
+      if (value !== undefined) {
+        headers[key] = value;
+      }
+    }
   }
+
+  const response = await doFetch(
+    `${baseUrl}/cachedContents`,
+    {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(requestBody),
+      signal,
+    },
+    requestConfig,
+    'google',
+    'llm'
+  );
 
   return parseJsonResponse<GoogleCacheResponse>(response, 'google', 'llm');
 }
@@ -147,6 +184,8 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
  *
  * @param name - The cache name (format: "cachedContents/{id}")
  * @param apiKey - API key for authentication
+ * @param config - Provider configuration (timeout, retry strategy, custom fetch)
+ * @param signal - Abort signal for cancellation
  * @returns The cache entry details
  *
  * @example
@@ -155,18 +194,37 @@ export async function create(options: CacheCreateOptions): Promise<GoogleCacheRe
  * console.log(`Cache expires at: ${cache.expireTime}`);
  * ```
  */
-export async function get(name: string, apiKey: string): Promise<GoogleCacheResponse> {
+export async function get(
+  name: string,
+  apiKey: string,
+  config?: ProviderConfig,
+  signal?: AbortSignal
+): Promise<GoogleCacheResponse> {
   const cacheName = name.startsWith('cachedContents/') ? name : `cachedContents/${name}`;
-  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}`;
+  const baseUrl = resolveBaseUrl(config);
+  const url = `${baseUrl}/${cacheName}`;
+  const requestConfig: ProviderConfig = { ...config, apiKey };
 
-  const response = await fetch(url, {
-    method: 'GET',
-    headers: { 'x-goog-api-key': apiKey },
-  });
-
-  if (!response.ok) {
-    throw await normalizeHttpError(response, 'google', 'llm');
+  const headers: Record<string, string> = { 'x-goog-api-key': apiKey };
+  if (config?.headers) {
+    for (const [key, value] of Object.entries(config.headers)) {
+      if (value !== undefined) {
+        headers[key] = value;
+      }
+    }
   }
+
+  const response = await doFetch(
+    url,
+    {
+      method: 'GET',
+      headers,
+      signal,
+    },
+    requestConfig,
+    'google',
+    'llm'
+  );
 
   return parseJsonResponse<GoogleCacheResponse>(response, 'google', 'llm');
 }
@@ -190,20 +248,34 @@ export async function get(name: string, apiKey: string): Promise<GoogleCacheResp
  * ```
  */
 export async function list(options: CacheListOptions): Promise<GoogleCacheListResponse> {
-  const { apiKey, pageSize, pageToken } = options;
+  const { apiKey, config, signal, pageSize, pageToken } = options;
+  const baseUrl = resolveBaseUrl(config);
+  const requestConfig: ProviderConfig = { ...config, apiKey };
 
   const params = new URLSearchParams();
   if (pageSize) params.set('pageSize', String(pageSize));
   if (pageToken) params.set('pageToken', pageToken);
 
-  const response = await fetch(`${CACHE_API_BASE}?${params}`, {
-    method: 'GET',
-    headers: { 'x-goog-api-key': apiKey },
-  });
-
-  if (!response.ok) {
-    throw await normalizeHttpError(response, 'google', 'llm');
+  const headers: Record<string, string> = { 'x-goog-api-key': apiKey };
+  if (config?.headers) {
+    for (const [key, value] of Object.entries(config.headers)) {
+      if (value !== undefined) {
+        headers[key] = value;
+      }
+    }
   }
+
+  const response = await doFetch(
+    `${baseUrl}/cachedContents?${params}`,
+    {
+      method: 'GET',
+      headers,
+      signal,
+    },
+    requestConfig,
+    'google',
+    'llm'
+  );
 
   return parseJsonResponse<GoogleCacheListResponse>(response, 'google', 'llm');
 }
@@ -215,8 +287,10 @@ export async function list(options: CacheListOptions): Promise<GoogleCacheListRe
  * (contents, systemInstruction, tools) are immutable after creation.
  *
  * @param name - The cache name (format: "cachedContents/{id}")
- * @param update - The update to apply (ttl or expireTime)
+ * @param update - The update to apply (exactly one of ttl or expireTime)
  * @param apiKey - API key for authentication
+ * @param config - Provider configuration (timeout, retry strategy, custom fetch)
+ * @param signal - Abort signal for cancellation
  * @returns The updated cache entry
  *
  * @example
@@ -232,20 +306,66 @@ export async function list(options: CacheListOptions): Promise<GoogleCacheListRe
 export async function update(
   name: string,
   updateRequest: GoogleCacheUpdateRequest,
-  apiKey: string
+  apiKey: string,
+  config?: ProviderConfig,
+  signal?: AbortSignal
 ): Promise<GoogleCacheResponse> {
-  const cacheName = name.startsWith('cachedContents/') ? name : `cachedContents/${name}`;
-  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}`;
-
-  const response = await fetch(url, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify(updateRequest),
-  });
-
-  if (!response.ok) {
-    throw await normalizeHttpError(response, 'google', 'llm');
+  if (updateRequest.expireTime && updateRequest.ttl) {
+    throw new UPPError(
+      'Provide either expireTime or ttl (not both)',
+      'INVALID_REQUEST',
+      'google',
+      'llm'
+    );
   }
+
+  const updateMaskParts: string[] = [];
+  if (updateRequest.expireTime) {
+    updateMaskParts.push('expireTime');
+  }
+  if (updateRequest.ttl) {
+    updateMaskParts.push('ttl');
+  }
+
+  if (updateMaskParts.length === 0) {
+    throw new UPPError(
+      'Update request must include expireTime or ttl',
+      'INVALID_REQUEST',
+      'google',
+      'llm'
+    );
+  }
+
+  const cacheName = name.startsWith('cachedContents/') ? name : `cachedContents/${name}`;
+  const baseUrl = resolveBaseUrl(config);
+  const params = new URLSearchParams({ updateMask: updateMaskParts.join(',') });
+  const url = `${baseUrl}/${cacheName}?${params.toString()}`;
+  const requestConfig: ProviderConfig = { ...config, apiKey };
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'x-goog-api-key': apiKey,
+  };
+  if (config?.headers) {
+    for (const [key, value] of Object.entries(config.headers)) {
+      if (value !== undefined) {
+        headers[key] = value;
+      }
+    }
+  }
+
+  const response = await doFetch(
+    url,
+    {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(updateRequest),
+      signal,
+    },
+    requestConfig,
+    'google',
+    'llm'
+  );
 
   return parseJsonResponse<GoogleCacheResponse>(response, 'google', 'llm');
 }
@@ -255,24 +375,45 @@ export async function update(
  *
  * @param name - The cache name (format: "cachedContents/{id}")
  * @param apiKey - API key for authentication
+ * @param config - Provider configuration (timeout, retry strategy, custom fetch)
+ * @param signal - Abort signal for cancellation
  *
  * @example
  * ```typescript
  * await google.cache.delete('cachedContents/abc123', apiKey);
  * ```
  */
-async function deleteCache(name: string, apiKey: string): Promise<void> {
+async function deleteCache(
+  name: string,
+  apiKey: string,
+  config?: ProviderConfig,
+  signal?: AbortSignal
+): Promise<void> {
   const cacheName = name.startsWith('cachedContents/') ? name : `cachedContents/${name}`;
-  const url = `https://generativelanguage.googleapis.com/v1beta/${cacheName}`;
+  const baseUrl = resolveBaseUrl(config);
+  const url = `${baseUrl}/${cacheName}`;
+  const requestConfig: ProviderConfig = { ...config, apiKey };
 
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers: { 'x-goog-api-key': apiKey },
-  });
-
-  if (!response.ok) {
-    throw await normalizeHttpError(response, 'google', 'llm');
+  const headers: Record<string, string> = { 'x-goog-api-key': apiKey };
+  if (config?.headers) {
+    for (const [key, value] of Object.entries(config.headers)) {
+      if (value !== undefined) {
+        headers[key] = value;
+      }
+    }
   }
+
+  const response = await doFetch(
+    url,
+    {
+      method: 'DELETE',
+      headers,
+      signal,
+    },
+    requestConfig,
+    'google',
+    'llm'
+  );
 }
 
 /**

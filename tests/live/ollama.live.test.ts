@@ -3,6 +3,7 @@ import { llm } from "../../src/index.ts";
 import { ollama } from "../../src/ollama/index.ts";
 import type { OllamaLLMParams } from "../../src/ollama/index.ts";
 import { UserMessage } from "../../src/types/messages.ts";
+import type { Message } from "../../src/types/messages.ts";
 import { UPPError } from "../../src/types/errors.ts";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -19,6 +20,8 @@ try {
 // Default model to use for tests
 const TEST_MODEL = process.env.OLLAMA_TEST_MODEL || "gemma3:4b";
 const VISION_MODEL = process.env.OLLAMA_VISION_MODEL || "gemma3:4b";
+
+type PersonData = { name: string; age: number };
 
 /**
  * Live API tests for Ollama
@@ -68,7 +71,7 @@ describe("Ollama Live API", () => {
       params: { num_predict: 100 },
     });
 
-    const history: any[] = [];
+    const history: Message[] = [];
 
     // First turn
     const turn1 = await model.generate(history, "My name is Alice.");
@@ -157,8 +160,9 @@ describe("Ollama Live API", () => {
 
     // The 'data' field should be populated
     if (turn.data) {
-      expect((turn.data as any).name).toBeDefined();
-      expect((turn.data as any).age).toBeDefined();
+      const data = turn.data as PersonData;
+      expect(data.name).toBeDefined();
+      expect(data.age).toBeDefined();
     }
   });
 

@@ -20,6 +20,7 @@ import type {
   EmbeddingInput,
   BoundEmbeddingModel,
   EmbeddingResponse,
+  ProviderConfig,
 } from '../types/provider.ts';
 import { UPPError } from '../types/errors.ts';
 import { resolveEmbeddingHandler } from './provider-handlers.ts';
@@ -63,7 +64,16 @@ import { toError } from '../utils/error.ts';
 export function embedding<TParams = unknown>(
   options: EmbeddingOptions<TParams>
 ): EmbeddingInstance<TParams> {
-  const { model: modelRef, config = {}, params } = options;
+  const { model: modelRef, config: explicitConfig = {}, params } = options;
+  const providerConfig = modelRef.providerConfig ?? {};
+  const config: ProviderConfig = {
+    ...providerConfig,
+    ...explicitConfig,
+    headers: {
+      ...providerConfig.headers,
+      ...explicitConfig.headers,
+    },
+  };
 
   const provider = modelRef.provider;
   const handler = resolveEmbeddingHandler<TParams>(provider);
@@ -221,8 +231,8 @@ function createChunkedStream<TParams>(
   const batchSize = options.batchSize ?? model.maxBatchSize;
   const concurrency = options.concurrency ?? 1;
 
-  let resolveResult: (result: EmbeddingResult) => void;
-  let rejectResult: (error: Error) => void;
+  let resolveResult!: (result: EmbeddingResult) => void;
+  let rejectResult!: (error: Error) => void;
   let settled = false;
   const resultPromise = new Promise<EmbeddingResult>((resolve, reject) => {
     resolveResult = (result) => {
@@ -251,18 +261,26 @@ function createChunkedStream<TParams>(
   };
 
   abortController.signal.addEventListener('abort', onAbort, { once: true });
+  const onExternalAbort = () => abortController.abort();
   if (options.signal) {
-    options.signal.addEventListener('abort', () => abortController.abort(), { once: true });
+    options.signal.addEventListener('abort', onExternalAbort, { once: true });
   }
+
+  const cleanupAbortListeners = () => {
+    abortController.signal.removeEventListener('abort', onAbort);
+    if (options.signal) {
+      options.signal.removeEventListener('abort', onExternalAbort);
+    }
+  };
 
   async function* generate(): AsyncGenerator<EmbeddingProgress> {
     const total = inputs.length;
     const allEmbeddings: Embedding[] = [];
     let totalTokens = 0;
 
-    const batches: EmbeddingInput[][] = [];
+    const batches: Array<{ inputs: EmbeddingInput[]; startIndex: number }> = [];
     for (let i = 0; i < inputs.length; i += batchSize) {
-      batches.push(inputs.slice(i, i + batchSize));
+      batches.push({ inputs: inputs.slice(i, i + batchSize), startIndex: i });
     }
 
     try {
@@ -275,7 +293,7 @@ function createChunkedStream<TParams>(
         const responses = await Promise.all(
           chunk.map((batch) =>
             model.embed({
-              inputs: batch,
+              inputs: batch.inputs,
               params,
               config: config ?? {},
               signal: abortController.signal,
@@ -284,13 +302,17 @@ function createChunkedStream<TParams>(
         );
 
         const batchEmbeddings: Embedding[] = [];
-        for (const response of responses) {
-          for (const vec of response.embeddings) {
+        for (let responseIndex = 0; responseIndex < responses.length; responseIndex += 1) {
+          const response = responses[responseIndex]!;
+          const batch = chunk[responseIndex]!;
+          for (let vecIndex = 0; vecIndex < response.embeddings.length; vecIndex += 1) {
+            const vec = response.embeddings[vecIndex]!;
             const vector = normalizeVector(vec.vector, model.provider.name);
+            const resolvedIndex = batch.startIndex + (vec.index ?? vecIndex);
             const emb: Embedding = {
               vector,
               dimensions: vector.length,
-              index: allEmbeddings.length + batchEmbeddings.length,
+              index: resolvedIndex,
               tokens: vec.tokens,
               metadata: vec.metadata,
             };
@@ -309,14 +331,19 @@ function createChunkedStream<TParams>(
         };
       }
 
+      const orderedEmbeddings = [...allEmbeddings].sort(
+        (left, right) => left.index - right.index
+      );
       resolveResult({
-        embeddings: allEmbeddings,
+        embeddings: orderedEmbeddings,
         usage: { totalTokens },
       });
     } catch (error) {
       const err = toError(error);
       rejectResult(err);
       throw err;
+    } finally {
+      cleanupAbortListeners();
     }
   }
 

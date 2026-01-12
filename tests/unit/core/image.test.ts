@@ -15,7 +15,7 @@ import type {
   ImageProviderStreamResult,
   ImageStreamEvent,
 } from '../../../src/types/image.ts';
-import type { Provider, ModelReference, ImageProvider } from '../../../src/types/provider.ts';
+import type { Provider, ModelReference, ImageProvider, ProviderConfig } from '../../../src/types/provider.ts';
 import { Image } from '../../../src/core/media/Image.ts';
 
 /**
@@ -139,6 +139,49 @@ describe('image()', () => {
     });
 
     expect(imageInstance.params).toEqual({ size: '1024x1024', quality: 'hd' });
+  });
+
+  test('merges providerConfig with explicit config', async () => {
+    let capturedConfig: ProviderConfig | undefined;
+    const handler = createMockHandler({
+      mockGenerate: async (request) => {
+        capturedConfig = request.config;
+        return {
+          images: [{
+            image: Image.fromBase64(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              'image/png'
+            ),
+          }],
+          usage: { imagesGenerated: 1 },
+        };
+      },
+    });
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<TestParams> = {
+      modelId: 'test-model',
+      provider,
+      providerConfig: {
+        timeout: 1000,
+        headers: { 'x-model': 'yes' },
+      },
+    };
+
+    const imageInstance = image({
+      model: modelRef,
+      config: {
+        timeout: 2000,
+        headers: { 'x-explicit': 'true' },
+      },
+    });
+
+    await imageInstance.generate('Test prompt');
+
+    expect(capturedConfig?.timeout).toBe(2000);
+    expect(capturedConfig?.headers).toEqual({
+      'x-model': 'yes',
+      'x-explicit': 'true',
+    });
   });
 
   test('passes abort signal to handler', async () => {
@@ -328,6 +371,26 @@ describe('generate()', () => {
       cost: 0.04,
     });
   });
+
+  test('wraps provider errors in UPPError', async () => {
+    const handler = createMockHandler({
+      mockGenerate: async () => {
+        throw new Error('provider boom');
+      },
+    });
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const imageInstance = image({ model: modelRef });
+    await expect(imageInstance.generate('Test')).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      provider: 'mock-provider',
+      modality: 'image',
+    });
+  });
 });
 
 describe('stream()', () => {
@@ -374,6 +437,129 @@ describe('stream()', () => {
     const imageInstance = image({ model: modelRef });
 
     expect(imageInstance.stream).toBeUndefined();
+  });
+
+  test('streams events and resolves result', async () => {
+    const previewImage = Image.fromBase64(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'image/png'
+    );
+    const completeImage = Image.fromBase64(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      'image/png'
+    );
+
+    const handler = createMockHandler({
+      capabilities: { streaming: true },
+      mockStream: () => {
+        const events: ImageStreamEvent[] = [
+          { type: 'preview', image: previewImage, index: 0 },
+          { type: 'complete', image: { image: completeImage }, index: 0 },
+        ];
+        return {
+          [Symbol.asyncIterator]: async function* () {
+            for (const event of events) {
+              yield event;
+            }
+          },
+          response: Promise.resolve({
+            images: [{ image: completeImage }],
+            usage: { imagesGenerated: 1 },
+          }),
+        };
+      },
+    });
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const imageInstance = image({ model: modelRef });
+    const stream = imageInstance.stream?.('Test prompt');
+    expect(stream).toBeDefined();
+    if (!stream) return;
+
+    const events: ImageStreamEvent[] = [];
+    for await (const event of stream) {
+      events.push(event);
+    }
+
+    const result = await stream.result;
+    expect(events).toHaveLength(2);
+    expect(result.images).toHaveLength(1);
+  });
+
+  test('stream wraps response errors', async () => {
+    const handler = createMockHandler({
+      capabilities: { streaming: true },
+      mockStream: () => ({
+        [Symbol.asyncIterator]: async function* () {
+          yield {
+            type: 'preview',
+            image: Image.fromBase64(
+              'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+              'image/png'
+            ),
+            index: 0,
+          };
+        },
+        response: Promise.reject(new Error('stream fail')),
+      }),
+    });
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const imageInstance = image({ model: modelRef });
+    const stream = imageInstance.stream?.('Test prompt');
+    expect(stream).toBeDefined();
+    if (!stream) return;
+
+    await expect(stream.result).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      provider: 'mock-provider',
+      modality: 'image',
+    });
+  });
+
+  test('stream wraps iterator errors', async () => {
+    const handler = createMockHandler({
+      capabilities: { streaming: true },
+      mockStream: () => ({
+        [Symbol.asyncIterator]: async function* () {
+          throw new Error('iterator boom');
+        },
+        response: Promise.resolve({
+          images: [],
+          usage: { imagesGenerated: 0 },
+        }),
+      }),
+    });
+    const provider = createMockProvider(handler);
+    const modelRef: ModelReference<object> = {
+      modelId: 'test-model',
+      provider,
+    };
+
+    const imageInstance = image({ model: modelRef });
+    const stream = imageInstance.stream?.('Test prompt');
+    expect(stream).toBeDefined();
+    if (!stream) return;
+
+    const consume = async () => {
+      for await (const _event of stream) {
+        // no-op
+      }
+    };
+
+    await expect(consume()).rejects.toMatchObject({
+      code: 'PROVIDER_ERROR',
+      provider: 'mock-provider',
+      modality: 'image',
+    });
   });
 });
 

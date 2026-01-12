@@ -657,4 +657,36 @@ describe('LLM stream execution', () => {
 
     await expect(stream.turn).rejects.toBeInstanceOf(UPPError);
   });
+
+  test('early termination rejects turn and aborts request', async () => {
+    let capturedSignal: AbortSignal | undefined;
+
+    const handler = createMockLLMHandler({
+      responses: [createResponse(new AssistantMessage('done'), defaultUsage(1, 1))],
+      streamEvents: [[textDelta('partial'), textDelta('rest')]],
+      onRequest: (request) => {
+        capturedSignal = request.signal;
+      },
+    });
+
+    const provider = createProvider<MockParams>({
+      name: 'mock-llm',
+      version: '1.0.0',
+      handlers: { llm: handler },
+    });
+
+    const instance = llm<MockParams>({ model: provider('mock-model') });
+    const stream = instance.stream('Start');
+
+    for await (const event of stream) {
+      expect(event.type).toBe('text_delta');
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(capturedSignal).toBeDefined();
+    expect(capturedSignal?.aborted).toBe(true);
+    await expect(stream.turn).rejects.toBeInstanceOf(UPPError);
+  });
 });

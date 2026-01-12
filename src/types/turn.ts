@@ -95,7 +95,12 @@ export interface Turn<TData = unknown> {
   /** The final assistant response (last AssistantMessage in the turn) */
   readonly response: AssistantMessage;
 
-  /** Tool executions that occurred during this turn */
+  /**
+   * Tool executions that occurred during this turn.
+   *
+   * Execution order reflects completion timing, not call order.
+   * Correlate with tool calls using toolCallId.
+   */
   readonly toolExecutions: ToolExecution[];
 
   /** Aggregate token usage for the entire turn */
@@ -114,6 +119,9 @@ export interface Turn<TData = unknown> {
 /**
  * Turn serialized to JSON format.
  * Messages are converted to MessageJSON, response is omitted (computed from messages).
+ *
+ * @remarks
+ * This type is derived from {@link Turn} and should stay in sync with it.
  */
 export type TurnJSON = Omit<Turn, 'messages' | 'response'> & {
   messages: MessageJSON[];

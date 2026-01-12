@@ -3,6 +3,8 @@
  * @module http/sse
  */
 
+const MAX_SSE_BUFFER_CHARS = 1024 * 1024;
+
 /**
  * Parses a Server-Sent Events stream into JSON objects.
  *
@@ -40,13 +42,24 @@ export async function* parseSSEStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const appendToBuffer = (chunk: string): void => {
+    if (buffer.length + chunk.length > MAX_SSE_BUFFER_CHARS) {
+      throw new Error(
+        `SSE buffer exceeded maximum size (${MAX_SSE_BUFFER_CHARS} chars)`
+      );
+    }
+    buffer += chunk;
+  };
 
   try {
     while (true) {
       const { done, value } = await reader.read();
 
       if (done) {
-        buffer += decoder.decode();
+        const tail = decoder.decode();
+        if (tail) {
+          appendToBuffer(tail);
+        }
         // Process any remaining data in buffer
         if (buffer.trim()) {
           const event = parseSSEEvent(buffer);
@@ -57,7 +70,10 @@ export async function* parseSSEStream(
         break;
       }
 
-      buffer += decoder.decode(value, { stream: true });
+      const chunk = decoder.decode(value, { stream: true });
+      if (chunk) {
+        appendToBuffer(chunk);
+      }
 
       // Process complete events (separated by double newlines or \r\n\r\n)
       const events = buffer.split(/\r?\n\r?\n/);

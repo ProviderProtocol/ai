@@ -17,5 +17,11 @@ export function toError(value: unknown): Error {
   if (typeof value === 'string') {
     return new Error(value);
   }
+  if (typeof value === 'object' && value !== null && 'message' in value) {
+    const message = (value as { message?: unknown }).message;
+    if (typeof message === 'string') {
+      return new Error(message);
+    }
+  }
   return new Error(String(value));
 }

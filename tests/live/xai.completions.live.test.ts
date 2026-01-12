@@ -3,13 +3,17 @@ import { llm } from '../../src/index.ts';
 import { xai } from '../../src/xai/index.ts';
 import type { XAICompletionsParams } from '../../src/xai/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
+import type { Message } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { safeEvaluateExpression } from '../helpers/math.ts';
 
 // Load duck.png for vision tests
 const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
 const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
+
+type CityData = { city: string; population: number };
 
 /**
  * Live API tests for xAI Chat Completions API (OpenAI-compatible)
@@ -62,7 +66,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
       params: { max_tokens: 100 },
     });
 
-    const history: any[] = [];
+    const history: Message[] = [];
 
     // First turn
     const turn1 = await grok.generate(history, 'My name is Bob.');
@@ -100,12 +104,8 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
         required: ['expression'],
       },
       run: async (params: { expression: string }) => {
-        // Simple eval for demo (not safe in production!)
-        try {
-          return `Result: ${eval(params.expression)}`;
-        } catch {
-          return 'Error evaluating expression';
-        }
+        const result = safeEvaluateExpression(params.expression);
+        return result === null ? 'Error evaluating expression' : `Result: ${result}`;
       },
     };
 
@@ -227,8 +227,9 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
 
     // The 'data' field should be automatically populated and typed
     expect(turn.data).toBeDefined();
-    expect((turn.data as any).city).toContain('Paris');
-    expect(typeof (turn.data as any).population).toBe('number');
+    const data = turn.data as CityData;
+    expect(data.city).toContain('Paris');
+    expect(typeof data.population).toBe('number');
   });
 
   test('parallel tool execution', async () => {
@@ -252,7 +253,12 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions API Live', () => {
     const turn = await grok.generate('What is the weather in Tokyo and San Francisco? Use the tool for both cities.');
 
     // Verify multiple executions occurred in the same turn
-    const cities = turn.toolExecutions.map(t => (t.arguments as any).city);
+    const cities = turn.toolExecutions
+      .map((execution) => {
+        const city = execution.arguments.city;
+        return typeof city === 'string' ? city : undefined;
+      })
+      .filter((city): city is string => city !== undefined);
     expect(cities).toContain('Tokyo');
     expect(cities).toContain('San Francisco');
     expect(turn.toolExecutions.length).toBeGreaterThanOrEqual(2);

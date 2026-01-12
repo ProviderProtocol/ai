@@ -62,9 +62,12 @@ describe('parseSSEStream', () => {
       events.push(event);
     }
     expect(events).toHaveLength(3);
-    expect((events[0] as any).id).toBe(1);
-    expect((events[1] as any).id).toBe(2);
-    expect((events[2] as any).id).toBe(3);
+    const first = events[0] as { id?: number };
+    const second = events[1] as { id?: number };
+    const third = events[2] as { id?: number };
+    expect(first.id).toBe(1);
+    expect(second.id).toBe(2);
+    expect(third.id).toBe(3);
   });
 
   test('handles [DONE] terminator', async () => {
@@ -87,8 +90,9 @@ describe('parseSSEStream', () => {
       events.push(event);
     }
     expect(events).toHaveLength(1);
-    expect((events[0] as any)._eventType).toBe('message_start');
-    expect((events[0] as any).type).toBe('start');
+    const event = events[0] as { _eventType?: string; type?: string };
+    expect(event._eventType).toBe('message_start');
+    expect(event.type).toBe('start');
   });
 
   test('ignores comment lines', async () => {
@@ -100,7 +104,8 @@ describe('parseSSEStream', () => {
       events.push(event);
     }
     expect(events).toHaveLength(1);
-    expect((events[0] as any).message).toBe('test');
+    const event = events[0] as { message?: string };
+    expect(event.message).toBe('test');
   });
 
   test('handles chunked data', async () => {
@@ -114,8 +119,10 @@ describe('parseSSEStream', () => {
       events.push(event);
     }
     expect(events).toHaveLength(2);
-    expect((events[0] as any).part).toBe('one');
-    expect((events[1] as any).part).toBe('two');
+    const first = events[0] as { part?: string };
+    const second = events[1] as { part?: string };
+    expect(first.part).toBe('one');
+    expect(second.part).toBe('two');
   });
 
   test('skips malformed JSON', async () => {
@@ -127,6 +134,77 @@ describe('parseSSEStream', () => {
       events.push(event);
     }
     expect(events).toHaveLength(1);
-    expect((events[0] as any).valid).toBe(true);
+    const event = events[0] as { valid?: boolean };
+    expect(event.valid).toBe(true);
+  });
+
+  test('parses multi-line data fields', async () => {
+    const stream = textToStream(
+      'data: {"message":\n' +
+      'data: "hello"}\n\n'
+    );
+    const events: unknown[] = [];
+    for await (const event of parseSSEStream(stream)) {
+      events.push(event);
+    }
+    expect(events).toHaveLength(1);
+    const event = events[0] as { message?: string };
+    expect(event.message).toBe('hello');
+  });
+
+  test('handles CRLF line endings', async () => {
+    const stream = textToStream('data: {"message": "hello"}\r\n\r\n');
+    const events: unknown[] = [];
+    for await (const event of parseSSEStream(stream)) {
+      events.push(event);
+    }
+    expect(events).toHaveLength(1);
+    const event = events[0] as { message?: string };
+    expect(event.message).toBe('hello');
+  });
+
+  test('does not carry event type across events', async () => {
+    const stream = textToStream(
+      'event: message_start\ndata: {"type": "start"}\n\n' +
+      'data: {"type": "next"}\n\n'
+    );
+    const events: unknown[] = [];
+    for await (const event of parseSSEStream(stream)) {
+      events.push(event);
+    }
+    expect(events).toHaveLength(2);
+    const first = events[0] as { _eventType?: string };
+    const second = events[1] as { _eventType?: string };
+    expect(first._eventType).toBe('message_start');
+    expect(second._eventType).toBeUndefined();
+  });
+
+  test('rejects on excessive buffer growth', async () => {
+    const largePayload = 'data: ' + 'a'.repeat(1100000);
+    const stream = textToStream(largePayload);
+    const consume = async () => {
+      for await (const _event of parseSSEStream(stream)) {
+        // no-op
+      }
+    };
+    await expect(consume()).rejects.toThrow('SSE buffer exceeded');
+  });
+
+  test('propagates stream errors', async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode('data: {"message":"hi"}\n\n'));
+        controller.error(new Error('stream aborted'));
+      },
+    });
+
+    const consume = async () => {
+      for await (const _event of parseSSEStream(stream)) {
+        // consume until error
+      }
+    };
+
+    await expect(consume()).rejects.toThrow('stream aborted');
   });
 });

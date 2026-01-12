@@ -28,6 +28,8 @@ import type {
 export interface EmbeddingModelInput {
   readonly modelId: string;
   readonly provider: ProviderIdentity;
+  /** Optional provider configuration merged into requests */
+  readonly providerConfig?: Partial<ProviderConfig>;
 }
 
 /**

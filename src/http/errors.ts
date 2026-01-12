@@ -34,6 +34,8 @@ export function statusToErrorCode(status: number): ErrorCode {
   switch (status) {
     case 400:
       return 'INVALID_REQUEST';
+    case 402:
+      return 'QUOTA_EXCEEDED';
     case 401:
     case 403:
       return 'AUTHENTICATION_FAILED';
@@ -41,8 +43,14 @@ export function statusToErrorCode(status: number): ErrorCode {
       return 'MODEL_NOT_FOUND';
     case 408:
       return 'TIMEOUT';
+    case 409:
+      return 'INVALID_REQUEST';
+    case 422:
+      return 'INVALID_REQUEST';
     case 413:
       return 'CONTEXT_LENGTH_EXCEEDED';
+    case 451:
+      return 'CONTENT_FILTERED';
     case 429:
       return 'RATE_LIMITED';
     case 500:
