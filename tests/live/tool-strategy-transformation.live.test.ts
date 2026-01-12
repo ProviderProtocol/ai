@@ -4,7 +4,7 @@ import { openai } from '../../src/openai/index.ts';
 import { anthropic } from '../../src/anthropic/index.ts';
 import type { OpenAICompletionsParams } from '../../src/openai/index.ts';
 import type { AnthropicLLMParams } from '../../src/anthropic/index.ts';
-import type { ToolUseStrategy, Tool, ToolExecution } from '../../src/types/tool.ts';
+import type { ToolUseStrategy, Tool } from '../../src/types/tool.ts';
 
 /**
  * Live tests for ToolUseStrategy input/output transformation
@@ -206,7 +206,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Tool Strategy Transformatio
       toolStrategy: strategy,
     });
 
-    const turn = await gpt.generate('Use the echo tool with message "should be skipped".');
+    const turn = await gpt.generate('Use the echo tool with message "test blocked".');
 
     // onBeforeCall should have been invoked
     expect(beforeCallCount).toBeGreaterThan(0);
