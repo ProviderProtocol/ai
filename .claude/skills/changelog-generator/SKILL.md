@@ -9,4 +9,4 @@ description: Helpful guide on how to generate and structure a changelog for app 
 Generate a changelog from last git tag to now. 
 The changelog should be a simple checklist. 
 Avoid un-needed code or comments. 
-When a change requires or adds developer attentive changes / additions write brief, compliant, code samples/examples. (inside markdown code blocks)
+When a change requires or adds developer attentive changes / additions write brief, compliant, code samples/examples. (inside markdown code blocks (with language tag, ie \`\`\`ts{code}`\`\`\`))
