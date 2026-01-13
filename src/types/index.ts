@@ -35,6 +35,7 @@ export type {
 export type {
   ContentBlock,
   TextBlock,
+  ReasoningBlock,
   ImageBlock,
   AudioBlock,
   VideoBlock,
@@ -47,7 +48,9 @@ export {
   ContentBlockType,
   ImageSourceType,
   text,
+  reasoning,
   isTextBlock,
+  isReasoningBlock,
   isImageBlock,
   isAudioBlock,
   isVideoBlock,

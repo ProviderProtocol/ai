@@ -14,7 +14,7 @@ import type { Message } from '../../types/messages.ts';
 import { StreamEventType, type StreamEvent } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, ReasoningBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -262,9 +262,35 @@ function transformMessage(message: Message): AnthropicMessage {
 
   if (isAssistantMessage(message)) {
     const validContent = filterValidContent(message.content);
-    const content: AnthropicContent[] = validContent.map((block, index, arr) =>
-      transformContentBlock(block, index === arr.length - 1 && !message.toolCalls?.length ? cacheControl : undefined)
-    );
+    const content: AnthropicContent[] = [];
+
+    // Get thinking signatures from metadata if present
+    const anthropicMeta = message.metadata?.anthropic as
+      | { thinkingSignature?: string; thinkingSignatures?: Array<string | null> }
+      | undefined;
+    const thinkingSignatures = anthropicMeta?.thinkingSignatures;
+    let reasoningIndex = 0;
+
+    for (let i = 0; i < validContent.length; i++) {
+      const block = validContent[i]!;
+      const isLastNonToolBlock = i === validContent.length - 1 && !message.toolCalls?.length;
+
+      if (block.type === 'reasoning') {
+        // Convert reasoning blocks to thinking blocks for Anthropic
+        const signatureFromArray = thinkingSignatures?.[reasoningIndex];
+        const signature = Array.isArray(thinkingSignatures)
+          ? (typeof signatureFromArray === 'string' ? signatureFromArray : undefined)
+          : anthropicMeta?.thinkingSignature;
+        reasoningIndex += 1;
+        content.push({
+          type: 'thinking',
+          thinking: (block as ReasoningBlock).text,
+          ...(signature ? { signature } : {}),
+        });
+      } else {
+        content.push(transformContentBlock(block, isLastNonToolBlock ? cacheControl : undefined));
+      }
+    }
 
     if (message.toolCalls) {
       for (let i = 0; i < message.toolCalls.length; i++) {
@@ -442,12 +468,22 @@ export function transformResponse(
   data: AnthropicResponse,
   useNativeStructuredOutput = false
 ): LLMResponse {
+  const reasoningContent: ReasoningBlock[] = [];
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
+  let thinkingSignature: string | undefined;
+  const thinkingSignatures: Array<string | null> = [];
 
   for (const block of data.content) {
-    if (block.type === 'text') {
+    if (block.type === 'thinking') {
+      reasoningContent.push({ type: 'reasoning', text: block.thinking });
+      // Capture signature for multi-turn context
+      if (block.signature) {
+        thinkingSignature = block.signature;
+      }
+      thinkingSignatures.push(block.signature ?? null);
+    } else if (block.type === 'text') {
       textContent.push({ type: 'text', text: block.text });
 
       // For native structured outputs, parse the text as JSON
@@ -482,8 +518,13 @@ export function transformResponse(
     // server_tool_use blocks are tracked for context but don't produce output
   }
 
+  // Combine reasoning before text content
+  const allContent: AssistantContent[] = [...reasoningContent, ...textContent];
+
+  const hasThinkingSignatures = thinkingSignatures.some((signature) => signature);
+
   const message = new AssistantMessage(
-    textContent,
+    allContent,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: data.id,
@@ -492,6 +533,8 @@ export function transformResponse(
           stop_reason: data.stop_reason,
           stop_sequence: data.stop_sequence,
           model: data.model,
+          thinkingSignature,
+          ...(hasThinkingSignatures ? { thinkingSignatures } : {}),
         },
       },
     }
@@ -528,6 +571,9 @@ export interface StreamState {
   content: Array<{
     type: string;
     text?: string;
+    thinking?: string;
+    /** Cryptographic signature for thinking blocks (required for multi-turn with tools). */
+    signature?: string;
     id?: string;
     name?: string;
     input?: string;
@@ -607,7 +653,9 @@ export function transformStreamEvent(
       break;
 
     case 'content_block_start':
-      if (event.content_block.type === 'text') {
+      if (event.content_block.type === 'thinking') {
+        state.content[event.index] = { type: 'thinking', thinking: '' };
+      } else if (event.content_block.type === 'text') {
         state.content[event.index] = { type: 'text', text: '' };
       } else if (event.content_block.type === 'tool_use') {
         state.content[event.index] = {
@@ -682,11 +730,22 @@ export function transformStreamEvent(
         break;
       }
       if (delta.type === 'thinking_delta') {
+        if (state.content[event.index]) {
+          state.content[event.index]!.thinking =
+            (state.content[event.index]!.thinking ?? '') + delta.thinking;
+        }
         events.push({
           type: StreamEventType.ReasoningDelta,
           index: event.index,
           delta: { text: delta.thinking },
         });
+        break;
+      }
+      if (delta.type === 'signature_delta') {
+        // Capture thinking block signature for multi-turn context verification
+        if (state.content[event.index]) {
+          state.content[event.index]!.signature = delta.signature;
+        }
         break;
       }
       break;
@@ -735,15 +794,25 @@ export function buildResponseFromState(
   state: StreamState,
   useNativeStructuredOutput = false
 ): LLMResponse {
+  const reasoningContent: ReasoningBlock[] = [];
   const textContent: TextBlock[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
+  let thinkingSignature: string | undefined;
+  const thinkingSignatures: Array<string | null> = [];
 
   for (const block of state.content) {
     // Skip undefined blocks (can happen with built-in tool results that aren't tracked)
     if (!block) continue;
 
-    if (block.type === 'text' && block.text) {
+    if (block.type === 'thinking' && block.thinking) {
+      reasoningContent.push({ type: 'reasoning', text: block.thinking });
+      // Capture signature for multi-turn context (last signature wins for interleaved thinking)
+      if (block.signature) {
+        thinkingSignature = block.signature;
+      }
+      thinkingSignatures.push(block.signature ?? null);
+    } else if (block.type === 'text' && block.text) {
       textContent.push({ type: 'text', text: block.text });
 
       // For native structured outputs, parse the text as JSON
@@ -782,9 +851,13 @@ export function buildResponseFromState(
     // server_tool_use blocks are tracked for context but don't produce output
   }
 
+  // Combine reasoning before text content
+  const allContent: AssistantContent[] = [...reasoningContent, ...textContent];
+
+  const hasThinkingSignatures = thinkingSignatures.some((signature) => signature);
   const messageId = state.messageId || generateId();
   const message = new AssistantMessage(
-    textContent,
+    allContent,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: messageId,
@@ -792,6 +865,8 @@ export function buildResponseFromState(
         anthropic: {
           stop_reason: state.stopReason,
           model: state.model,
+          thinkingSignature,
+          ...(hasThinkingSignatures ? { thinkingSignatures } : {}),
         },
       },
     }

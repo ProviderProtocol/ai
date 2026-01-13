@@ -27,6 +27,8 @@
 export const ContentBlockType = {
   /** Text content */
   Text: 'text',
+  /** Reasoning/thinking content from extended thinking models */
+  Reasoning: 'reasoning',
   /** Image content */
   Image: 'image',
   /** Audio content */
@@ -123,6 +125,28 @@ export interface TextBlock {
   type: 'text';
 
   /** The text content */
+  text: string;
+}
+
+/**
+ * Reasoning content block.
+ *
+ * Contains model reasoning/thinking from extended thinking or chain-of-thought.
+ * This content represents the model's internal reasoning process.
+ *
+ * @example
+ * ```typescript
+ * const reasoningBlock: ReasoningBlock = {
+ *   type: 'reasoning',
+ *   text: 'Let me think about this step by step...'
+ * };
+ * ```
+ */
+export interface ReasoningBlock {
+  /** Discriminator for reasoning blocks */
+  type: 'reasoning';
+
+  /** The reasoning/thinking text */
   text: string;
 }
 
@@ -261,6 +285,7 @@ export interface BinaryBlock {
  */
 export type ContentBlock =
   | TextBlock
+  | ReasoningBlock
   | ImageBlock
   | AudioBlock
   | VideoBlock
@@ -285,6 +310,7 @@ export type UserContent =
  */
 export type AssistantContent =
   | TextBlock
+  | ReasoningBlock
   | ImageBlock
   | AudioBlock
   | VideoBlock;
@@ -306,6 +332,22 @@ export function text(content: string): TextBlock {
 }
 
 /**
+ * Creates a reasoning content block from a string.
+ *
+ * @param content - The reasoning/thinking content
+ * @returns A ReasoningBlock containing the provided text
+ *
+ * @example
+ * ```typescript
+ * const block = reasoning('Let me think step by step...');
+ * // { type: 'reasoning', text: 'Let me think step by step...' }
+ * ```
+ */
+export function reasoning(content: string): ReasoningBlock {
+  return { type: ContentBlockType.Reasoning, text: content };
+}
+
+/**
  * Type guard for TextBlock.
  *
  * @param block - The content block to check
@@ -320,6 +362,23 @@ export function text(content: string): TextBlock {
  */
 export function isTextBlock(block: ContentBlock): block is TextBlock {
   return block.type === ContentBlockType.Text;
+}
+
+/**
+ * Type guard for ReasoningBlock.
+ *
+ * @param block - The content block to check
+ * @returns True if the block is a ReasoningBlock
+ *
+ * @example
+ * ```typescript
+ * if (isReasoningBlock(block)) {
+ *   console.log(block.text);
+ * }
+ * ```
+ */
+export function isReasoningBlock(block: ContentBlock): block is ReasoningBlock {
+  return block.type === ContentBlockType.Reasoning;
 }
 
 /**

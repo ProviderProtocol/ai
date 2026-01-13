@@ -4,7 +4,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, ReasoningBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -339,10 +339,16 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
     throw new Error('No choices in xAI response');
   }
 
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   let structuredData: unknown;
+
+  // Extract reasoning content (grok-3-mini only)
+  if (choice.message.reasoning_content) {
+    content.push({ type: 'reasoning', text: choice.message.reasoning_content });
+  }
+
   if (choice.message.content) {
-    textContent.push({ type: 'text', text: choice.message.content });
+    content.push({ type: 'text', text: choice.message.content });
     try {
       structuredData = JSON.parse(choice.message.content);
     } catch {
@@ -351,7 +357,7 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
   }
   let hadRefusal = false;
   if (choice.message.refusal) {
-    textContent.push({ type: 'text', text: choice.message.refusal });
+    content.push({ type: 'text', text: choice.message.refusal });
     hadRefusal = true;
   }
 
@@ -374,7 +380,7 @@ export function transformResponse(data: XAICompletionsResponse): LLMResponse {
 
   const responseId = data.id || generateId();
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: responseId,
@@ -438,6 +444,8 @@ export interface CompletionsStreamState {
   model: string;
   /** Accumulated text content */
   text: string;
+  /** Accumulated reasoning content (grok-3-mini only) */
+  reasoning: string;
   /** Map of tool call index to accumulated tool call data */
   toolCalls: Map<number, { id: string; name: string; arguments: string }>;
   /** Final finish reason from the API */
@@ -462,6 +470,7 @@ export function createStreamState(): CompletionsStreamState {
     id: '',
     model: '',
     text: '',
+    reasoning: '',
     toolCalls: new Map(),
     finishReason: null,
     inputTokens: 0,
@@ -497,6 +506,15 @@ export function transformStreamEvent(
 
   const choice = chunk.choices[0];
   if (choice) {
+    // Handle reasoning content delta (grok-3-mini only)
+    if (choice.delta.reasoning_content) {
+      state.reasoning += choice.delta.reasoning_content;
+      events.push({
+        type: StreamEventType.ReasoningDelta,
+        index: 0,
+        delta: { text: choice.delta.reasoning_content },
+      });
+    }
     if (choice.delta.content) {
       state.text += choice.delta.content;
       events.push({
@@ -571,10 +589,16 @@ export function transformStreamEvent(
  * @returns The complete LLMResponse
  */
 export function buildResponseFromState(state: CompletionsStreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   let structuredData: unknown;
+
+  // Add reasoning content first (grok-3-mini only)
+  if (state.reasoning) {
+    content.push({ type: 'reasoning', text: state.reasoning });
+  }
+
   if (state.text) {
-    textContent.push({ type: 'text', text: state.text });
+    content.push({ type: 'text', text: state.text });
     try {
       structuredData = JSON.parse(state.text);
     } catch {
@@ -601,7 +625,7 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
 
   const messageId = state.id || generateId();
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: messageId,

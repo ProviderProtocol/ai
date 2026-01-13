@@ -12,6 +12,7 @@ import { generateId } from '../utils/id.ts';
 import type {
   ContentBlock,
   TextBlock,
+  ReasoningBlock,
   ImageBlock,
   AudioBlock,
   VideoBlock,
@@ -174,6 +175,14 @@ export abstract class Message {
    */
   get video(): VideoBlock[] {
     return this.getContent().filter((block): block is VideoBlock => block.type === 'video');
+  }
+
+  /**
+   * All reasoning/thinking content blocks in this message.
+   * Available when using extended thinking models.
+   */
+  get reasoning(): ReasoningBlock[] {
+    return this.getContent().filter((block): block is ReasoningBlock => block.type === 'reasoning');
   }
 }
 

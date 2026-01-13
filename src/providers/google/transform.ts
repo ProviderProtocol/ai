@@ -18,7 +18,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -31,6 +31,7 @@ import type {
   GoogleRequest,
   GoogleContent,
   GooglePart,
+  GoogleTextPart,
   GoogleTool,
   GoogleResponse,
   GoogleStreamChunk,
@@ -221,7 +222,9 @@ function transformMessages(messages: Message[]): GoogleContent[] {
       });
     } else if (isAssistantMessage(msg)) {
       const validContent = filterValidContent(msg.content);
-      const parts: GooglePart[] = validContent.map(transformContentBlock);
+      // Filter out reasoning blocks - they're preserved via thoughtSignature in metadata
+      const nonReasoningContent = validContent.filter(c => c.type !== 'reasoning');
+      const parts: GooglePart[] = nonReasoningContent.map(transformContentBlock);
 
       const googleMeta = msg.metadata?.google as {
         functionCallParts?: Array<{
@@ -229,7 +232,21 @@ function transformMessages(messages: Message[]): GoogleContent[] {
           args: Record<string, unknown>;
           thoughtSignature?: string;
         }>;
+        // Thought signature from text response (Gemini 3+ multi-turn context)
+        thoughtSignature?: string;
       } | undefined;
+
+      // Add thoughtSignature to the last text part for multi-turn context preservation
+      if (googleMeta?.thoughtSignature) {
+        // Find the last text part and add the signature
+        for (let i = parts.length - 1; i >= 0; i--) {
+          const part = parts[i];
+          if (part && 'text' in part) {
+            (part as GoogleTextPart).thoughtSignature = googleMeta.thoughtSignature;
+            break;
+          }
+        }
+      }
 
       if (googleMeta?.functionCallParts && googleMeta.functionCallParts.length > 0) {
         for (const fc of googleMeta.functionCallParts) {
@@ -370,9 +387,10 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
     throw new Error('No candidates in Google response');
   }
 
-  const textContent: TextBlock[] = [];
+  const content: (TextBlock | ReasoningBlock)[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
+  let lastThoughtSignature: string | undefined;
   const functionCallParts: Array<{
     name: string;
     args: Record<string, unknown>;
@@ -381,12 +399,21 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
 
   for (const part of candidate.content.parts) {
     if ('text' in part) {
-      textContent.push({ type: 'text', text: part.text });
-      if (structuredData === undefined) {
-        try {
-          structuredData = JSON.parse(part.text);
-        } catch {
-          // Not JSON - may not be structured output
+      const textPart = part as GoogleTextPart;
+      // Capture thoughtSignature from the last text part (Gemini 3+ includes on final part)
+      if (textPart.thoughtSignature) {
+        lastThoughtSignature = textPart.thoughtSignature;
+      }
+      if (textPart.thought) {
+        content.push({ type: 'reasoning', text: textPart.text });
+      } else {
+        content.push({ type: 'text', text: textPart.text });
+        if (structuredData === undefined) {
+          try {
+            structuredData = JSON.parse(textPart.text);
+          } catch {
+            // Not JSON - may not be structured output
+          }
         }
       }
     } else if ('functionCall' in part) {
@@ -406,14 +433,14 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
       // Append code execution output to text content
       const codeResult = part as { codeExecutionResult: { outcome: string; output: string } };
       if (codeResult.codeExecutionResult.output) {
-        textContent.push({ type: 'text', text: `\n\`\`\`\n${codeResult.codeExecutionResult.output}\`\`\`\n` });
+        content.push({ type: 'text', text: `\n\`\`\`\n${codeResult.codeExecutionResult.output}\`\`\`\n` });
       }
     }
     // executableCode parts are tracked for context but the output is in codeExecutionResult
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       metadata: {
@@ -421,6 +448,8 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
           finishReason: candidate.finishReason,
           safetyRatings: candidate.safetyRatings,
           functionCallParts: functionCallParts.length > 0 ? functionCallParts : undefined,
+          // Store thoughtSignature for multi-turn context preservation (Gemini 3+)
+          thoughtSignature: lastThoughtSignature,
         },
       },
     }
@@ -451,6 +480,10 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
 export interface StreamState {
   /** Accumulated text content from all chunks. */
   content: string;
+  /** Accumulated reasoning/thinking content from thought parts. */
+  reasoning: string;
+  /** Encrypted thought signature for multi-turn context (Gemini 3+). */
+  thoughtSignature?: string;
   /** Accumulated tool calls with their arguments and optional thought signatures. */
   toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
   /** The finish reason from the final chunk, if received. */
@@ -473,6 +506,8 @@ export interface StreamState {
 export function createStreamState(): StreamState {
   return {
     content: '',
+    reasoning: '',
+    thoughtSignature: undefined,
     toolCalls: [],
     finishReason: null,
     inputTokens: 0,
@@ -517,12 +552,25 @@ export function transformStreamChunk(
 
   for (const part of candidate.content?.parts ?? []) {
     if ('text' in part) {
-      state.content += part.text;
-      events.push({
-        type: StreamEventType.TextDelta,
-        index: 0,
-        delta: { text: part.text },
-      });
+      const textPart = part as GoogleTextPart;
+      if (textPart.thoughtSignature) {
+        state.thoughtSignature = textPart.thoughtSignature;
+      }
+      if (textPart.thought) {
+        state.reasoning += textPart.text;
+        events.push({
+          type: StreamEventType.ReasoningDelta,
+          index: 0,
+          delta: { text: textPart.text },
+        });
+      } else {
+        state.content += textPart.text;
+        events.push({
+          type: StreamEventType.TextDelta,
+          index: 0,
+          delta: { text: textPart.text },
+        });
+      }
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
       const toolCallId = createGoogleToolCallId(fc.functionCall.name, state.toolCalls.length);
@@ -575,7 +623,7 @@ export function transformStreamChunk(
  * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: StreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: (TextBlock | ReasoningBlock)[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
   const functionCallParts: Array<{
@@ -584,8 +632,12 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     thoughtSignature?: string;
   }> = [];
 
+  if (state.reasoning) {
+    content.push({ type: 'reasoning', text: state.reasoning });
+  }
+
   if (state.content) {
-    textContent.push({ type: 'text', text: state.content });
+    content.push({ type: 'text', text: state.content });
     try {
       structuredData = JSON.parse(state.content);
     } catch {
@@ -608,13 +660,14 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       metadata: {
         google: {
           finishReason: state.finishReason,
           functionCallParts: functionCallParts.length > 0 ? functionCallParts : undefined,
+          thoughtSignature: state.thoughtSignature,
         },
       },
     }

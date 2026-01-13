@@ -22,7 +22,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -40,6 +40,7 @@ import type {
   OpenAIResponsesToolUnion,
   OpenAIResponsesResponse,
   OpenAIResponsesStreamEvent,
+  OpenAIReasoningOutput,
 } from './types.ts';
 
 /**
@@ -261,9 +262,32 @@ function transformMessage(message: Message): OpenAIResponsesInputItem[] {
     }
 
     const openaiMeta = message.metadata?.openai as
-      | { functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }> }
+      | {
+          functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }>;
+          // Encrypted reasoning content for multi-turn context (stateless mode)
+          reasoningEncryptedContent?: string;
+        }
       | undefined;
     const functionCallItems = openaiMeta?.functionCallItems;
+
+    // Add reasoning item for multi-turn context preservation (must be passed back as-is)
+    if (openaiMeta?.reasoningEncryptedContent) {
+      try {
+        const reasoningData = JSON.parse(openaiMeta.reasoningEncryptedContent) as {
+          id: string;
+          summary: Array<{ type: 'summary_text'; text: string }>;
+          encrypted_content?: string;
+        };
+        items.push({
+          type: 'reasoning',
+          id: reasoningData.id,
+          summary: reasoningData.summary,
+          encrypted_content: reasoningData.encrypted_content,
+        });
+      } catch {
+        // Invalid JSON - skip reasoning item
+      }
+    }
 
     if (functionCallItems && functionCallItems.length > 0) {
       for (const fc of functionCallItems) {
@@ -428,6 +452,7 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
   }> = [];
   let hadRefusal = false;
   let structuredData: unknown;
+  let reasoningEncryptedContent: string | undefined;
 
   for (const item of data.output) {
     if (item.type === 'message') {
@@ -476,6 +501,21 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
           source: { type: 'base64', data: imageGen.result },
         } as ImageBlock);
       }
+    } else if (item.type === 'reasoning') {
+      const reasoningItem = item as OpenAIReasoningOutput;
+      const reasoningText = reasoningItem.summary
+        .filter((s): s is { type: 'summary_text'; text: string } => s.type === 'summary_text')
+        .map(s => s.text)
+        .join('');
+      if (reasoningText) {
+        content.push({ type: 'reasoning', text: reasoningText });
+      }
+      // Capture full reasoning item for multi-turn context preservation (must be passed back as-is)
+      reasoningEncryptedContent = JSON.stringify({
+        id: reasoningItem.id,
+        summary: reasoningItem.summary,
+        encrypted_content: reasoningItem.encrypted_content,
+      });
     }
   }
 
@@ -492,6 +532,8 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
           response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
+          // Store encrypted reasoning content for multi-turn context (stateless mode)
+          reasoningEncryptedContent,
         },
       },
     }
@@ -541,6 +583,8 @@ export interface ResponsesStreamState {
   model: string;
   /** Map of output index to accumulated text content */
   textByIndex: Map<number, string>;
+  /** Map of output index to accumulated reasoning/thinking content */
+  reasoningByIndex: Map<number, string>;
   /** Map of output index to accumulated tool call data */
   toolCalls: Map<
     number,
@@ -560,6 +604,8 @@ export interface ResponsesStreamState {
   cacheReadTokens: number;
   /** Whether a refusal was encountered */
   hadRefusal: boolean;
+  /** Serialized reasoning item for multi-turn context preservation (includes encrypted_content) */
+  reasoningEncryptedContent?: string;
 }
 
 /**
@@ -572,6 +618,7 @@ export function createStreamState(): ResponsesStreamState {
     id: '',
     model: '',
     textByIndex: new Map(),
+    reasoningByIndex: new Map(),
     toolCalls: new Map(),
     images: [],
     status: 'in_progress',
@@ -678,6 +725,14 @@ export function transformStreamEvent(
             mimeType: imageGen.mime_type ?? 'image/png',
           });
         }
+      } else if (event.item.type === 'reasoning') {
+        // Capture full reasoning item for multi-turn context preservation (must be passed back as-is)
+        const reasoningItem = event.item as OpenAIReasoningOutput;
+        state.reasoningEncryptedContent = JSON.stringify({
+          id: reasoningItem.id,
+          summary: reasoningItem.summary,
+          encrypted_content: reasoningItem.encrypted_content,
+        });
       }
       events.push({
         type: StreamEventType.ContentBlockStop,
@@ -760,6 +815,21 @@ export function transformStreamEvent(
       break;
     }
 
+    case 'response.reasoning_summary_text.delta': {
+      const currentReasoning = state.reasoningByIndex.get(event.output_index) ?? '';
+      state.reasoningByIndex.set(event.output_index, currentReasoning + event.delta);
+      events.push({
+        type: StreamEventType.ReasoningDelta,
+        index: event.output_index,
+        delta: { text: event.delta },
+      });
+      break;
+    }
+
+    case 'response.reasoning_summary_text.done':
+      state.reasoningByIndex.set(event.output_index, event.text);
+      break;
+
     case 'error':
       break;
 
@@ -783,6 +853,15 @@ export function transformStreamEvent(
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
   const content: AssistantContent[] = [];
   let structuredData: unknown;
+
+  const orderedReasoningEntries = [...state.reasoningByIndex.entries()].sort(
+    ([leftIndex], [rightIndex]) => leftIndex - rightIndex
+  );
+  for (const [, reasoning] of orderedReasoningEntries) {
+    if (reasoning) {
+      content.push({ type: 'reasoning', text: reasoning });
+    }
+  }
 
   const orderedTextEntries = [...state.textByIndex.entries()].sort(
     ([leftIndex], [rightIndex]) => leftIndex - rightIndex
@@ -862,6 +941,7 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
           response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
+          reasoningEncryptedContent: state.reasoningEncryptedContent,
         },
       },
     }

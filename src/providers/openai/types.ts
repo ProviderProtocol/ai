@@ -759,7 +759,23 @@ export type OpenAIResponsesInputItem =
   | OpenAIResponsesUserItem
   | OpenAIResponsesAssistantItem
   | OpenAIResponsesFunctionCallInputItem
-  | OpenAIResponsesToolResultItem;
+  | OpenAIResponsesToolResultItem
+  | OpenAIResponsesReasoningInputItem;
+
+/**
+ * Reasoning input item for forwarding encrypted reasoning in multi-turn conversations.
+ * Used in stateless mode to preserve reasoning context across requests.
+ * Must be passed back as an exact copy of the reasoning output item.
+ */
+export interface OpenAIResponsesReasoningInputItem {
+  type: 'reasoning';
+  /** Unique identifier from the original reasoning output */
+  id: string;
+  /** Summary array (required, can be empty) */
+  summary: Array<{ type: 'summary_text'; text: string }>;
+  /** Encrypted reasoning content from previous response */
+  encrypted_content?: string;
+}
 
 /** System or developer message input item */
 export interface OpenAIResponsesSystemItem {
@@ -898,7 +914,8 @@ export type OpenAIResponsesOutputItem =
   | OpenAIResponsesMessageOutput
   | OpenAIResponsesFunctionCallOutput
   | OpenAIResponsesImageGenerationOutput
-  | OpenAIResponsesWebSearchOutput;
+  | OpenAIResponsesWebSearchOutput
+  | OpenAIReasoningOutput;
 
 /** Assistant message output item */
 export interface OpenAIResponsesMessageOutput {
@@ -933,6 +950,15 @@ export interface OpenAIResponsesWebSearchOutput {
   type: 'web_search_call';
   id: string;
   status: 'completed' | 'in_progress';
+}
+
+/** Reasoning output item from reasoning models (o1, o3, etc.) */
+export interface OpenAIReasoningOutput {
+  type: 'reasoning';
+  id: string;
+  summary: Array<{ type: 'summary_text'; text: string }>;
+  status: 'completed' | 'in_progress' | null;
+  encrypted_content?: string;
 }
 
 /** Output content types (text or refusal) */
@@ -977,6 +1003,8 @@ export type OpenAIResponsesStreamEvent =
   | OpenAIResponseRefusalDoneEvent
   | OpenAIResponseFunctionCallArgumentsDeltaEvent
   | OpenAIResponseFunctionCallArgumentsDoneEvent
+  | OpenAIResponseReasoningSummaryTextDeltaEvent
+  | OpenAIResponseReasoningSummaryTextDoneEvent
   | OpenAIResponseErrorEvent;
 
 export interface OpenAIResponseCreatedEvent {
@@ -1077,6 +1105,24 @@ export interface OpenAIResponseErrorEvent {
     code?: string;
     message: string;
   };
+}
+
+/** Reasoning summary text delta event (for reasoning models) */
+export interface OpenAIResponseReasoningSummaryTextDeltaEvent {
+  type: 'response.reasoning_summary_text.delta';
+  item_id: string;
+  output_index: number;
+  summary_index: number;
+  delta: string;
+}
+
+/** Reasoning summary text done event (for reasoning models) */
+export interface OpenAIResponseReasoningSummaryTextDoneEvent {
+  type: 'response.reasoning_summary_text.done';
+  item_id: string;
+  output_index: number;
+  summary_index: number;
+  text: string;
 }
 
 // ============================================

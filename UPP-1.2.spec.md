@@ -1125,7 +1125,7 @@ Constructor accepts either a string (converted to TextBlock) or array of content
 | `toolCalls` | List<ToolCall>? | Tool calls requested by the model |
 | `hasToolCalls` | Boolean | Convenience: true if toolCalls is non-empty |
 
-`AssistantContent` can be: `TextBlock`, `ImageBlock`, `AudioBlock`, `VideoBlock`
+`AssistantContent` can be: `TextBlock`, `ReasoningBlock`, `ImageBlock`, `AudioBlock`, `VideoBlock`
 
 **Note:** Models can return both text AND tool calls in a single response (e.g., "I'll check the weather for you." + tool call). `AssistantMessage` handles both cases.
 
@@ -1188,6 +1188,20 @@ Content blocks represent discrete pieces of content within messages.
   text: "Hello, world!"
 }
 ```
+
+**ReasoningBlock:**
+
+Contains model reasoning/thinking content from extended thinking or chain-of-thought models.
+This content represents the model's internal reasoning process before generating the final response.
+
+```pseudocode
+{
+  type: "reasoning",
+  text: "Let me think about this step by step..."
+}
+```
+
+**Note:** Reasoning blocks are always placed before text blocks in assistant message content. Multi-turn context preservation for reasoning (signatures, encrypted content) is handled via provider-specific metadata fields.
 
 **ImageBlock:**
 
@@ -3164,6 +3178,7 @@ UPP exports named constant objects for all discriminated union types. These cons
 | Constant | Value |
 |----------|-------|
 | `ContentBlockType.Text` | `'text'` |
+| `ContentBlockType.Reasoning` | `'reasoning'` |
 | `ContentBlockType.Image` | `'image'` |
 | `ContentBlockType.Audio` | `'audio'` |
 | `ContentBlockType.Video` | `'video'` |
@@ -3808,6 +3823,15 @@ Tools execute arbitrary code based on LLM-provided arguments:
         "text": { "type": "string" }
       }
     },
+    "ReasoningBlock": {
+      "type": "object",
+      "required": ["type", "text"],
+      "properties": {
+        "type": { "const": "reasoning" },
+        "text": { "type": "string" }
+      },
+      "description": "Model reasoning/thinking content from extended thinking models"
+    },
     "ImageSource": {
       "oneOf": [
         {
@@ -3882,6 +3906,7 @@ Tools execute arbitrary code based on LLM-provided arguments:
     "ContentBlock": {
       "oneOf": [
         { "$ref": "#/definitions/TextBlock" },
+        { "$ref": "#/definitions/ReasoningBlock" },
         { "$ref": "#/definitions/ImageBlock" },
         { "$ref": "#/definitions/AudioBlock" },
         { "$ref": "#/definitions/VideoBlock" },

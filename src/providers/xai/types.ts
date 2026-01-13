@@ -717,6 +717,8 @@ export interface XAIAssistantMessage {
   name?: string;
   tool_calls?: XAIToolCall[];
   refusal?: string | null;
+  /** Raw reasoning/thinking trace (grok-3-mini only) */
+  reasoning_content?: string | null;
 }
 
 /** Tool result message containing the output of a tool call. */
@@ -926,6 +928,8 @@ export interface XAICompletionsStreamDelta {
   tool_calls?: XAIStreamToolCall[];
   /** Refusal message */
   refusal?: string | null;
+  /** Reasoning content delta (grok-3-mini only) */
+  reasoning_content?: string | null;
 }
 
 /** Streaming tool call with incremental argument updates. */
@@ -984,7 +988,21 @@ export type XAIResponsesInputItem =
   | XAIResponsesUserItem
   | XAIResponsesAssistantItem
   | XAIResponsesFunctionCallInputItem
-  | XAIResponsesToolResultItem;
+  | XAIResponsesToolResultItem
+  | XAIResponsesReasoningInputItem;
+
+/**
+ * Reasoning input item for forwarding encrypted reasoning in multi-turn conversations.
+ * Used with grok-4 models that support encrypted reasoning context.
+ */
+export interface XAIResponsesReasoningInputItem {
+  type: 'reasoning';
+  id: string;
+  /** Summary of reasoning (if available) */
+  summary?: Array<{ type: 'summary_text'; text: string }>;
+  /** Encrypted reasoning content from previous response */
+  encrypted_content: string;
+}
 
 /** System or developer message for the Responses API. */
 export interface XAIResponsesSystemItem {
@@ -1144,7 +1162,19 @@ export interface XAIResponsesResponse {
 /** Union type for output items in Responses API responses. */
 export type XAIResponsesOutputItem =
   | XAIResponsesMessageOutput
-  | XAIResponsesFunctionCallOutput;
+  | XAIResponsesFunctionCallOutput
+  | XAIResponsesReasoningOutput;
+
+/** Reasoning output item from reasoning models (grok-4 with encrypted_content). */
+export interface XAIResponsesReasoningOutput {
+  type: 'reasoning';
+  id: string;
+  /** Summary of reasoning (if not encrypted) */
+  summary?: Array<{ type: 'summary_text'; text: string }>;
+  /** Encrypted reasoning content for multi-turn context */
+  encrypted_content?: string;
+  status: 'completed' | 'in_progress' | null;
+}
 
 /** Message output item containing text or refusal content. */
 export interface XAIResponsesMessageOutput {
@@ -1219,6 +1249,8 @@ export type XAIResponsesStreamEvent =
   | XAIResponseRefusalDoneEvent
   | XAIResponseFunctionCallArgumentsDeltaEvent
   | XAIResponseFunctionCallArgumentsDoneEvent
+  | XAIResponseReasoningSummaryTextDeltaEvent
+  | XAIResponseReasoningSummaryTextDoneEvent
   | XAIResponseErrorEvent;
 
 /** Emitted when a response is first created. */
@@ -1330,7 +1362,24 @@ export interface XAIResponseFunctionCallArgumentsDoneEvent {
   call_id?: string;
 }
 
-/** Emitted when an error occurs during streaming. */
+/** Emitted for incremental reasoning summary text updates. */
+export interface XAIResponseReasoningSummaryTextDeltaEvent {
+  type: 'response.reasoning_summary_text.delta';
+  item_id: string;
+  output_index: number;
+  summary_index: number;
+  delta: string;
+}
+
+/** Emitted when reasoning summary text generation is complete. */
+export interface XAIResponseReasoningSummaryTextDoneEvent {
+  type: 'response.reasoning_summary_text.done';
+  item_id: string;
+  output_index: number;
+  summary_index: number;
+  text: string;
+}
+
 export interface XAIResponseErrorEvent {
   type: 'error';
   error: {
@@ -1378,12 +1427,14 @@ export interface XAIMessagesMessage {
 
 /**
  * Union type for content blocks in the Messages API.
+ * Includes thinking content for forwarding extended thinking in multi-turn conversations.
  */
 export type XAIMessagesContent =
   | XAIMessagesTextContent
   | XAIMessagesImageContent
   | XAIMessagesToolUseContent
-  | XAIMessagesToolResultContent;
+  | XAIMessagesToolResultContent
+  | XAIMessagesThinkingContent;
 
 /** Text content block. */
 export interface XAIMessagesTextContent {

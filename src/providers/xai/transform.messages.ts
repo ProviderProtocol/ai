@@ -4,7 +4,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -145,7 +145,25 @@ function transformMessage(message: Message): XAIMessagesMessage {
 
   if (isAssistantMessage(message)) {
     const validContent = filterValidContent(message.content);
-    const content: XAIMessagesContent[] = validContent.map(transformContentBlock);
+    const content: XAIMessagesContent[] = [];
+
+    // Check for thinking signature in metadata (for multi-turn context)
+    const xaiMeta = message.metadata?.xai as {
+      thinkingSignature?: string;
+    } | undefined;
+
+    // Add reasoning blocks as thinking content with signature if available
+    for (const block of validContent) {
+      if (block.type === 'reasoning') {
+        content.push({
+          type: 'thinking',
+          thinking: (block as ReasoningBlock).text,
+          signature: xaiMeta?.thinkingSignature,
+        });
+      } else {
+        content.push(transformContentBlock(block));
+      }
+    }
 
     if (message.toolCalls) {
       for (const call of message.toolCalls) {
@@ -268,13 +286,21 @@ function transformTool(tool: Tool): XAIMessagesTool {
  * @returns The unified provider protocol response
  */
 export function transformResponse(data: XAIMessagesResponse): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
+  let thinkingSignature: string | undefined;
 
   for (const block of data.content) {
     if (block.type === 'text') {
-      textContent.push({ type: 'text', text: block.text });
+      content.push({ type: 'text', text: block.text });
+    } else if (block.type === 'thinking') {
+      // Handle extended thinking content
+      content.push({ type: 'reasoning', text: block.thinking });
+      // Store signature for multi-turn context preservation
+      if (block.signature) {
+        thinkingSignature = block.signature;
+      }
     } else if (block.type === 'tool_use') {
       if (block.name === 'json_response') {
         structuredData = block.input;
@@ -288,7 +314,7 @@ export function transformResponse(data: XAIMessagesResponse): LLMResponse {
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: data.id,
@@ -297,6 +323,8 @@ export function transformResponse(data: XAIMessagesResponse): LLMResponse {
           stop_reason: data.stop_reason,
           stop_sequence: data.stop_sequence,
           model: data.model,
+          // Store thinking signature for multi-turn context
+          thinkingSignature,
         },
       },
     }
@@ -330,7 +358,15 @@ export interface MessagesStreamState {
   /** Model used for generation */
   model: string;
   /** Accumulated content blocks */
-  content: Array<{ type: string; text?: string; id?: string; name?: string; input?: string }>;
+  content: Array<{
+    type: string;
+    text?: string;
+    id?: string;
+    name?: string;
+    input?: string;
+    thinking?: string;
+    signature?: string;
+  }>;
   /** Final stop reason */
   stopReason: string | null;
   /** Total input tokens */
@@ -390,6 +426,8 @@ export function transformStreamEvent(
       state.currentIndex = event.index;
       if (event.content_block.type === 'text') {
         state.content[event.index] = { type: 'text', text: '' };
+      } else if (event.content_block.type === 'thinking') {
+        state.content[event.index] = { type: 'thinking', thinking: '' };
       } else if (event.content_block.type === 'tool_use') {
         state.content[event.index] = {
           type: 'tool_use',
@@ -432,11 +470,23 @@ export function transformStreamEvent(
         };
       }
       if (delta.type === 'thinking_delta') {
+        if (!state.content[index]) {
+          state.content[index] = { type: 'thinking', thinking: '' };
+        }
+        state.content[index]!.thinking =
+          (state.content[index]!.thinking ?? '') + delta.thinking;
         return {
           type: StreamEventType.ReasoningDelta,
           index: index,
           delta: { text: delta.thinking },
         };
+      }
+      if (delta.type === 'signature_delta') {
+        // Capture thinking block signature for multi-turn context verification
+        if (state.content[index]) {
+          state.content[index]!.signature = delta.signature;
+        }
+        return null;
       }
       return null;
     }
@@ -471,13 +521,20 @@ export function transformStreamEvent(
  * @returns The complete LLMResponse
  */
 export function buildResponseFromState(state: MessagesStreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
+  let thinkingSignature: string | undefined;
 
   for (const block of state.content) {
     if (block.type === 'text' && block.text) {
-      textContent.push({ type: 'text', text: block.text });
+      content.push({ type: 'text', text: block.text });
+    } else if (block.type === 'thinking' && block.thinking) {
+      content.push({ type: 'reasoning', text: block.thinking });
+      // Store signature for multi-turn context preservation
+      if (block.signature) {
+        thinkingSignature = block.signature;
+      }
     } else if (block.type === 'tool_use' && block.id && block.name) {
       let args: Record<string, unknown> = {};
       if (block.input) {
@@ -500,7 +557,7 @@ export function buildResponseFromState(state: MessagesStreamState): LLMResponse 
 
   const messageId = state.messageId || generateId();
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: messageId,
@@ -508,6 +565,7 @@ export function buildResponseFromState(state: MessagesStreamState): LLMResponse 
         xai: {
           stop_reason: state.stopReason,
           model: state.model,
+          thinkingSignature,
         },
       },
     }

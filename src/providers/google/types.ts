@@ -141,14 +141,39 @@ export interface GoogleLLMParams {
 }
 
 /**
- * Configuration for extended thinking/reasoning in Gemini 3+ models.
+ * Configuration for extended thinking/reasoning in Gemini 2.5+ and 3+ models.
  *
  * Enables models to spend additional compute on reasoning before
  * generating a response, improving quality for complex tasks.
+ *
+ * For Gemini 2.5 models: Use `thinkingBudget` to control token allocation.
+ * For Gemini 3+ models: Use `thinkingLevel` (recommended) to set reasoning depth.
+ *
+ * Set `includeThoughts: true` to receive thought/reasoning content in the response.
  */
 export interface GoogleThinkingConfig {
-  /** Token budget allocated for model thinking/reasoning before response generation. */
+  /**
+   * Token budget allocated for model thinking/reasoning (Gemini 2.5 models).
+   * - `-1`: Dynamic thinking (default)
+   * - `0`: Disable thinking (Flash models only)
+   * - `128-32768`: Specific token budget
+   */
   thinkingBudget?: number;
+
+  /**
+   * Thinking level for Gemini 3+ models (recommended over thinkingBudget).
+   * - `"minimal"`: Likely prevents thinking (Gemini 3 Flash only)
+   * - `"low"`: Minimizes latency and cost
+   * - `"medium"`: Balanced (Gemini 3 Flash only)
+   * - `"high"`: Maximizes reasoning depth (default for Gemini 3)
+   */
+  thinkingLevel?: 'minimal' | 'low' | 'medium' | 'high';
+
+  /**
+   * Whether to include thought summaries in the response.
+   * When true, response parts with `thought: true` contain reasoning content.
+   */
+  includeThoughts?: boolean;
 }
 
 /**
@@ -229,6 +254,14 @@ export type GooglePart =
 export interface GoogleTextPart {
   /** The text content. */
   text: string;
+  /** If true, this part contains thinking/reasoning content (Gemini 2.5+/3+). */
+  thought?: boolean;
+  /**
+   * Encrypted thought signature for Gemini 3+ models.
+   * Must be forwarded back in subsequent requests to maintain reasoning context.
+   * Required for Gemini 3 multi-turn conversations; recommended for Gemini 2.5.
+   */
+  thoughtSignature?: string;
 }
 
 /**

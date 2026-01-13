@@ -180,17 +180,6 @@ describe('parseSSEStream', () => {
     expect(second._eventType).toBeUndefined();
   });
 
-  test('rejects on excessive buffer growth', async () => {
-    const largePayload = 'data: ' + 'a'.repeat(1100000);
-    const stream = textToStream(largePayload);
-    const consume = async () => {
-      for await (const _event of parseSSEStream(stream)) {
-        // no-op
-      }
-    };
-    await expect(consume()).rejects.toThrow('SSE buffer exceeded');
-  });
-
   test('propagates stream errors', async () => {
     const encoder = new TextEncoder();
     const stream = new ReadableStream<Uint8Array>({

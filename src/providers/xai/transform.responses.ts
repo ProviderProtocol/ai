@@ -4,7 +4,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -22,6 +22,8 @@ import type {
   XAIResponsesResponse,
   XAIResponsesStreamEvent,
   XAIBuiltInTool,
+  XAIResponsesReasoningInputItem,
+  XAIResponsesReasoningOutput,
 } from './types.ts';
 
 /**
@@ -226,9 +228,36 @@ function transformMessage(message: Message): XAIResponsesInputItem[] {
     }
 
     const xaiMeta = message.metadata?.xai as
-      | { functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }> }
+      | {
+          functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }>;
+          reasoningEncryptedContent?: string;
+        }
       | undefined;
     const functionCallItems = xaiMeta?.functionCallItems;
+
+    // Forward reasoning content for multi-turn context preservation (must use original ID)
+    if (xaiMeta?.reasoningEncryptedContent) {
+      try {
+        const reasoningData = JSON.parse(xaiMeta.reasoningEncryptedContent) as {
+          id: string;
+          summary?: Array<{ type: 'summary_text'; text: string }>;
+          encrypted_content?: string;
+        };
+        if (reasoningData.encrypted_content) {
+          const reasoningItem: XAIResponsesReasoningInputItem = {
+            type: 'reasoning',
+            id: reasoningData.id,
+            encrypted_content: reasoningData.encrypted_content,
+          };
+          if (Array.isArray(reasoningData.summary)) {
+            reasoningItem.summary = reasoningData.summary;
+          }
+          items.push(reasoningItem);
+        }
+      } catch {
+        // Invalid JSON - skip reasoning item
+      }
+    }
 
     if (functionCallItems && functionCallItems.length > 0) {
       for (const fc of functionCallItems) {
@@ -347,7 +376,7 @@ function transformTool(tool: Tool): XAIResponsesTool {
  * @returns The unified provider protocol response
  */
 export function transformResponse(data: XAIResponsesResponse): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   const functionCallItems: Array<{
     id: string;
@@ -357,22 +386,23 @@ export function transformResponse(data: XAIResponsesResponse): LLMResponse {
   }> = [];
   let hadRefusal = false;
   let structuredData: unknown;
+  let reasoningEncryptedContent: string | undefined;
 
   for (const item of data.output) {
     if (item.type === 'message') {
       const messageItem = item;
-      for (const content of messageItem.content) {
-        if (content.type === 'output_text') {
-          textContent.push({ type: 'text', text: content.text });
+      for (const outputContent of messageItem.content) {
+        if (outputContent.type === 'output_text') {
+          content.push({ type: 'text', text: outputContent.text });
           if (structuredData === undefined) {
             try {
-              structuredData = JSON.parse(content.text);
+              structuredData = JSON.parse(outputContent.text);
             } catch {
               // Not valid JSON, which is fine for non-structured responses
             }
           }
-        } else if (content.type === 'refusal') {
-          textContent.push({ type: 'text', text: content.refusal });
+        } else if (outputContent.type === 'refusal') {
+          content.push({ type: 'text', text: outputContent.refusal });
           hadRefusal = true;
         }
       }
@@ -395,12 +425,30 @@ export function transformResponse(data: XAIResponsesResponse): LLMResponse {
         name: functionCall.name,
         arguments: functionCall.arguments,
       });
+    } else if (item.type === 'reasoning') {
+      const reasoningItem = item as XAIResponsesReasoningOutput;
+      // Extract reasoning summary text
+      if (reasoningItem.summary) {
+        const reasoningText = reasoningItem.summary
+          .filter((s): s is { type: 'summary_text'; text: string } => s.type === 'summary_text')
+          .map(s => s.text)
+          .join('');
+        if (reasoningText) {
+          content.push({ type: 'reasoning', text: reasoningText });
+        }
+      }
+      // Capture full reasoning item for multi-turn context preservation (must be passed back as-is)
+      reasoningEncryptedContent = JSON.stringify({
+        id: reasoningItem.id,
+        summary: reasoningItem.summary,
+        encrypted_content: reasoningItem.encrypted_content,
+      });
     }
   }
 
   const responseId = data.id || generateId();
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: responseId,
@@ -413,6 +461,7 @@ export function transformResponse(data: XAIResponsesResponse): LLMResponse {
             functionCallItems.length > 0 ? functionCallItems : undefined,
           citations: data.citations,
           inline_citations: data.inline_citations,
+          reasoningEncryptedContent,
         },
       },
     }
@@ -461,6 +510,8 @@ export interface ResponsesStreamState {
   model: string;
   /** Map of output index to accumulated text content */
   textByIndex: Map<number, string>;
+  /** Map of output index to accumulated reasoning content */
+  reasoningByIndex: Map<number, string>;
   /** Map of output index to accumulated tool call data */
   toolCalls: Map<
     number,
@@ -476,6 +527,8 @@ export interface ResponsesStreamState {
   cacheReadTokens: number;
   /** Whether a refusal message was received */
   hadRefusal: boolean;
+  /** Serialized reasoning item for multi-turn context preservation (includes encrypted_content) */
+  reasoningEncryptedContent?: string;
 }
 
 /**
@@ -488,6 +541,7 @@ export function createStreamState(): ResponsesStreamState {
     id: '',
     model: '',
     textByIndex: new Map(),
+    reasoningByIndex: new Map(),
     toolCalls: new Map(),
     status: 'in_progress',
     inputTokens: 0,
@@ -573,6 +627,14 @@ export function transformStreamEvent(
           existing.arguments = functionCall.arguments;
         }
         state.toolCalls.set(event.output_index, existing);
+      } else if (event.item.type === 'reasoning') {
+        // Capture full reasoning item for multi-turn context preservation (must be passed back as-is)
+        const reasoningItem = event.item as XAIResponsesReasoningOutput;
+        state.reasoningEncryptedContent = JSON.stringify({
+          id: reasoningItem.id,
+          summary: reasoningItem.summary,
+          encrypted_content: reasoningItem.encrypted_content,
+        });
       }
       events.push({
         type: StreamEventType.ContentBlockStop,
@@ -655,6 +717,21 @@ export function transformStreamEvent(
       break;
     }
 
+    case 'response.reasoning_summary_text.delta': {
+      const currentReasoning = state.reasoningByIndex.get(event.output_index) ?? '';
+      state.reasoningByIndex.set(event.output_index, currentReasoning + event.delta);
+      events.push({
+        type: StreamEventType.ReasoningDelta,
+        index: event.output_index,
+        delta: { text: event.delta },
+      });
+      break;
+    }
+
+    case 'response.reasoning_summary_text.done':
+      state.reasoningByIndex.set(event.output_index, event.text);
+      break;
+
     case 'error':
       break;
 
@@ -675,12 +752,26 @@ export function transformStreamEvent(
  * @returns The complete LLMResponse
  */
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   let structuredData: unknown;
 
-  for (const [, text] of state.textByIndex) {
+  // Add reasoning content first (in order by index)
+  const orderedReasoningEntries = [...state.reasoningByIndex.entries()].sort(
+    ([leftIndex], [rightIndex]) => leftIndex - rightIndex
+  );
+  for (const [, reasoning] of orderedReasoningEntries) {
+    if (reasoning) {
+      content.push({ type: 'reasoning', text: reasoning });
+    }
+  }
+
+  // Add text content (in order by index)
+  const orderedTextEntries = [...state.textByIndex.entries()].sort(
+    ([leftIndex], [rightIndex]) => leftIndex - rightIndex
+  );
+  for (const [, text] of orderedTextEntries) {
     if (text) {
-      textContent.push({ type: 'text', text });
+      content.push({ type: 'text', text });
       if (structuredData === undefined) {
         try {
           structuredData = JSON.parse(text);
@@ -728,7 +819,7 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
 
   const responseId = state.id || generateId();
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       id: responseId,
@@ -739,6 +830,7 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
           response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
+          reasoningEncryptedContent: state.reasoningEncryptedContent,
         },
       },
     }

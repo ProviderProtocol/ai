@@ -323,7 +323,8 @@ export type AnthropicContent =
   | AnthropicTextContent
   | AnthropicImageContent
   | AnthropicToolUseContent
-  | AnthropicToolResultContent;
+  | AnthropicToolResultContent
+  | AnthropicThinkingContent;
 
 /**
  * Cache control configuration for prompt caching.

@@ -18,7 +18,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -226,10 +226,15 @@ function transformMessages(messages: Message[], system?: string | unknown[]): Ol
 
       ollamaMessages.push(message);
     } else if (isAssistantMessage(msg)) {
+      // Filter for text blocks only (exclude reasoning blocks from history)
+      // Also strip any <think>...</think> tags that may be embedded in text
+      // (required for proper multi-turn with Qwen 3, DeepSeek-R1, etc.)
       const textContent = msg.content
         .filter((block): block is TextBlock => block.type === 'text')
         .map((block) => block.text)
-        .join('\n');
+        .join('\n')
+        .replace(/<think>[\s\S]*?<\/think>/g, '')
+        .trim();
 
       const message: OllamaMessage = {
         role: 'assistant',
@@ -309,13 +314,18 @@ function transformTool(tool: Tool): OllamaTool {
  * @returns The normalized UPP LLM response
  */
 export function transformResponse(data: OllamaResponse): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
 
+  // Add reasoning/thinking content first (if present)
+  if (data.message.thinking) {
+    content.push({ type: 'reasoning', text: data.message.thinking });
+  }
+
   // Add main content
   if (data.message.content) {
-    textContent.push({ type: 'text', text: data.message.content });
+    content.push({ type: 'text', text: data.message.content });
 
     // Try to parse as JSON for structured output
     try {
@@ -337,7 +347,7 @@ export function transformResponse(data: OllamaResponse): LLMResponse {
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       metadata: {
@@ -531,12 +541,17 @@ export function transformStreamChunk(
  * @returns The complete UPP LLM response
  */
 export function buildResponseFromState(state: StreamState): LLMResponse {
-  const textContent: TextBlock[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
 
+  // Add reasoning/thinking content first (if present)
+  if (state.thinking) {
+    content.push({ type: 'reasoning', text: state.thinking });
+  }
+
   if (state.content) {
-    textContent.push({ type: 'text', text: state.content });
+    content.push({ type: 'text', text: state.content });
 
     // Try to parse as JSON for structured output
     try {
@@ -555,7 +570,7 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
   }
 
   const message = new AssistantMessage(
-    textContent,
+    content,
     toolCalls.length > 0 ? toolCalls : undefined,
     {
       metadata: {
