@@ -49,6 +49,19 @@ export interface GoogleLLMParams {
   responseSchema?: Record<string, unknown>;
 
   /**
+   * Modalities to generate in the response.
+   *
+   * Use `['IMAGE']` or `['TEXT', 'IMAGE']` with Gemini image generation models
+   * (e.g., gemini-2.5-flash-image aka Nano Banana).
+   */
+  responseModalities?: GoogleResponseModality[];
+
+  /**
+   * Image generation configuration for Gemini image response modalities.
+   */
+  imageConfig?: GoogleImageConfig;
+
+  /**
    * Presence penalty for new topics
    * Positive values encourage discussing new topics
    */
@@ -141,6 +154,37 @@ export interface GoogleLLMParams {
 }
 
 /**
+ * Output modality enum values for Gemini responseModalities.
+ *
+ * The API supports TEXT, IMAGE, and AUDIO response types. Some SDK examples
+ * use Title Case values, so both are accepted here.
+ */
+export type GoogleResponseModality =
+  | 'TEXT'
+  | 'IMAGE'
+  | 'AUDIO'
+  | 'Text'
+  | 'Image'
+  | 'Audio';
+
+/**
+ * Image generation configuration for Gemini response modalities.
+ */
+export interface GoogleImageConfig {
+  /**
+   * Preferred aspect ratio for generated images.
+   * Example: "1:1", "9:16", "16:9".
+   */
+  aspectRatio?: string;
+
+  /**
+   * Preferred output size for generated images.
+   * Example: "1024x1024".
+   */
+  imageSize?: string;
+}
+
+/**
  * Configuration for extended thinking/reasoning in Gemini 2.5+ and 3+ models.
  *
  * Enables models to spend additional compute on reasoning before
@@ -199,6 +243,8 @@ export interface GoogleRequest {
     candidateCount?: number;
     responseMimeType?: string;
     responseSchema?: Record<string, unknown>;
+    responseModalities?: GoogleResponseModality[];
+    imageConfig?: GoogleImageConfig;
     presencePenalty?: number;
     frequencyPenalty?: number;
     seed?: number;
@@ -431,11 +477,12 @@ export interface GoogleCandidate {
 /**
  * Part types that can appear in model responses.
  *
- * Responses may contain text, function calls, or code execution results.
- * Images and function responses are input-only.
+ * Responses may contain text, inline images (when responseModalities includes IMAGE),
+ * function calls, or code execution results.
  */
 export type GoogleResponsePart =
   | GoogleTextPart
+  | GoogleImagePart
   | GoogleFunctionCallPart
   | GoogleExecutableCodePart
   | GoogleCodeExecutionResultPart;

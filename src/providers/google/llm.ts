@@ -34,6 +34,7 @@ const GOOGLE_CAPABILITIES: LLMCapabilities = {
   imageInput: true,
   videoInput: true,
   audioInput: true,
+  imageOutput: true,
 };
 
 /**

@@ -27,6 +27,8 @@
 export { google, tools, cache } from '../providers/google/index.ts';
 export type {
   GoogleLLMParams,
+  GoogleResponseModality,
+  GoogleImageConfig,
   CacheCreateOptions,
   CacheListOptions,
   GoogleCacheCreateRequest,

@@ -18,7 +18,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, AssistantContent, ImageBlock } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -387,7 +387,7 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
     throw new Error('No candidates in Google response');
   }
 
-  const content: (TextBlock | ReasoningBlock)[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
   let lastThoughtSignature: string | undefined;
@@ -429,6 +429,16 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
         args: fc.functionCall.args,
         thoughtSignature: fc.thoughtSignature,
       });
+    } else if ('inlineData' in part) {
+      const imagePart = part as { inlineData: { mimeType?: string; data?: string } };
+      const dataString = imagePart.inlineData.data;
+      if (dataString) {
+        content.push({
+          type: 'image',
+          mimeType: imagePart.inlineData.mimeType ?? 'image/png',
+          source: { type: 'base64', data: dataString },
+        } as ImageBlock);
+      }
     } else if ('codeExecutionResult' in part) {
       // Append code execution output to text content
       const codeResult = part as { codeExecutionResult: { outcome: string; output: string } };
@@ -486,6 +496,8 @@ export interface StreamState {
   thoughtSignature?: string;
   /** Accumulated tool calls with their arguments and optional thought signatures. */
   toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
+  /** Base64 image data from inline image response parts. */
+  images: Array<{ data: string; mimeType: string }>;
   /** The finish reason from the final chunk, if received. */
   finishReason: string | null;
   /** Total input tokens reported by the API. */
@@ -509,6 +521,7 @@ export function createStreamState(): StreamState {
     reasoning: '',
     thoughtSignature: undefined,
     toolCalls: [],
+    images: [],
     finishReason: null,
     inputTokens: 0,
     outputTokens: 0,
@@ -589,6 +602,20 @@ export function transformStreamChunk(
           argumentsJson: JSON.stringify(fc.functionCall.args),
         },
       });
+    } else if ('inlineData' in part) {
+      const imagePart = part as { inlineData: { mimeType?: string; data?: string } };
+      const dataString = imagePart.inlineData.data;
+      if (dataString) {
+        state.images.push({
+          data: dataString,
+          mimeType: imagePart.inlineData.mimeType ?? 'image/png',
+        });
+        events.push({
+          type: StreamEventType.ImageDelta,
+          index: state.images.length - 1,
+          delta: { data: decodeBase64(dataString) },
+        });
+      }
     } else if ('codeExecutionResult' in part) {
       // Append code execution output to content and emit as text delta
       const codeResult = part as { codeExecutionResult: { outcome: string; output: string } };
@@ -623,7 +650,7 @@ export function transformStreamChunk(
  * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: StreamState): LLMResponse {
-  const content: (TextBlock | ReasoningBlock)[] = [];
+  const content: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
   const functionCallParts: Array<{
@@ -643,6 +670,14 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     } catch {
       // Not JSON - may not be structured output
     }
+  }
+
+  for (const imageData of state.images) {
+    content.push({
+      type: 'image',
+      mimeType: imageData.mimeType,
+      source: { type: 'base64', data: imageData.data },
+    } as ImageBlock);
   }
 
   for (const tc of state.toolCalls) {
@@ -703,4 +738,13 @@ function normalizeStopReason(reason: string | null | undefined): string {
     default:
       return 'end_turn';
   }
+}
+
+function decodeBase64(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i += 1) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
 }

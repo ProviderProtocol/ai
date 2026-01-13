@@ -78,6 +78,8 @@ export { tools } from './types.ts';
 export type { CacheCreateOptions, CacheListOptions } from './cache.ts';
 export type {
   GoogleLLMParams,
+  GoogleResponseModality,
+  GoogleImageConfig,
   GoogleCacheCreateRequest,
   GoogleCacheResponse,
   GoogleCacheUpdateRequest,
