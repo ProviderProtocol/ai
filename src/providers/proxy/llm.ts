@@ -27,6 +27,7 @@ import { normalizeHttpError } from '../../http/errors.ts';
 import { parseJsonResponse } from '../../http/json.ts';
 import { toError } from '../../utils/error.ts';
 import type { ProxyLLMParams, ProxyProviderOptions } from './types.ts';
+import { mergeHeaders } from './headers.ts';
 import {
   serializeMessage,
   deserializeMessage,
@@ -83,7 +84,8 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
     },
 
     bind(modelId: string): BoundLLMModel<ProxyLLMParams> {
-      if (!providerRef) {
+      const provider = providerRef;
+      if (!provider) {
         throw new UPPError(
           'Provider reference not set. Handler must be used with createProvider().',
           ErrorCode.InvalidRequest,
@@ -97,11 +99,11 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
         capabilities: PROXY_CAPABILITIES,
 
         get provider(): LLMProvider<ProxyLLMParams> {
-          return providerRef!;
+          return provider;
         },
 
         async complete(request: LLMRequest<ProxyLLMParams>): Promise<LLMResponse> {
-          const body = serializeRequest(request);
+          const body = serializeRequest(request, modelId);
           const headers = mergeHeaders(request.config.headers, defaultHeaders);
 
           const response = await doFetch(
@@ -126,14 +128,25 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
         },
 
         stream(request: LLMRequest<ProxyLLMParams>): LLMStreamResult {
-          const body = serializeRequest(request);
+          const body = serializeRequest(request, modelId);
           const headers = mergeHeaders(request.config.headers, defaultHeaders);
 
           let resolveResponse: (value: LLMResponse) => void;
           let rejectResponse: (error: Error) => void;
+          let responseSettled = false;
           const responsePromise = new Promise<LLMResponse>((resolve, reject) => {
-            resolveResponse = resolve;
-            rejectResponse = reject;
+            resolveResponse = (value) => {
+              if (!responseSettled) {
+                responseSettled = true;
+                resolve(value);
+              }
+            };
+            rejectResponse = (error) => {
+              if (!responseSettled) {
+                responseSettled = true;
+                reject(error);
+              }
+            };
           });
 
           const generator = async function* (): AsyncGenerator<StreamEvent> {
@@ -232,6 +245,15 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
                   }
                 }
               }
+
+              if (!responseSettled) {
+                rejectResponse(new UPPError(
+                  'Stream ended without final response',
+                  ErrorCode.InvalidResponse,
+                  'proxy',
+                  ModalityType.LLM
+                ));
+              }
             } catch (error) {
               rejectResponse(toError(error));
               throw error;
@@ -253,8 +275,12 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
 /**
  * Serialize an LLMRequest for HTTP transport.
  */
-function serializeRequest(request: LLMRequest<ProxyLLMParams>): Record<string, unknown> {
+function serializeRequest(
+  request: LLMRequest<ProxyLLMParams>,
+  modelId: string
+): Record<string, unknown> {
   return {
+    model: modelId,
     messages: request.messages.map(serializeMessage),
     system: request.system,
     params: request.params,
@@ -266,24 +292,6 @@ function serializeRequest(request: LLMRequest<ProxyLLMParams>): Record<string, u
     })),
     structure: request.structure,
   };
-}
-
-/**
- * Merge request headers with default headers.
- */
-function mergeHeaders(
-  requestHeaders: Record<string, string | undefined> | undefined,
-  defaultHeaders: Record<string, string>
-): Record<string, string> {
-  const headers: Record<string, string> = { ...defaultHeaders };
-  if (requestHeaders) {
-    for (const [key, value] of Object.entries(requestHeaders)) {
-      if (value !== undefined) {
-        headers[key] = value;
-      }
-    }
-  }
-  return headers;
 }
 
 /**

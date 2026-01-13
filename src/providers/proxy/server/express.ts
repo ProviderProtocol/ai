@@ -9,7 +9,11 @@
 
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
+import type { EmbeddingResult } from '../../../types/embedding.ts';
+import type { ImageResult } from '../../../types/image.ts';
 import { serializeTurn, serializeStreamEvent } from '../serialization.ts';
+import { serializeImageResult, serializeImageStreamEvent } from '../serialization.media.ts';
+import { resolveImageResult, type ImageStreamLike } from './image-stream.ts';
 
 /**
  * Express Response interface (minimal type to avoid dependency).
@@ -40,6 +44,28 @@ export function sendJSON(turn: Turn, res: ExpressResponse): void {
 }
 
 /**
+ * Send an EmbeddingResult as JSON response.
+ *
+ * @param result - The embedding result
+ * @param res - Express response object
+ */
+export function sendEmbeddingJSON(result: EmbeddingResult, res: ExpressResponse): void {
+  res.setHeader('Content-Type', 'application/json');
+  res.json(result);
+}
+
+/**
+ * Send an ImageResult as JSON response.
+ *
+ * @param result - The image result
+ * @param res - Express response object
+ */
+export function sendImageJSON(result: ImageResult, res: ExpressResponse): void {
+  res.setHeader('Content-Type', 'application/json');
+  res.json(serializeImageResult(result));
+}
+
+/**
  * Stream a StreamResult as Server-Sent Events.
  *
  * @param stream - The StreamResult from instance.stream()
@@ -65,6 +91,36 @@ export function streamSSE(stream: StreamResult, res: ExpressResponse): void {
 
       const turn = await stream.turn;
       res.write(`data: ${JSON.stringify(serializeTurn(turn))}\n\n`);
+      res.write('data: [DONE]\n\n');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+    } finally {
+      res.end();
+    }
+  })();
+}
+
+/**
+ * Stream an ImageStreamResult as Server-Sent Events.
+ *
+ * @param stream - The ImageStreamResult or ImageProviderStreamResult from image().stream()
+ * @param res - Express response object
+ */
+export function streamImageSSE(stream: ImageStreamLike, res: ExpressResponse): void {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  (async () => {
+    try {
+      for await (const event of stream) {
+        const serialized = serializeImageStreamEvent(event);
+        res.write(`data: ${JSON.stringify(serialized)}\n\n`);
+      }
+
+      const result = await resolveImageResult(stream);
+      res.write(`data: ${JSON.stringify(serializeImageResult(result))}\n\n`);
       res.write('data: [DONE]\n\n');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -160,6 +216,9 @@ export function sendError(message: string, status: number, res: ExpressResponse)
  */
 export const express = {
   sendJSON,
+  sendEmbeddingJSON,
+  sendImageJSON,
   streamSSE,
+  streamImageSSE,
   sendError,
 };

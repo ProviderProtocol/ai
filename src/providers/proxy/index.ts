@@ -1,7 +1,12 @@
 import { createProvider } from '../../core/provider.ts';
 import type { ModelReference } from '../../types/provider.ts';
 import { createLLMHandler } from './llm.ts';
-import type { ProxyProviderOptions, ProxyRequestOptions } from './types.ts';
+import { createEmbeddingHandler } from './embedding.ts';
+import { createImageHandler } from './image.ts';
+import type {
+  ProxyProviderOptions,
+  ProxyRequestOptions,
+} from './types.ts';
 
 /**
  * Creates a proxy provider that transports PP requests over HTTP to a backend server.
@@ -33,6 +38,8 @@ export function proxy(options: ProxyProviderOptions) {
     version: '1.0.0',
     handlers: {
       llm: createLLMHandler(options),
+      embedding: createEmbeddingHandler(options),
+      image: createImageHandler(options),
     },
   });
 }
@@ -62,6 +69,8 @@ export function proxyModel(endpoint: string): ModelReference<ProxyRequestOptions
 // Re-export types
 export type {
   ProxyLLMParams,
+  ProxyEmbeddingParams,
+  ProxyImageParams,
   ProxyProviderOptions,
   ProxyRequestOptions,
 } from './types.ts';

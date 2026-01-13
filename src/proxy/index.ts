@@ -53,6 +53,8 @@
 export { proxy, proxyModel } from '../providers/proxy/index.ts';
 export type {
   ProxyLLMParams,
+  ProxyEmbeddingParams,
+  ProxyImageParams,
   ProxyProviderOptions,
   ProxyRequestOptions,
 } from '../providers/proxy/index.ts';
@@ -74,13 +76,20 @@ export {
   fastify,
   h3,
   parseBody,
+  parseEmbeddingBody,
+  parseImageBody,
   toJSON,
+  toEmbeddingJSON,
+  toImageJSON,
   toSSE,
+  toImageSSE,
   toError,
   bindTools,
 } from '../providers/proxy/server/index.ts';
 export type {
   ParsedRequest,
+  ParsedEmbeddingRequest,
+  ParsedImageRequest,
   ParsedBody,
   ProxyHandler,
   RequestMeta,

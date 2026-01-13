@@ -17,6 +17,7 @@ export interface ParsedBody {
   messages: Message[];
   system?: string | unknown[];
   params?: Record<string, unknown>;
+  model?: string;
   tools?: Array<{
     name: string;
     description: string;

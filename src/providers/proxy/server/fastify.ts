@@ -9,7 +9,11 @@
 
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
+import type { EmbeddingResult } from '../../../types/embedding.ts';
+import type { ImageResult } from '../../../types/image.ts';
 import { serializeTurn, serializeStreamEvent } from '../serialization.ts';
+import { serializeImageResult, serializeImageStreamEvent } from '../serialization.media.ts';
+import { resolveImageResult, type ImageStreamLike } from './image-stream.ts';
 
 /**
  * Fastify Reply interface (minimal type to avoid dependency).
@@ -43,6 +47,30 @@ export function sendJSON(turn: Turn, reply: FastifyReply): FastifyReply {
 }
 
 /**
+ * Send an EmbeddingResult as JSON response.
+ *
+ * @param result - The embedding result
+ * @param reply - Fastify reply object
+ */
+export function sendEmbeddingJSON(result: EmbeddingResult, reply: FastifyReply): FastifyReply {
+  return reply
+    .header('Content-Type', 'application/json')
+    .send(result);
+}
+
+/**
+ * Send an ImageResult as JSON response.
+ *
+ * @param result - The image result
+ * @param reply - Fastify reply object
+ */
+export function sendImageJSON(result: ImageResult, reply: FastifyReply): FastifyReply {
+  return reply
+    .header('Content-Type', 'application/json')
+    .send(serializeImageResult(result));
+}
+
+/**
  * Stream a StreamResult as Server-Sent Events.
  *
  * @param stream - The StreamResult from instance.stream()
@@ -71,6 +99,41 @@ export function streamSSE(stream: StreamResult, reply: FastifyReply): FastifyRep
 
       const turn = await stream.turn;
       raw.write(`data: ${JSON.stringify(serializeTurn(turn))}\n\n`);
+      raw.write('data: [DONE]\n\n');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      raw.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+    } finally {
+      raw.end();
+    }
+  })();
+
+  return reply;
+}
+
+/**
+ * Stream an ImageStreamResult as Server-Sent Events.
+ *
+ * @param stream - The ImageStreamResult or ImageProviderStreamResult from image().stream()
+ * @param reply - Fastify reply object
+ */
+export function streamImageSSE(stream: ImageStreamLike, reply: FastifyReply): FastifyReply {
+  reply
+    .header('Content-Type', 'text/event-stream')
+    .header('Cache-Control', 'no-cache')
+    .header('Connection', 'keep-alive');
+
+  const raw = reply.raw;
+
+  (async () => {
+    try {
+      for await (const event of stream) {
+        const serialized = serializeImageStreamEvent(event);
+        raw.write(`data: ${JSON.stringify(serialized)}\n\n`);
+      }
+
+      const result = await resolveImageResult(stream);
+      raw.write(`data: ${JSON.stringify(serializeImageResult(result))}\n\n`);
       raw.write('data: [DONE]\n\n');
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -167,6 +230,9 @@ export function sendError(message: string, status: number, reply: FastifyReply):
  */
 export const fastify = {
   sendJSON,
+  sendEmbeddingJSON,
+  sendImageJSON,
   streamSSE,
+  streamImageSSE,
   sendError,
 };

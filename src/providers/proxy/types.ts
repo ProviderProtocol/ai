@@ -19,6 +19,28 @@ export interface ProxyLLMParams {
 }
 
 /**
+ * Proxy-specific embedding parameters.
+ *
+ * These parameters are passed through to the backend server.
+ * The server decides how to interpret them based on its own provider.
+ */
+export interface ProxyEmbeddingParams {
+  /** Parameters are passed through to the backend */
+  [key: string]: unknown;
+}
+
+/**
+ * Proxy-specific image parameters.
+ *
+ * These parameters are passed through to the backend server.
+ * The server decides how to interpret them based on its own provider.
+ */
+export interface ProxyImageParams {
+  /** Parameters are passed through to the backend */
+  [key: string]: unknown;
+}
+
+/**
  * Configuration options for creating a proxy provider.
  */
 export interface ProxyProviderOptions {

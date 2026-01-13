@@ -11,16 +11,28 @@
  */
 
 import type { Message } from '../../../types/messages.ts';
+import type { EmbeddingInput } from '../../../types/provider.ts';
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
 import type { MessageJSON } from '../../../types/thread.ts';
 import type { JSONSchema } from '../../../types/schema.ts';
 import type { Tool, ToolMetadata } from '../../../types/tool.ts';
+import type { EmbeddingResult } from '../../../types/embedding.ts';
+import type { ImageResult } from '../../../types/image.ts';
 import {
   deserializeMessage,
   serializeTurn,
   serializeStreamEvent,
 } from '../serialization.ts';
+import {
+  deserializeEmbeddingInput,
+  deserializeImage,
+  serializeImageResult,
+  serializeImageStreamEvent,
+  type SerializedEmbeddingInput,
+  type SerializedImage,
+} from '../serialization.media.ts';
+import { resolveImageResult, type ImageStreamLike } from './image-stream.ts';
 
 /**
  * Parsed request body from a proxy HTTP request.
@@ -30,6 +42,7 @@ export interface ParsedRequest {
   messages: Message[];
   system?: string | unknown[];
   params?: Record<string, unknown>;
+  model?: string;
   tools?: Array<{
     name: string;
     description: string;
@@ -37,6 +50,26 @@ export interface ParsedRequest {
     metadata?: ToolMetadata;
   }>;
   structure?: JSONSchema;
+}
+
+/**
+ * Parsed request body for embedding endpoints.
+ */
+export interface ParsedEmbeddingRequest {
+  inputs: EmbeddingInput[];
+  params?: Record<string, unknown>;
+  model?: string;
+}
+
+/**
+ * Parsed request body for image endpoints.
+ */
+export interface ParsedImageRequest {
+  prompt: string;
+  params?: Record<string, unknown>;
+  model?: string;
+  image?: ReturnType<typeof deserializeImage>;
+  mask?: ReturnType<typeof deserializeImage>;
 }
 
 /**
@@ -88,8 +121,77 @@ export function parseBody(body: unknown): ParsedRequest {
     messages: (data.messages as MessageJSON[]).map(deserializeMessage),
     system: data.system as string | unknown[] | undefined,
     params: data.params as Record<string, unknown> | undefined,
+    model: typeof data.model === 'string' ? data.model : undefined,
     tools: data.tools as ParsedRequest['tools'],
     structure: data.structure as JSONSchema | undefined,
+  };
+}
+
+/**
+ * Parse an HTTP request body into embedding inputs.
+ *
+ * @param body - The JSON-parsed request body
+ * @returns Parsed embedding request data
+ */
+export function parseEmbeddingBody(body: unknown): ParsedEmbeddingRequest {
+  if (!body || typeof body !== 'object') {
+    throw new Error('Request body must be an object');
+  }
+
+  const data = body as Record<string, unknown>;
+
+  if (!Array.isArray(data.inputs)) {
+    throw new Error('Request body must have an inputs array');
+  }
+
+  const inputs = data.inputs.map((input) =>
+    deserializeEmbeddingInput(input as SerializedEmbeddingInput)
+  );
+
+  return {
+    inputs,
+    params: data.params as Record<string, unknown> | undefined,
+    model: typeof data.model === 'string' ? data.model : undefined,
+  };
+}
+
+/**
+ * Parse an HTTP request body into image request data.
+ *
+ * @param body - The JSON-parsed request body
+ * @returns Parsed image request data
+ */
+export function parseImageBody(body: unknown): ParsedImageRequest {
+  if (!body || typeof body !== 'object') {
+    throw new Error('Request body must be an object');
+  }
+
+  const data = body as Record<string, unknown>;
+  const promptValue = data.prompt;
+
+  let prompt: string | undefined;
+  if (typeof promptValue === 'string') {
+    prompt = promptValue;
+  } else if (promptValue && typeof promptValue === 'object') {
+    const promptObj = promptValue as Record<string, unknown>;
+    if (typeof promptObj.prompt === 'string') {
+      prompt = promptObj.prompt;
+    }
+  }
+
+  if (!prompt) {
+    throw new Error('Request body must have a prompt string');
+  }
+
+  const image = data.image ? deserializeImage(data.image as SerializedImage) : undefined;
+  const mask = data.mask ? deserializeImage(data.mask as SerializedImage) : undefined;
+
+  return {
+    prompt,
+    params: data.params as Record<string, unknown> | undefined,
+    model: typeof data.model === 'string' ? data.model : undefined,
+    image,
+    mask,
   };
 }
 
@@ -107,6 +209,30 @@ export function parseBody(body: unknown): ParsedRequest {
  */
 export function toJSON(turn: Turn): Response {
   return new Response(JSON.stringify(serializeTurn(turn)), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Create a JSON Response from an embedding result.
+ *
+ * @param result - The embedding result
+ * @returns HTTP Response with JSON body
+ */
+export function toEmbeddingJSON(result: EmbeddingResult): Response {
+  return new Response(JSON.stringify(result), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/**
+ * Create a JSON Response from an image result.
+ *
+ * @param result - The image result
+ * @returns HTTP Response with JSON body
+ */
+export function toImageJSON(result: ImageResult): Response {
+  return new Response(JSON.stringify(serializeImageResult(result)), {
     headers: { 'Content-Type': 'application/json' },
   });
 }
@@ -145,7 +271,49 @@ export function toSSE(stream: StreamResult): Response {
         controller.close();
       } catch (error) {
         const errorMsg = error instanceof Error ? error.message : String(error);
-        controller.enqueue(encoder.encode(`data: {"error":"${errorMsg}"}\n\n`));
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`));
+        controller.close();
+      }
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    },
+  });
+}
+
+/**
+ * Create an SSE Response from an ImageStreamResult.
+ *
+ * Streams image events as SSE, then sends the final image result.
+ *
+ * @param stream - The ImageStreamResult or ImageProviderStreamResult from image().stream()
+ * @returns HTTP Response with SSE body
+ */
+export function toImageSSE(stream: ImageStreamLike): Response {
+  const encoder = new TextEncoder();
+
+  const readable = new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const event of stream) {
+          const serialized = serializeImageStreamEvent(event);
+          const data = `data: ${JSON.stringify(serialized)}\n\n`;
+          controller.enqueue(encoder.encode(data));
+        }
+
+        const result = await resolveImageResult(stream);
+        const resultData = serializeImageResult(result);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(resultData)}\n\n`));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+        controller.close();
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: errorMsg })}\n\n`));
         controller.close();
       }
     },
@@ -283,8 +451,13 @@ export function bindTools(
  */
 export const webapi = {
   parseBody,
+  parseEmbeddingBody,
+  parseImageBody,
   toJSON,
+  toEmbeddingJSON,
+  toImageJSON,
   toSSE,
+  toImageSSE,
   toError,
   bindTools,
 };

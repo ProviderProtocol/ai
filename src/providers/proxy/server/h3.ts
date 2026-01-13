@@ -9,7 +9,11 @@
 
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
+import type { EmbeddingResult } from '../../../types/embedding.ts';
+import type { ImageResult } from '../../../types/image.ts';
 import { serializeTurn, serializeStreamEvent } from '../serialization.ts';
+import { serializeImageResult, serializeImageStreamEvent } from '../serialization.media.ts';
+import { resolveImageResult, type ImageStreamLike } from './image-stream.ts';
 
 /**
  * H3 Event interface (minimal type to avoid dependency).
@@ -40,6 +44,30 @@ interface H3Event {
 export function sendJSON(turn: Turn, event: H3Event): unknown {
   event.node.res.setHeader('Content-Type', 'application/json');
   return serializeTurn(turn);
+}
+
+/**
+ * Send an EmbeddingResult as JSON response.
+ *
+ * @param result - The embedding result
+ * @param event - H3 event object
+ * @returns Serialized result data
+ */
+export function sendEmbeddingJSON(result: EmbeddingResult, event: H3Event): unknown {
+  event.node.res.setHeader('Content-Type', 'application/json');
+  return result;
+}
+
+/**
+ * Send an ImageResult as JSON response.
+ *
+ * @param result - The image result
+ * @param event - H3 event object
+ * @returns Serialized image result data
+ */
+export function sendImageJSON(result: ImageResult, event: H3Event): unknown {
+  event.node.res.setHeader('Content-Type', 'application/json');
+  return serializeImageResult(result);
 }
 
 /**
@@ -80,6 +108,37 @@ export function streamSSE(stream: StreamResult, event: H3Event): void {
 }
 
 /**
+ * Stream an ImageStreamResult as Server-Sent Events.
+ *
+ * @param stream - The ImageStreamResult or ImageProviderStreamResult from image().stream()
+ * @param event - H3 event object
+ */
+export function streamImageSSE(stream: ImageStreamLike, event: H3Event): void {
+  const res = event.node.res;
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  (async () => {
+    try {
+      for await (const evt of stream) {
+        const serialized = serializeImageStreamEvent(evt);
+        res.write(`data: ${JSON.stringify(serialized)}\n\n`);
+      }
+
+      const result = await resolveImageResult(stream);
+      res.write(`data: ${JSON.stringify(serializeImageResult(result))}\n\n`);
+      res.write('data: [DONE]\n\n');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
+    } finally {
+      res.end();
+    }
+  })();
+}
+
+/**
  * Create a ReadableStream for H3's sendStream utility.
  *
  * Use this with H3's sendStream for better integration:
@@ -104,6 +163,36 @@ export function createSSEStream(stream: StreamResult): ReadableStream<Uint8Array
 
         const turn = await stream.turn;
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(serializeTurn(turn))}\n\n`));
+        controller.enqueue(encoder.encode('data: [DONE]\n\n'));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify({ error: message })}\n\n`));
+      } finally {
+        controller.close();
+      }
+    },
+  });
+}
+
+/**
+ * Create a ReadableStream for image SSE data.
+ *
+ * @param stream - The ImageStreamResult or ImageProviderStreamResult from image().stream()
+ * @returns A ReadableStream of SSE data
+ */
+export function createImageSSEStream(stream: ImageStreamLike): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const event of stream) {
+          const serialized = serializeImageStreamEvent(event);
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(serialized)}\n\n`));
+        }
+
+        const result = await resolveImageResult(stream);
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(serializeImageResult(result))}\n\n`));
         controller.enqueue(encoder.encode('data: [DONE]\n\n'));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -198,7 +287,11 @@ export function sendError(message: string, status: number, event: H3Event): { er
  */
 export const h3 = {
   sendJSON,
+  sendEmbeddingJSON,
+  sendImageJSON,
   streamSSE,
+  streamImageSSE,
   createSSEStream,
+  createImageSSEStream,
   sendError,
 };

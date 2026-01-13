@@ -12,11 +12,34 @@
 import { express } from './express.ts';
 import { fastify } from './fastify.ts';
 import { h3 } from './h3.ts';
-import { webapi, parseBody, toJSON, toSSE, toError, bindTools } from './webapi.ts';
+import {
+  webapi,
+  parseBody,
+  parseEmbeddingBody,
+  parseImageBody,
+  toJSON,
+  toEmbeddingJSON,
+  toImageJSON,
+  toSSE,
+  toImageSSE,
+  toError,
+  bindTools,
+} from './webapi.ts';
 
 export { express, fastify, h3, webapi };
-export { parseBody, toJSON, toSSE, toError, bindTools };
-export type { ParsedRequest } from './webapi.ts';
+export {
+  parseBody,
+  parseEmbeddingBody,
+  parseImageBody,
+  toJSON,
+  toEmbeddingJSON,
+  toImageJSON,
+  toSSE,
+  toImageSSE,
+  toError,
+  bindTools,
+};
+export type { ParsedRequest, ParsedEmbeddingRequest, ParsedImageRequest } from './webapi.ts';
 
 export type {
   ParsedBody,
