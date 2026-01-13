@@ -416,7 +416,8 @@ describe('ReasoningBlock Content Type', () => {
       expect(Array.isArray(assistantMessage?.content)).toBe(true);
       const content = Array.isArray(assistantMessage?.content) ? assistantMessage.content : [];
       const thinkingBlocks = content.filter(
-        (block): block is { type: 'thinking'; signature?: string } => block.type === 'thinking'
+        (block): block is { type: 'thinking'; thinking: string; signature?: string } =>
+          block.type === 'thinking'
       );
 
       expect(thinkingBlocks).toHaveLength(2);
