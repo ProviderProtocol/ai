@@ -14,7 +14,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent, ReasoningBlock } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -33,6 +33,7 @@ import type {
   OpenRouterResponsesStreamEvent,
   OpenRouterSystemContent,
   OpenRouterCacheControl,
+  OpenRouterResponsesReasoningOutput,
 } from './types.ts';
 
 /**
@@ -237,6 +238,7 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
     const validContent = filterValidContent(message.content);
     const items: OpenRouterResponsesInputItem[] = [];
 
+    // Filter out reasoning blocks - they're preserved via reasoningEncryptedContent in metadata
     const contentParts: OpenRouterResponsesContentPart[] = validContent
       .filter((c): c is TextBlock => c.type === 'text')
       .map((c): OpenRouterResponsesContentPart => ({
@@ -258,9 +260,32 @@ function transformMessage(message: Message): OpenRouterResponsesInputItem[] {
     }
 
     const openrouterMeta = message.metadata?.openrouter as
-      | { functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }> }
+      | {
+          functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }>;
+          // Encrypted reasoning content for multi-turn context (stateless mode)
+          reasoningEncryptedContent?: string;
+        }
       | undefined;
     const functionCallItems = openrouterMeta?.functionCallItems;
+
+    // Add reasoning item for multi-turn context preservation (must be passed back as-is)
+    if (openrouterMeta?.reasoningEncryptedContent) {
+      try {
+        const reasoningData = JSON.parse(openrouterMeta.reasoningEncryptedContent) as {
+          id: string;
+          summary: Array<{ type: 'summary_text'; text: string }>;
+          encrypted_content?: string;
+        };
+        items.push({
+          type: 'reasoning',
+          id: reasoningData.id,
+          summary: reasoningData.summary,
+          encrypted_content: reasoningData.encrypted_content,
+        } as OpenRouterResponsesInputItem);
+      } catch {
+        // Invalid JSON - skip reasoning item
+      }
+    }
 
     if (functionCallItems && functionCallItems.length > 0) {
       for (const fc of functionCallItems) {
@@ -389,7 +414,8 @@ function transformTool(tool: Tool): OpenRouterResponsesTool {
  * @returns UPP-formatted LLM response
  */
 export function transformResponse(data: OpenRouterResponsesResponse): LLMResponse {
-  const content: AssistantContent[] = [];
+  const reasoningContent: ReasoningBlock[] = [];
+  const textContent: AssistantContent[] = [];
   const toolCalls: ToolCall[] = [];
   const functionCallItems: Array<{
     id: string;
@@ -399,13 +425,14 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
   }> = [];
   let hadRefusal = false;
   let structuredData: unknown;
+  let reasoningEncryptedContent: string | undefined;
 
   for (const item of data.output) {
     if (item.type === 'message') {
       const messageItem = item;
       for (const part of messageItem.content) {
         if (part.type === 'output_text') {
-          content.push({ type: 'text', text: part.text });
+          textContent.push({ type: 'text', text: part.text });
           if (structuredData === undefined) {
             try {
               structuredData = JSON.parse(part.text);
@@ -414,7 +441,7 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
             }
           }
         } else if (part.type === 'refusal') {
-          content.push({ type: 'text', text: part.refusal });
+          textContent.push({ type: 'text', text: part.refusal });
           hadRefusal = true;
         }
       }
@@ -440,14 +467,33 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
     } else if (item.type === 'image_generation_call') {
       const imageGen = item;
       if (imageGen.result) {
-        content.push({
+        textContent.push({
           type: 'image',
           mimeType: 'image/png',
           source: { type: 'base64', data: imageGen.result },
         } as ImageBlock);
       }
+    } else if (item.type === 'reasoning') {
+      const reasoningItem = item as OpenRouterResponsesReasoningOutput;
+      // Extract reasoning text from summary
+      const reasoningText = reasoningItem.summary
+        .filter((s): s is { type: 'summary_text'; text: string } => s.type === 'summary_text')
+        .map(s => s.text)
+        .join('');
+      if (reasoningText) {
+        reasoningContent.push({ type: 'reasoning', text: reasoningText });
+      }
+      // Store full reasoning item for multi-turn context preservation (must be passed back as-is)
+      reasoningEncryptedContent = JSON.stringify({
+        id: reasoningItem.id,
+        summary: reasoningItem.summary,
+        encrypted_content: reasoningItem.encrypted_content,
+      });
     }
   }
+
+  // Combine reasoning before text content (matches other providers' pattern)
+  const content: AssistantContent[] = [...reasoningContent, ...textContent];
 
   const responseId = data.id || generateId();
   const message = new AssistantMessage(
@@ -463,6 +509,8 @@ export function transformResponse(data: OpenRouterResponsesResponse): LLMRespons
           response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
+          // Store encrypted reasoning content for multi-turn context (stateless mode)
+          reasoningEncryptedContent,
         },
       },
     }
@@ -511,6 +559,8 @@ export interface ResponsesStreamState {
   model: string;
   /** Map of output index to accumulated text content */
   textByIndex: Map<number, string>;
+  /** Map of output index to accumulated reasoning text */
+  reasoningByIndex: Map<number, string>;
   /** Map of output index to accumulated tool call data */
   toolCalls: Map<
     number,
@@ -528,6 +578,8 @@ export interface ResponsesStreamState {
   cacheReadTokens: number;
   /** Whether a refusal was encountered */
   hadRefusal: boolean;
+  /** Serialized reasoning item for multi-turn context preservation (includes encrypted_content) */
+  reasoningEncryptedContent?: string;
 }
 
 /**
@@ -540,6 +592,7 @@ export function createStreamState(): ResponsesStreamState {
     id: '',
     model: '',
     textByIndex: new Map(),
+    reasoningByIndex: new Map(),
     toolCalls: new Map(),
     images: new Map(),
     status: 'in_progress',
@@ -666,6 +719,14 @@ export function transformStreamEvent(
         if (imageGen.result) {
           state.images.set(event.output_index, imageGen.result);
         }
+      } else if (event.item.type === 'reasoning') {
+        // Capture full reasoning item for multi-turn context preservation (must be passed back as-is)
+        const reasoningItem = event.item as OpenRouterResponsesReasoningOutput;
+        state.reasoningEncryptedContent = JSON.stringify({
+          id: reasoningItem.id,
+          summary: reasoningItem.summary,
+          encrypted_content: reasoningItem.encrypted_content,
+        });
       }
       events.push({
         type: StreamEventType.ContentBlockStop,
@@ -753,7 +814,10 @@ export function transformStreamEvent(
       break;
     }
 
-    case 'response.reasoning.delta':
+    case 'response.reasoning.delta': {
+      // Accumulate reasoning text
+      const currentReasoning = state.reasoningByIndex.get(0) ?? '';
+      state.reasoningByIndex.set(0, currentReasoning + event.delta);
       // Emit reasoning as a reasoning_delta event
       events.push({
         type: StreamEventType.ReasoningDelta,
@@ -761,6 +825,7 @@ export function transformStreamEvent(
         delta: { text: event.delta },
       });
       break;
+    }
 
     case 'error':
       break;
@@ -782,12 +847,20 @@ export function transformStreamEvent(
  * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: ResponsesStreamState): LLMResponse {
-  const content: AssistantContent[] = [];
+  const reasoningContent: ReasoningBlock[] = [];
+  const textContent: AssistantContent[] = [];
   let structuredData: unknown;
+
+  // Add reasoning content if present
+  for (const [, reasoning] of state.reasoningByIndex) {
+    if (reasoning) {
+      reasoningContent.push({ type: 'reasoning', text: reasoning });
+    }
+  }
 
   for (const [, text] of state.textByIndex) {
     if (text) {
-      content.push({ type: 'text', text });
+      textContent.push({ type: 'text', text });
       if (structuredData === undefined) {
         try {
           structuredData = JSON.parse(text);
@@ -800,13 +873,16 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
 
   for (const [, imageData] of state.images) {
     if (imageData) {
-      content.push({
+      textContent.push({
         type: 'image',
         mimeType: 'image/png',
         source: { type: 'base64', data: imageData },
       } as ImageBlock);
     }
   }
+
+  // Combine reasoning before text content (matches other providers' pattern)
+  const content: AssistantContent[] = [...reasoningContent, ...textContent];
 
   const toolCalls: ToolCall[] = [];
   const functionCallItems: Array<{
@@ -857,6 +933,8 @@ export function buildResponseFromState(state: ResponsesStreamState): LLMResponse
           response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
+          // Store encrypted reasoning content for multi-turn context (stateless mode)
+          reasoningEncryptedContent: state.reasoningEncryptedContent,
         },
       },
     }

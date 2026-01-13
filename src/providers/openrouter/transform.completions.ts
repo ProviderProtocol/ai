@@ -14,7 +14,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent, ReasoningBlock } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -34,6 +34,7 @@ import type {
   OpenRouterCompletionsStreamChunk,
   OpenRouterToolCall,
   OpenRouterCacheControl,
+  OpenRouterReasoningDetail,
 } from './types.ts';
 
 /**
@@ -264,7 +265,9 @@ function transformMessage(message: Message): OpenRouterCompletionsMessage | null
 
   if (isAssistantMessage(message)) {
     const validContent = filterValidContent(message.content);
-    const textContent = validContent
+    // Filter out reasoning blocks - they're preserved via reasoning_details in metadata
+    const nonReasoningContent = validContent.filter(c => c.type !== 'reasoning');
+    const textContent = nonReasoningContent
       .filter((c): c is TextBlock => c.type === 'text')
       .map((c) => c.text)
       .join('');
@@ -284,6 +287,15 @@ function transformMessage(message: Message): OpenRouterCompletionsMessage | null
             arguments: JSON.stringify(call.arguments),
           },
         }));
+    }
+
+    // Forward reasoning_details from metadata for multi-turn context preservation
+    const openrouterMeta = message.metadata?.openrouter as
+      | { reasoning_details?: OpenRouterReasoningDetail[] }
+      | undefined;
+    if (openrouterMeta?.reasoning_details && openrouterMeta.reasoning_details.length > 0) {
+      (assistantMessage as { reasoning_details?: OpenRouterReasoningDetail[] }).reasoning_details =
+        openrouterMeta.reasoning_details;
     }
 
     return assistantMessage;
@@ -418,10 +430,24 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
     throw new Error('No choices in OpenRouter response');
   }
 
-  const content: AssistantContent[] = [];
+  const reasoningContent: ReasoningBlock[] = [];
+  const textContent: AssistantContent[] = [];
   let structuredData: unknown;
+
+  // Extract reasoning from reasoning_details
+  if (choice.message.reasoning_details && choice.message.reasoning_details.length > 0) {
+    for (const detail of choice.message.reasoning_details) {
+      if (detail.type === 'reasoning.text' && detail.text) {
+        reasoningContent.push({ type: 'reasoning', text: detail.text });
+      } else if (detail.type === 'reasoning.summary' && detail.summary) {
+        reasoningContent.push({ type: 'reasoning', text: detail.summary });
+      }
+      // reasoning.encrypted blocks don't have displayable text
+    }
+  }
+
   if (choice.message.content) {
-    content.push({ type: 'text', text: choice.message.content });
+    textContent.push({ type: 'text', text: choice.message.content });
     try {
       structuredData = JSON.parse(choice.message.content);
     } catch {
@@ -433,10 +459,13 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
     for (const image of choice.message.images) {
       const imageBlock = parseGeneratedImage(image.image_url.url);
       if (imageBlock) {
-        content.push(imageBlock);
+        textContent.push(imageBlock);
       }
     }
   }
+
+  // Combine reasoning before text content (matches other providers' pattern)
+  const content: AssistantContent[] = [...reasoningContent, ...textContent];
 
   const toolCalls: ToolCall[] = [];
   if (choice.message.tool_calls) {
@@ -466,6 +495,8 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
           model: data.model,
           finish_reason: choice.finish_reason,
           system_fingerprint: data.system_fingerprint,
+          // Store reasoning_details for multi-turn context preservation
+          reasoning_details: choice.message.reasoning_details,
         },
       },
     }
@@ -538,6 +569,10 @@ export interface CompletionsStreamState {
   model: string;
   /** Accumulated text content */
   text: string;
+  /** Accumulated reasoning text from reasoning_details */
+  reasoning: string;
+  /** Raw reasoning_details for multi-turn context preservation */
+  reasoningDetails: OpenRouterReasoningDetail[];
   /** Map of tool call index to accumulated tool call data */
   toolCalls: Map<number, { id: string; name: string; arguments: string }>;
   /** Generated image data URLs from image generation models */
@@ -562,6 +597,8 @@ export function createStreamState(): CompletionsStreamState {
     id: '',
     model: '',
     text: '',
+    reasoning: '',
+    reasoningDetails: [],
     toolCalls: new Map(),
     images: [],
     finishReason: null,
@@ -644,6 +681,30 @@ export function transformStreamEvent(
       }
     }
 
+    // Handle reasoning_details in streaming
+    if (choice.delta.reasoning_details) {
+      for (const detail of choice.delta.reasoning_details) {
+        state.reasoningDetails.push(detail);
+        // Extract text for ReasoningDelta events
+        if (detail.type === 'reasoning.text' && detail.text) {
+          state.reasoning += detail.text;
+          events.push({
+            type: StreamEventType.ReasoningDelta,
+            index: 0,
+            delta: { text: detail.text },
+          });
+        } else if (detail.type === 'reasoning.summary' && detail.summary) {
+          state.reasoning += detail.summary;
+          events.push({
+            type: StreamEventType.ReasoningDelta,
+            index: 0,
+            delta: { text: detail.summary },
+          });
+        }
+        // reasoning.encrypted blocks don't have displayable text
+      }
+    }
+
     if (choice.finish_reason) {
       state.finishReason = choice.finish_reason;
       events.push({ type: StreamEventType.MessageStop, index: 0, delta: {} });
@@ -669,10 +730,17 @@ export function transformStreamEvent(
  * @returns Complete UPP LLMResponse
  */
 export function buildResponseFromState(state: CompletionsStreamState): LLMResponse {
-  const content: AssistantContent[] = [];
+  const reasoningContent: ReasoningBlock[] = [];
+  const textContent: AssistantContent[] = [];
   let structuredData: unknown;
+
+  // Add reasoning content if present
+  if (state.reasoning) {
+    reasoningContent.push({ type: 'reasoning', text: state.reasoning });
+  }
+
   if (state.text) {
-    content.push({ type: 'text', text: state.text });
+    textContent.push({ type: 'text', text: state.text });
     try {
       structuredData = JSON.parse(state.text);
     } catch {
@@ -683,9 +751,12 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
   for (const imageUrl of state.images) {
     const imageBlock = parseGeneratedImage(imageUrl);
     if (imageBlock) {
-      content.push(imageBlock);
+      textContent.push(imageBlock);
     }
   }
+
+  // Combine reasoning before text content (matches other providers' pattern)
+  const content: AssistantContent[] = [...reasoningContent, ...textContent];
 
   const toolCalls: ToolCall[] = [];
   for (const [, toolCall] of state.toolCalls) {
@@ -714,6 +785,8 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
         openrouter: {
           model: state.model,
           finish_reason: state.finishReason,
+          // Store reasoning_details for multi-turn context preservation
+          reasoning_details: state.reasoningDetails.length > 0 ? state.reasoningDetails : undefined,
         },
       },
     }

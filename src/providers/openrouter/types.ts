@@ -9,6 +9,51 @@
  */
 
 /**
+ * Reasoning configuration for OpenRouter.
+ *
+ * Controls reasoning effort and whether to include reasoning tokens in responses.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/best-practices/reasoning-tokens}
+ */
+export interface OpenRouterReasoningConfig {
+  /**
+   * Reasoning effort level.
+   *
+   * Controls how much compute the model spends on reasoning:
+   * - `'xhigh'`: ~95% reasoning budget
+   * - `'high'`: ~80% reasoning budget
+   * - `'medium'`: ~50% reasoning budget (default)
+   * - `'low'`: ~20% reasoning budget
+   * - `'minimal'`: ~10% reasoning budget
+   * - `'none'`: No reasoning
+   */
+  effort?: 'xhigh' | 'high' | 'medium' | 'low' | 'minimal' | 'none';
+
+  /**
+   * Maximum tokens for reasoning.
+   *
+   * For Anthropic: minimum 1024, maximum 128000.
+   * For Gemini: Maps to thinkingBudget.
+   */
+  max_tokens?: number;
+
+  /**
+   * Whether to exclude reasoning from the response.
+   *
+   * When true, the model uses reasoning internally but doesn't include
+   * reasoning tokens in the response.
+   */
+  exclude?: boolean;
+
+  /**
+   * Whether reasoning is enabled.
+   *
+   * Defaults to true when the reasoning parameter is present.
+   */
+  enabled?: boolean;
+}
+
+/**
  * Parameters for OpenRouter's Chat Completions API.
  *
  * These parameters are passed through to the `/api/v1/chat/completions` endpoint.
@@ -121,6 +166,26 @@ export interface OpenRouterCompletionsParams {
     /** If true, returns the transformed request body sent to the provider */
     echo_upstream_body?: boolean;
   };
+
+  /**
+   * Reasoning configuration for thinking models.
+   *
+   * Controls how much reasoning effort the model uses and whether to include
+   * reasoning tokens in the response.
+   *
+   * @see {@link https://openrouter.ai/docs/guides/best-practices/reasoning-tokens}
+   */
+  reasoning?: OpenRouterReasoningConfig;
+
+  /**
+   * Legacy reasoning toggle (use `reasoning` instead).
+   *
+   * - `true`: Equivalent to `reasoning: {}`
+   * - `false`: Equivalent to `reasoning: { exclude: true }`
+   *
+   * @deprecated Use `reasoning` parameter instead
+   */
+  include_reasoning?: boolean;
 }
 
 /**
@@ -359,6 +424,90 @@ export interface OpenRouterAssistantMessage {
    * Present when the request included `modalities: ['text', 'image']`.
    */
   images?: OpenRouterGeneratedImage[];
+  /**
+   * Reasoning details from thinking/reasoning models.
+   *
+   * Contains the model's step-by-step reasoning process in a normalized format.
+   * Must be passed back unchanged in multi-turn conversations for context preservation.
+   *
+   * @see {@link https://openrouter.ai/docs/guides/best-practices/reasoning-tokens}
+   */
+  reasoning_details?: OpenRouterReasoningDetail[];
+}
+
+// ============================================================================
+// Reasoning Types (Chat Completions API)
+// ============================================================================
+
+/**
+ * Reasoning detail block types for Chat Completions API responses.
+ *
+ * OpenRouter normalizes reasoning/thinking tokens from different providers
+ * into a unified `reasoning_details` array format.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/best-practices/reasoning-tokens}
+ */
+export type OpenRouterReasoningDetail =
+  | OpenRouterReasoningSummary
+  | OpenRouterReasoningText
+  | OpenRouterReasoningEncrypted;
+
+/**
+ * Summary-type reasoning detail.
+ *
+ * Contains a condensed summary of the model's reasoning process.
+ */
+export interface OpenRouterReasoningSummary {
+  /** Detail type identifier. */
+  type: 'reasoning.summary';
+  /** Unique identifier for this reasoning block. */
+  id?: string | null;
+  /** Format version identifier (e.g., "anthropic-claude-v1"). */
+  format?: string;
+  /** Sequential position in the reasoning sequence. */
+  index?: number;
+  /** The reasoning summary text. */
+  summary: string;
+}
+
+/**
+ * Text-type reasoning detail.
+ *
+ * Contains the model's reasoning text with optional verification signature.
+ * Used by Anthropic Claude and Google Gemini models.
+ */
+export interface OpenRouterReasoningText {
+  /** Detail type identifier. */
+  type: 'reasoning.text';
+  /** Unique identifier for this reasoning block. */
+  id?: string | null;
+  /** Format version identifier (e.g., "anthropic-claude-v1"). */
+  format?: string;
+  /** Sequential position in the reasoning sequence. */
+  index?: number;
+  /** The reasoning text content. */
+  text: string;
+  /** Verification signature for multi-turn context preservation. */
+  signature?: string;
+}
+
+/**
+ * Encrypted-type reasoning detail.
+ *
+ * Contains base64-encoded encrypted reasoning content.
+ * Used by OpenAI o-series models for multi-turn context.
+ */
+export interface OpenRouterReasoningEncrypted {
+  /** Detail type identifier. */
+  type: 'reasoning.encrypted';
+  /** Unique identifier for this reasoning block. */
+  id?: string | null;
+  /** Format version identifier (e.g., "openai-o1-v1"). */
+  format?: string;
+  /** Sequential position in the reasoning sequence. */
+  index?: number;
+  /** Base64-encoded encrypted reasoning data. */
+  data: string;
 }
 
 /**
@@ -629,6 +778,13 @@ export interface OpenRouterCompletionsStreamDelta {
    * Generated images (typically sent in final chunk for image generation models).
    */
   images?: OpenRouterGeneratedImage[];
+  /**
+   * Reasoning details (typically sent incrementally during streaming).
+   *
+   * During streaming, reasoning_details may be delivered in chunks
+   * and should be accumulated in order.
+   */
+  reasoning_details?: OpenRouterReasoningDetail[];
 }
 
 /**
@@ -684,7 +840,25 @@ export type OpenRouterResponsesInputItem =
   | OpenRouterResponsesUserItem
   | OpenRouterResponsesAssistantItem
   | OpenRouterResponsesFunctionCallInputItem
-  | OpenRouterResponsesToolResultItem;
+  | OpenRouterResponsesToolResultItem
+  | OpenRouterResponsesReasoningInputItem;
+
+/**
+ * Reasoning input item for Responses API multi-turn context preservation.
+ *
+ * This item is used to pass reasoning context back to the model
+ * for multi-turn conversations with thinking models.
+ */
+export interface OpenRouterResponsesReasoningInputItem {
+  /** Item type identifier. */
+  type: 'reasoning';
+  /** Unique identifier for this reasoning item. */
+  id: string;
+  /** Array of reasoning summary texts. */
+  summary: Array<{ type: 'summary_text'; text: string }>;
+  /** Encrypted reasoning content for context preservation. */
+  encrypted_content?: string;
+}
 
 /**
  * System message input item for Responses API.
@@ -901,7 +1075,25 @@ export interface OpenRouterResponsesResponse {
 export type OpenRouterResponsesOutputItem =
   | OpenRouterResponsesMessageOutput
   | OpenRouterResponsesFunctionCallOutput
-  | OpenRouterResponsesImageGenerationOutput;
+  | OpenRouterResponsesImageGenerationOutput
+  | OpenRouterResponsesReasoningOutput;
+
+/**
+ * Reasoning output item from Responses API.
+ *
+ * Contains the model's reasoning process for thinking models.
+ * Must be passed back unchanged in multi-turn conversations.
+ */
+export interface OpenRouterResponsesReasoningOutput {
+  /** Item type identifier. */
+  type: 'reasoning';
+  /** Unique identifier for this reasoning item. */
+  id: string;
+  /** Array of reasoning summary texts. */
+  summary: Array<{ type: 'summary_text'; text: string }>;
+  /** Encrypted reasoning content for context preservation. */
+  encrypted_content?: string;
+}
 
 /**
  * Image generation output item from Responses API.

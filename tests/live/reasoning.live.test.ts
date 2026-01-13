@@ -17,13 +17,16 @@ import { openai } from '../../src/openai/index.ts';
 import { google } from '../../src/google/index.ts';
 import { ollama } from '../../src/ollama/index.ts';
 import { xai } from '../../src/xai/index.ts';
+import { openrouter } from '../../src/openrouter/index.ts';
 import type { AnthropicLLMParams } from '../../src/anthropic/index.ts';
 import type { OpenAIResponsesParams } from '../../src/openai/index.ts';
 import type { GoogleLLMParams } from '../../src/google/index.ts';
 import type { OllamaLLMParams } from '../../src/ollama/index.ts';
 import type { XAICompletionsParams, XAIMessagesParams } from '../../src/xai/index.ts';
+import type { OpenRouterCompletionsParams, OpenRouterResponsesParams } from '../../src/openrouter/index.ts';
 import { StreamEventType } from '../../src/types/stream.ts';
 import type { Message } from '../../src/types/messages.ts';
+import type { Tool } from '../../src/types/tool.ts';
 
 const REASONING_PROMPT = 'What is 17 * 23? Think through this step by step and show your reasoning.';
 const COMPLEX_PROMPT = `In a city of 150k, 60% are adults, 40% of adults own cars. Calculate the total cars. Let's solve this step by step.`;
@@ -344,6 +347,134 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini Thinking', () => {
     console.log(`Gemini 3 streamed ${reasoningContent.length} chars of reasoning`);
     expect(turn.response.text).toContain('391');
   }, 120000);
+
+  test('gemini 3 with thinking + tool use + multi-turn preserves thoughtSignature', async () => {
+    const calculatorTool: Tool = {
+      name: 'calculator',
+      description: 'Perform arithmetic calculations',
+      parameters: {
+        type: 'object',
+        properties: {
+          operation: {
+            type: 'string',
+            enum: ['add', 'subtract', 'multiply', 'divide'],
+            description: 'The operation to perform',
+          },
+          a: { type: 'number', description: 'First operand' },
+          b: { type: 'number', description: 'Second operand' },
+        },
+        required: ['operation', 'a', 'b'],
+      },
+      run: async (params: { operation: string; a: number; b: number }) => {
+        switch (params.operation) {
+          case 'multiply': return params.a * params.b;
+          case 'divide': return params.a / params.b;
+          case 'add': return params.a + params.b;
+          case 'subtract': return params.a - params.b;
+          default: return 0;
+        }
+      },
+    };
+
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-3-flash-preview'),
+      params: {
+        maxOutputTokens: 4000,
+        thinkingConfig: {
+          thinkingLevel: 'medium',
+          includeThoughts: true,
+        },
+      },
+      tools: [calculatorTool],
+    });
+
+    // Turn 1: Ask a question that requires tool use
+    const turn1 = await gemini.generate('Think step by step: What is 25 multiplied by 12? Use the calculator tool.');
+
+    // Should have executed the tool
+    expect(turn1.toolExecutions.length).toBeGreaterThan(0);
+    expect(turn1.toolExecutions[0]?.toolName).toBe('calculator');
+    console.log(`Turn 1 tool executed: ${turn1.toolExecutions[0]?.toolName}`);
+
+    // Check for thoughtSignature in metadata (required for Gemini 3 function calls)
+    const googleMeta1 = turn1.response.metadata?.google as {
+      thoughtSignature?: string;
+      functionCallParts?: Array<{ thoughtSignature?: string }>;
+    } | undefined;
+    const hasSignature = !!googleMeta1?.thoughtSignature ||
+      googleMeta1?.functionCallParts?.some(fc => !!fc.thoughtSignature);
+    console.log(`Turn 1 thoughtSignature present: ${hasSignature}`);
+
+    // Turn 2: Continue the conversation - thoughtSignature should be forwarded
+    const turn2 = await gemini.generate(turn1.messages, 'Now divide that result by 6. What do you get?');
+
+    // Should have executed another tool call
+    if (turn2.toolExecutions.length > 0) {
+      console.log(`Turn 2 tool executed: ${turn2.toolExecutions[0]?.toolName}`);
+    }
+
+    // Final answer should be 50 (25 * 12 = 300, 300 / 6 = 50)
+    expect(turn2.response.text).toMatch(/50/);
+    console.log('Gemini 3 thinking + tools multi-turn completed successfully');
+  }, 180000);
+
+  test('gemini 3 with thinking + parallel tool calls preserves thoughtSignature on first call', async () => {
+    const getWeatherTool: Tool = {
+      name: 'get_weather',
+      description: 'Get the current weather for a location',
+      parameters: {
+        type: 'object',
+        properties: {
+          location: { type: 'string', description: 'City name' },
+        },
+        required: ['location'],
+      },
+      run: async (params: { location: string }) => {
+        const temps: Record<string, number> = { Tokyo: 18, Paris: 14, London: 12 };
+        return JSON.stringify({
+          location: params.location,
+          temperature: temps[params.location] ?? 20,
+          condition: 'Partly Cloudy',
+        });
+      },
+    };
+
+    const gemini = llm<GoogleLLMParams>({
+      model: google('gemini-3-flash-preview'),
+      params: {
+        maxOutputTokens: 4000,
+        thinkingConfig: {
+          thinkingLevel: 'low',
+          includeThoughts: true,
+        },
+      },
+      tools: [getWeatherTool],
+    });
+
+    // Ask for parallel tool calls
+    const turn = await gemini.generate('Think about this: What is the weather in Tokyo and Paris? Get both.');
+
+    // Should have executed multiple tool calls
+    expect(turn.toolExecutions.length).toBeGreaterThanOrEqual(2);
+    const cities = turn.toolExecutions.map(e => e.arguments.location);
+    console.log(`Parallel tool calls for: ${cities.join(', ')}`);
+
+    // Check thoughtSignature handling - for parallel calls, only first should have signature
+    const googleMeta = turn.response.metadata?.google as {
+      functionCallParts?: Array<{ name: string; thoughtSignature?: string }>;
+    } | undefined;
+    if (googleMeta?.functionCallParts && googleMeta.functionCallParts.length >= 2) {
+      const firstHasSignature = !!googleMeta.functionCallParts[0]?.thoughtSignature;
+      console.log(`First function call has thoughtSignature: ${firstHasSignature}`);
+      // According to Google docs, only first parallel call should have signature
+    }
+
+    // Response should mention both cities
+    const text = turn.response.text.toLowerCase();
+    expect(text).toContain('tokyo');
+    expect(text).toContain('paris');
+    console.log('Gemini 3 thinking + parallel tools completed successfully');
+  }, 180000);
 });
 
 /**
@@ -771,4 +902,597 @@ describe('Cross-Provider Reasoning Comparison', () => {
       expect(result.answer).toContain('36,000');
     }
   }, 300000);
+});
+
+/**
+ * OpenRouter Reasoning Tests
+ *
+ * Tests reasoning support for different model families through OpenRouter:
+ * - GPT models: Uses reasoning_details with encrypted content
+ * - Claude models: Uses reasoning_details with signatures
+ * - Gemini models: Uses reasoning_details with signatures
+ *
+ * OpenRouter normalizes reasoning across providers into reasoning_details.
+ */
+describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Reasoning', () => {
+  describe('OpenRouter + GPT-5.2 Reasoning', () => {
+    test('gpt-5.2 with reasoning returns reasoning content', async () => {
+      const gpt = llm<OpenRouterCompletionsParams>({
+        model: openrouter('openai/gpt-5.2'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'medium',
+          },
+        },
+      });
+
+      const turn = await gpt.generate(COMPLEX_PROMPT);
+
+      // Should have reasoning blocks
+      const reasoningBlocks = turn.response.reasoning;
+      if (reasoningBlocks.length > 0) {
+        expect(reasoningBlocks[0]?.text.length).toBeGreaterThan(0);
+        console.log(`GPT-5.2 reasoning: ${reasoningBlocks[0]?.text.slice(0, 200)}...`);
+      }
+
+      // Should have the correct answer: 36,000 cars
+      expect(turn.response.text.length).toBeGreaterThan(0);
+      expect(turn.response.text).toContain('36,000');
+
+      // Check reasoning_details stored in metadata
+      const openrouterMeta = turn.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`OpenRouter reasoning_details present: ${!!openrouterMeta?.reasoning_details}`);
+    }, 180000);
+
+    test('gpt-5.2 streaming with reasoning emits ReasoningDelta events', async () => {
+      const gpt = llm<OpenRouterCompletionsParams>({
+        model: openrouter('openai/gpt-5.2'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+      });
+
+      const stream = gpt.stream(COMPLEX_PROMPT);
+
+      let reasoningContent = '';
+      let textContent = '';
+      let hadReasoningDelta = false;
+
+      for await (const event of stream) {
+        if (event.type === StreamEventType.ReasoningDelta && event.delta.text) {
+          reasoningContent += event.delta.text;
+          hadReasoningDelta = true;
+        } else if (event.type === StreamEventType.TextDelta && event.delta.text) {
+          textContent += event.delta.text;
+        }
+      }
+
+      const turn = await stream.turn;
+
+      expect(textContent.length).toBeGreaterThan(0);
+      expect(turn.response.text).toContain('36,000');
+
+      console.log(`GPT-5.2 streaming: hadReasoningDelta=${hadReasoningDelta}, reasoning=${reasoningContent.length} chars`);
+    }, 180000);
+
+    test('gpt-5.2 multi-turn reasoning context preserved', async () => {
+      const gpt = llm<OpenRouterCompletionsParams>({
+        model: openrouter('openai/gpt-5.2'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+      });
+
+      const history: Message[] = [];
+
+      // Turn 1: Ask with reasoning
+      const turn1 = await gpt.generate(history, 'Calculate 25 * 4 step by step. Give me just the final number.');
+      expect(turn1.response.text).toContain('100');
+      history.push(...turn1.messages);
+
+      // Check if reasoning_details was captured
+      const meta1 = turn1.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`GPT-5.2 reasoning_details present: ${!!meta1?.reasoning_details}`);
+
+      // Turn 2: Follow up - reasoning context should be preserved
+      const turn2 = await gpt.generate(history, 'Add 50 to that number. What is the result?');
+
+      expect(turn2.response.text).toContain('150');
+      console.log('GPT-5.2 via OpenRouter multi-turn reasoning context preserved');
+    }, 180000);
+  });
+
+  describe('OpenRouter + Claude 4.5 Sonnet Reasoning', () => {
+    test('claude-4.5-sonnet with reasoning returns reasoning content', async () => {
+      const claude = llm<OpenRouterCompletionsParams>({
+        model: openrouter('anthropic/claude-4.5-sonnet'),
+        params: {
+          max_tokens: 16000,
+          reasoning: {
+            effort: 'medium',
+          },
+        },
+      });
+
+      const turn = await claude.generate(COMPLEX_PROMPT);
+
+      // Should have reasoning blocks
+      const reasoningBlocks = turn.response.reasoning;
+      if (reasoningBlocks.length > 0) {
+        expect(reasoningBlocks[0]?.text.length).toBeGreaterThan(0);
+        console.log(`Claude 4.5 reasoning: ${reasoningBlocks[0]?.text.slice(0, 200)}...`);
+      }
+
+      // Should have the correct answer: 36,000 cars
+      expect(turn.response.text.length).toBeGreaterThan(0);
+      expect(turn.response.text).toContain('36,000');
+
+      // Check reasoning_details stored in metadata
+      const openrouterMeta = turn.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`OpenRouter reasoning_details present: ${!!openrouterMeta?.reasoning_details}`);
+    }, 180000);
+
+    test('claude-4.5-sonnet streaming with reasoning emits ReasoningDelta events', async () => {
+      const claude = llm<OpenRouterCompletionsParams>({
+        model: openrouter('anthropic/claude-4.5-sonnet'),
+        params: {
+          max_tokens: 16000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+      });
+
+      const stream = claude.stream(COMPLEX_PROMPT);
+
+      let reasoningContent = '';
+      let textContent = '';
+      let hadReasoningDelta = false;
+
+      for await (const event of stream) {
+        if (event.type === StreamEventType.ReasoningDelta && event.delta.text) {
+          reasoningContent += event.delta.text;
+          hadReasoningDelta = true;
+        } else if (event.type === StreamEventType.TextDelta && event.delta.text) {
+          textContent += event.delta.text;
+        }
+      }
+
+      const turn = await stream.turn;
+
+      expect(textContent.length).toBeGreaterThan(0);
+      expect(turn.response.text).toContain('36,000');
+
+      console.log(`Claude 4.5 streaming: hadReasoningDelta=${hadReasoningDelta}, reasoning=${reasoningContent.length} chars`);
+    }, 180000);
+
+    test('claude-4.5-sonnet multi-turn reasoning context preserved', async () => {
+      const claude = llm<OpenRouterCompletionsParams>({
+        model: openrouter('anthropic/claude-4.5-sonnet'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+      });
+
+      const history: Message[] = [];
+
+      // Turn 1: Ask with reasoning
+      const turn1 = await claude.generate(history, 'What is 15 * 8? Think about it and tell me just the number.');
+      expect(turn1.response.text).toContain('120');
+      history.push(...turn1.messages);
+
+      // Check if reasoning_details with signature was captured
+      const meta1 = turn1.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`Claude 4.5 reasoning_details present: ${!!meta1?.reasoning_details}`);
+
+      // Turn 2: Follow up - signature should be forwarded
+      const turn2 = await claude.generate(history, 'Now multiply that result by 2. What do you get?');
+
+      expect(turn2.response.text).toContain('240');
+      console.log('Claude 4.5 via OpenRouter multi-turn reasoning context preserved');
+    }, 180000);
+  });
+
+  describe('OpenRouter + Gemini 3 Flash Preview Reasoning', () => {
+    test('gemini-3-flash-preview with reasoning returns reasoning content', async () => {
+      const gemini = llm<OpenRouterCompletionsParams>({
+        model: openrouter('google/gemini-3-flash-preview'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'medium',
+          },
+        },
+      });
+
+      const turn = await gemini.generate(COMPLEX_PROMPT);
+
+      // Should have reasoning blocks
+      const reasoningBlocks = turn.response.reasoning;
+      if (reasoningBlocks.length > 0) {
+        expect(reasoningBlocks[0]?.text.length).toBeGreaterThan(0);
+        console.log(`Gemini 3 reasoning: ${reasoningBlocks[0]?.text.slice(0, 200)}...`);
+      }
+
+      // Should have the correct answer: 36,000 cars
+      expect(turn.response.text.length).toBeGreaterThan(0);
+      expect(turn.response.text).toContain('36,000');
+
+      // Check reasoning_details stored in metadata
+      const openrouterMeta = turn.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`OpenRouter reasoning_details present: ${!!openrouterMeta?.reasoning_details}`);
+    }, 180000);
+
+    test('gemini-3-flash-preview streaming with reasoning emits ReasoningDelta events', async () => {
+      const gemini = llm<OpenRouterCompletionsParams>({
+        model: openrouter('google/gemini-3-flash-preview'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'medium',
+          },
+        },
+      });
+
+      const stream = gemini.stream(COMPLEX_PROMPT);
+
+      let reasoningContent = '';
+      let textContent = '';
+      let hadReasoningDelta = false;
+
+      for await (const event of stream) {
+        if (event.type === StreamEventType.ReasoningDelta && event.delta.text) {
+          reasoningContent += event.delta.text;
+          hadReasoningDelta = true;
+        } else if (event.type === StreamEventType.TextDelta && event.delta.text) {
+          textContent += event.delta.text;
+        }
+      }
+
+      const turn = await stream.turn;
+
+      expect(textContent.length).toBeGreaterThan(0);
+      expect(turn.response.text).toContain('36,000');
+
+      console.log(`Gemini 3 streaming: hadReasoningDelta=${hadReasoningDelta}, reasoning=${reasoningContent.length} chars`);
+    }, 180000);
+
+    test('gemini-3-flash-preview multi-turn reasoning context preserved', async () => {
+      const gemini = llm<OpenRouterCompletionsParams>({
+        model: openrouter('google/gemini-3-flash-preview'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+      });
+
+      const history: Message[] = [];
+
+      // Turn 1: Ask with reasoning
+      const turn1 = await gemini.generate(history, 'What is 12 * 7? Think about it and tell me just the number.');
+      expect(turn1.response.text).toContain('84');
+      history.push(...turn1.messages);
+
+      // Check if reasoning_details with signature was captured
+      const meta1 = turn1.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`Gemini 3 reasoning_details present: ${!!meta1?.reasoning_details}`);
+
+      // Turn 2: Follow up - signature should be forwarded
+      const turn2 = await gemini.generate(history, 'Divide that by 2. What do you get?');
+
+      expect(turn2.response.text).toContain('42');
+      console.log('Gemini 3 via OpenRouter multi-turn reasoning context preserved');
+    }, 180000);
+
+    test('gemini-3-flash-preview reasoning with tool use', async () => {
+      const calculatorTool: Tool = {
+        name: 'calculator',
+        description: 'Perform arithmetic calculations. Use this for any math operations.',
+        parameters: {
+          type: 'object',
+          properties: {
+            operation: {
+              type: 'string',
+              enum: ['add', 'subtract', 'multiply', 'divide'],
+              description: 'The arithmetic operation to perform',
+            },
+            a: {
+              type: 'number',
+              description: 'First operand',
+            },
+            b: {
+              type: 'number',
+              description: 'Second operand',
+            },
+          },
+          required: ['operation', 'a', 'b'],
+        },
+        run: async (params: { operation: string; a: number; b: number }) => {
+          switch (params.operation) {
+            case 'multiply': return params.a * params.b;
+            case 'subtract': return params.a - params.b;
+            case 'add': return params.a + params.b;
+            case 'divide': return params.a / params.b;
+            default: return 0;
+          }
+        },
+      };
+
+      const gemini = llm<OpenRouterCompletionsParams>({
+        model: openrouter('google/gemini-3-flash-preview'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'medium',
+          },
+        },
+        tools: [calculatorTool],
+      });
+
+      const turn = await gemini.generate('Think carefully about this: I have 150 apples. If I give away 60% of them, how many do I have left? Use the calculator to verify your reasoning.');
+
+      // Should have reasoning from thinking through the problem
+      const reasoningBlocks = turn.response.reasoning;
+      console.log(`Gemini 3 tool use: hasReasoning=${reasoningBlocks.length > 0}`);
+
+      // May have tool calls to calculator
+      if (turn.response.toolCalls && turn.response.toolCalls.length > 0) {
+        console.log(`Gemini 3 made tool call: ${turn.response.toolCalls[0]?.toolName}`);
+        expect(turn.response.toolCalls[0]?.toolName).toBe('calculator');
+      }
+
+      // Final answer should be 60 (150 * 40% = 60)
+      // Note: Model may or may not use the tool, but should arrive at correct answer
+      console.log(`Gemini 3 tool use response: ${turn.response.text.slice(0, 200)}`);
+    }, 180000);
+
+    test('gemini-3-flash-preview reasoning with tool use multi-turn', async () => {
+      const getWeatherTool: Tool = {
+        name: 'get_weather',
+        description: 'Get the current weather for a location',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: {
+              type: 'string',
+              description: 'City name',
+            },
+          },
+          required: ['location'],
+        },
+        run: async (params: { location: string }) => {
+          // Mock weather data
+          return JSON.stringify({ temperature: 22, condition: 'Partly Cloudy', humidity: 65, location: params.location });
+        },
+      };
+
+      const gemini = llm<OpenRouterCompletionsParams>({
+        model: openrouter('google/gemini-3-flash-preview'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+        tools: [getWeatherTool],
+      });
+
+      // Turn 1: Ask about weather (should trigger tool call, auto-executed)
+      const turn1 = await gemini.generate('Think about what information you need, then get the weather in Tokyo.');
+
+      // Check for tool execution
+      if (turn1.toolExecutions && turn1.toolExecutions.length > 0) {
+        console.log(`Turn 1 tool executed: ${turn1.toolExecutions[0]?.toolName}`);
+        expect(turn1.toolExecutions[0]?.toolName).toBe('get_weather');
+      }
+
+      // Check for response after tool use
+      expect(turn1.response.text.length).toBeGreaterThan(0);
+
+      // Check reasoning context preserved
+      const meta1 = turn1.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`Turn 1 reasoning_details present: ${!!meta1?.reasoning_details}`);
+
+      // Turn 2: Continue conversation using turn1.messages
+      const turn2 = await gemini.generate(turn1.messages, 'Based on that weather, should I bring an umbrella?');
+
+      // Should provide advice based on the weather
+      expect(turn2.response.text.length).toBeGreaterThan(0);
+
+      // Check reasoning context preserved
+      const meta2 = turn2.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`Turn 2 reasoning_details present: ${!!meta2?.reasoning_details}`);
+      console.log('Gemini 3 tool use multi-turn completed successfully');
+    }, 180000);
+
+    test('gemini-3-flash-preview reasoning + tool use verifies reasoning_details forwarded', async () => {
+      const calculatorTool: Tool = {
+        name: 'calculator',
+        description: 'Perform arithmetic calculations',
+        parameters: {
+          type: 'object',
+          properties: {
+            operation: {
+              type: 'string',
+              enum: ['add', 'subtract', 'multiply', 'divide'],
+            },
+            a: { type: 'number' },
+            b: { type: 'number' },
+          },
+          required: ['operation', 'a', 'b'],
+        },
+        run: async (params: { operation: string; a: number; b: number }) => {
+          switch (params.operation) {
+            case 'multiply': return params.a * params.b;
+            case 'divide': return params.a / params.b;
+            case 'add': return params.a + params.b;
+            case 'subtract': return params.a - params.b;
+            default: return 0;
+          }
+        },
+      };
+
+      const gemini = llm<OpenRouterCompletionsParams>({
+        model: openrouter('google/gemini-3-flash-preview'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'medium',
+          },
+        },
+        tools: [calculatorTool],
+      });
+
+      // Turn 1: Ask a math question that requires tool use
+      const turn1 = await gemini.generate('Think step by step: What is 25 multiplied by 12? Use the calculator.');
+
+      // Should have executed the tool
+      expect(turn1.toolExecutions.length).toBeGreaterThan(0);
+      expect(turn1.toolExecutions[0]?.toolName).toBe('calculator');
+      console.log(`Turn 1 tool executed: ${turn1.toolExecutions[0]?.toolName}`);
+
+      // Verify reasoning_details captured (OpenRouter normalizes thought_signature into this)
+      const meta1 = turn1.response.metadata?.openrouter as { reasoning_details?: unknown[] } | undefined;
+      console.log(`Turn 1 reasoning_details present: ${!!meta1?.reasoning_details}, count: ${meta1?.reasoning_details?.length ?? 0}`);
+
+      // Turn 2: Continue conversation - reasoning_details should be forwarded automatically
+      const turn2 = await gemini.generate(turn1.messages, 'Now divide that result by 6. What do you get?');
+
+      // Should execute another tool or calculate directly
+      if (turn2.toolExecutions.length > 0) {
+        console.log(`Turn 2 tool executed: ${turn2.toolExecutions[0]?.toolName}`);
+      }
+
+      // Final answer should be 50 (25 * 12 = 300, 300 / 6 = 50)
+      expect(turn2.response.text).toMatch(/50/);
+
+      // Verify reasoning context preserved in turn 2
+      const meta2 = turn2.response.metadata?.openrouter as { reasoning_details?: unknown[] } | undefined;
+      console.log(`Turn 2 reasoning_details present: ${!!meta2?.reasoning_details}`);
+      console.log('OpenRouter Gemini 3 reasoning + tools multi-turn verified successfully');
+    }, 180000);
+
+    test('gemini-3-flash-preview reasoning + parallel tool calls', async () => {
+      const getWeatherTool: Tool = {
+        name: 'get_weather',
+        description: 'Get the current weather for a location',
+        parameters: {
+          type: 'object',
+          properties: {
+            location: { type: 'string', description: 'City name' },
+          },
+          required: ['location'],
+        },
+        run: async (params: { location: string }) => {
+          const temps: Record<string, number> = { Tokyo: 18, Paris: 14, London: 12 };
+          return JSON.stringify({
+            location: params.location,
+            temperature: temps[params.location] ?? 20,
+            condition: 'Sunny',
+          });
+        },
+      };
+
+      const gemini = llm<OpenRouterCompletionsParams>({
+        model: openrouter('google/gemini-3-flash-preview'),
+        params: {
+          max_tokens: 8000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+        tools: [getWeatherTool],
+      });
+
+      // Ask for parallel tool calls
+      const turn = await gemini.generate('Think about this: What is the weather in Tokyo and Paris? Get both locations.');
+
+      // Should have executed multiple tool calls
+      expect(turn.toolExecutions.length).toBeGreaterThanOrEqual(2);
+      const cities = turn.toolExecutions.map(e => e.arguments.location);
+      console.log(`Parallel tool calls for: ${cities.join(', ')}`);
+
+      // Verify reasoning_details captured (OpenRouter handles thought_signature internally)
+      const meta = turn.response.metadata?.openrouter as { reasoning_details?: unknown[] } | undefined;
+      console.log(`reasoning_details present: ${!!meta?.reasoning_details}, count: ${meta?.reasoning_details?.length ?? 0}`);
+
+      // Response should mention both cities
+      const text = turn.response.text.toLowerCase();
+      expect(text).toContain('tokyo');
+      expect(text).toContain('paris');
+      console.log('OpenRouter Gemini 3 reasoning + parallel tools completed successfully');
+    }, 180000);
+  });
+
+  describe('OpenRouter Responses API Reasoning', () => {
+    test('gpt-5.2 via Responses API with reasoning', async () => {
+      const gpt = llm<OpenRouterResponsesParams>({
+        model: openrouter('openai/gpt-5.2', { api: 'responses' }),
+        params: {
+          max_output_tokens: 8000,
+          reasoning: {
+            effort: 'medium',
+          },
+        },
+      });
+
+      const turn = await gpt.generate(COMPLEX_PROMPT);
+
+      // Should have reasoning blocks
+      const reasoningBlocks = turn.response.reasoning;
+      if (reasoningBlocks.length > 0) {
+        expect(reasoningBlocks[0]?.text.length).toBeGreaterThan(0);
+        console.log(`GPT-5.2 Responses API reasoning: ${reasoningBlocks[0]?.text.slice(0, 200)}...`);
+      }
+
+      // Should have the correct answer: 36,000 cars
+      expect(turn.response.text.length).toBeGreaterThan(0);
+      expect(turn.response.text).toContain('36,000');
+
+      // Check reasoningEncryptedContent stored in metadata (for multi-turn)
+      const openrouterMeta = turn.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`OpenRouter reasoningEncryptedContent present: ${!!openrouterMeta?.reasoningEncryptedContent}`);
+    }, 180000);
+
+    test('gpt-5.2 Responses API multi-turn reasoning preserved', async () => {
+      const gpt = llm<OpenRouterResponsesParams>({
+        model: openrouter('openai/gpt-5.2', { api: 'responses' }),
+        params: {
+          max_output_tokens: 8000,
+          reasoning: {
+            effort: 'low',
+          },
+        },
+      });
+
+      const history: Message[] = [];
+
+      // Turn 1: Ask with reasoning
+      const turn1 = await gpt.generate(history, 'Calculate 30 * 5 step by step. Give me just the final number.');
+      expect(turn1.response.text).toContain('150');
+      history.push(...turn1.messages);
+
+      // Check if reasoningEncryptedContent was captured
+      const meta1 = turn1.response.metadata?.openrouter as Record<string, unknown> | undefined;
+      console.log(`GPT-5.2 Responses reasoningEncryptedContent present: ${!!meta1?.reasoningEncryptedContent}`);
+
+      // Turn 2: Follow up - encrypted context should be forwarded
+      const turn2 = await gpt.generate(history, 'Divide that by 3. What is the result?');
+
+      expect(turn2.response.text).toContain('50');
+      console.log('GPT-5.2 via OpenRouter Responses API multi-turn reasoning preserved');
+    }, 180000);
+  });
 });

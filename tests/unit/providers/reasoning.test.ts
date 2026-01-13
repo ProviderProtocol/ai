@@ -23,6 +23,27 @@ import {
   transformResponse as transformOpenAIResponse,
 } from '../../../src/providers/openai/transform.responses.ts';
 import { transformRequest as transformXAIResponsesRequest } from '../../../src/providers/xai/transform.responses.ts';
+import {
+  transformResponse as transformOpenRouterCompletionsResponse,
+  transformRequest as transformOpenRouterCompletionsRequest,
+  buildResponseFromState as buildOpenRouterCompletionsResponse,
+  createStreamState as createOpenRouterCompletionsStreamState,
+  transformStreamEvent as transformOpenRouterCompletionsStreamEvent,
+} from '../../../src/providers/openrouter/transform.completions.ts';
+import {
+  transformResponse as transformOpenRouterResponsesResponse,
+  buildResponseFromState as buildOpenRouterResponsesResponse,
+  createStreamState as createOpenRouterResponsesStreamState,
+  transformStreamEvent as transformOpenRouterResponsesStreamEvent,
+} from '../../../src/providers/openrouter/transform.responses.ts';
+import { transformRequest as transformOpenRouterResponsesRequest } from '../../../src/providers/openrouter/transform.responses.ts';
+import type {
+  OpenRouterCompletionsResponse,
+  OpenRouterCompletionsStreamChunk,
+  OpenRouterResponsesResponse,
+  OpenRouterResponsesStreamEvent,
+  OpenRouterResponsesInputItem,
+} from '../../../src/providers/openrouter/types.ts';
 import { AssistantMessage } from '../../../src/types/messages.ts';
 import { StreamEventType } from '../../../src/types/stream.ts';
 import type { AnthropicResponse } from '../../../src/providers/anthropic/types.ts';
@@ -486,6 +507,322 @@ describe('ReasoningBlock Content Type', () => {
       const reasoningBlocks = response.message.reasoning;
 
       expect(reasoningBlocks).toHaveLength(0);
+    });
+  });
+
+  describe('OpenRouter Chat Completions Reasoning', () => {
+    test('transformResponse extracts reasoning from reasoning_details (text type)', () => {
+      const openRouterResponse: OpenRouterCompletionsResponse = {
+        id: 'gen-123',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'anthropic/claude-sonnet-4',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'The answer is 42.',
+            reasoning_details: [
+              {
+                type: 'reasoning.text',
+                id: 'rs_1',
+                format: 'anthropic-claude-v1',
+                text: 'Let me think about this step by step...',
+                signature: 'sig_abc123',
+              },
+            ],
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+      };
+
+      const response = transformOpenRouterCompletionsResponse(openRouterResponse);
+
+      expect(response.message.content).toHaveLength(2);
+      expect(response.message.content[0]?.type).toBe('reasoning');
+      if (response.message.content[0]?.type === 'reasoning') {
+        expect(response.message.content[0].text).toBe('Let me think about this step by step...');
+      }
+      expect(response.message.content[1]?.type).toBe('text');
+      if (response.message.content[1]?.type === 'text') {
+        expect(response.message.content[1].text).toBe('The answer is 42.');
+      }
+
+      const openrouterMeta = response.message.metadata?.openrouter as {
+        reasoning_details?: Array<{ type: string; signature?: string }>;
+      };
+      expect(openrouterMeta?.reasoning_details).toHaveLength(1);
+      expect(openrouterMeta?.reasoning_details?.[0]?.signature).toBe('sig_abc123');
+    });
+
+    test('transformResponse extracts reasoning from reasoning_details (summary type)', () => {
+      const openRouterResponse: OpenRouterCompletionsResponse = {
+        id: 'gen-456',
+        object: 'chat.completion',
+        created: 1234567890,
+        model: 'openai/o3-mini',
+        choices: [{
+          index: 0,
+          message: {
+            role: 'assistant',
+            content: 'Final answer.',
+            reasoning_details: [
+              {
+                type: 'reasoning.summary',
+                id: 'rs_sum',
+                format: 'openai-o1-v1',
+                summary: 'Analyzed the problem and found a solution.',
+              },
+            ],
+          },
+          finish_reason: 'stop',
+        }],
+        usage: { prompt_tokens: 5, completion_tokens: 15, total_tokens: 20 },
+      };
+
+      const response = transformOpenRouterCompletionsResponse(openRouterResponse);
+
+      expect(response.message.content[0]?.type).toBe('reasoning');
+      if (response.message.content[0]?.type === 'reasoning') {
+        expect(response.message.content[0].text).toBe('Analyzed the problem and found a solution.');
+      }
+    });
+
+    test('transformRequest forwards reasoning_details from metadata', () => {
+      const message = new AssistantMessage('Response text.', undefined, {
+        metadata: {
+          openrouter: {
+            reasoning_details: [
+              {
+                type: 'reasoning.text',
+                id: 'rs_forward',
+                text: 'Previous reasoning.',
+                signature: 'sig_forward',
+              },
+            ],
+          },
+        },
+      });
+
+      const request = transformOpenRouterCompletionsRequest(
+        {
+          messages: [message],
+          params: {},
+          config: {},
+        },
+        'anthropic/claude-sonnet-4'
+      );
+
+      expect(request.messages).toBeDefined();
+      const assistantMsg = request.messages?.[0] as {
+        role: string;
+        content: string | null;
+        reasoning_details?: Array<{ type: string; signature?: string }>;
+      };
+      expect(assistantMsg.role).toBe('assistant');
+      expect(assistantMsg.reasoning_details).toHaveLength(1);
+      expect(assistantMsg.reasoning_details?.[0]?.signature).toBe('sig_forward');
+    });
+
+    test('streaming accumulates reasoning_details and emits ReasoningDelta', () => {
+      const state = createOpenRouterCompletionsStreamState();
+
+      const chunk1: OpenRouterCompletionsStreamChunk = {
+        id: 'stream_1',
+        object: 'chat.completion.chunk',
+        created: 1234567890,
+        model: 'anthropic/claude-sonnet-4',
+        choices: [{
+          index: 0,
+          delta: {
+            role: 'assistant',
+            reasoning_details: [
+              {
+                type: 'reasoning.text',
+                id: 'rs_stream',
+                text: 'Thinking...',
+              },
+            ],
+          },
+          finish_reason: null,
+        }],
+      };
+
+      const events1 = transformOpenRouterCompletionsStreamEvent(chunk1, state);
+      const reasoningEvents = events1.filter(e => e.type === StreamEventType.ReasoningDelta);
+
+      expect(reasoningEvents).toHaveLength(1);
+      expect(reasoningEvents[0]?.delta).toEqual({ text: 'Thinking...' });
+      expect(state.reasoning).toBe('Thinking...');
+      expect(state.reasoningDetails).toHaveLength(1);
+    });
+
+    test('buildResponseFromState includes reasoning content', () => {
+      const state = createOpenRouterCompletionsStreamState();
+      state.id = 'stream_id';
+      state.model = 'anthropic/claude-sonnet-4';
+      state.reasoning = 'My reasoning process.';
+      state.reasoningDetails = [
+        { type: 'reasoning.text', id: 'rs_1', text: 'My reasoning process.', signature: 'sig_1' },
+      ];
+      state.text = 'Final answer.';
+      state.finishReason = 'stop';
+
+      const response = buildOpenRouterCompletionsResponse(state);
+
+      expect(response.message.content).toHaveLength(2);
+      expect(response.message.content[0]?.type).toBe('reasoning');
+      expect(response.message.content[1]?.type).toBe('text');
+
+      const openrouterMeta = response.message.metadata?.openrouter as {
+        reasoning_details?: Array<{ type: string }>;
+      };
+      expect(openrouterMeta?.reasoning_details).toHaveLength(1);
+    });
+  });
+
+  describe('OpenRouter Responses API Reasoning', () => {
+    test('transformResponse extracts reasoning from reasoning output item', () => {
+      const openRouterResponse: OpenRouterResponsesResponse = {
+        id: 'resp_123',
+        object: 'response',
+        created_at: 1234567890,
+        model: 'openai/o3-mini',
+        status: 'completed',
+        output: [
+          {
+            type: 'reasoning',
+            id: 'rs_resp',
+            summary: [{ type: 'summary_text', text: 'Step 1: Analyze.' }],
+            encrypted_content: 'enc_content_123',
+          },
+          {
+            type: 'message',
+            id: 'msg_resp',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'The answer.' }],
+            status: 'completed',
+          },
+        ],
+        usage: { input_tokens: 10, output_tokens: 20, total_tokens: 30 },
+      };
+
+      const response = transformOpenRouterResponsesResponse(openRouterResponse);
+
+      expect(response.message.content).toHaveLength(2);
+      expect(response.message.content[0]?.type).toBe('reasoning');
+      if (response.message.content[0]?.type === 'reasoning') {
+        expect(response.message.content[0].text).toBe('Step 1: Analyze.');
+      }
+
+      const openrouterMeta = response.message.metadata?.openrouter as {
+        reasoningEncryptedContent?: string;
+      };
+      expect(openrouterMeta?.reasoningEncryptedContent).toBeDefined();
+      const parsedReasoning = JSON.parse(openrouterMeta?.reasoningEncryptedContent ?? '{}');
+      expect(parsedReasoning.encrypted_content).toBe('enc_content_123');
+    });
+
+    test('transformRequest forwards reasoning item from metadata', () => {
+      const reasoningEncryptedContent = JSON.stringify({
+        id: 'rs_forward',
+        summary: [{ type: 'summary_text', text: 'Previous summary.' }],
+        encrypted_content: 'enc_previous',
+      });
+
+      const message = new AssistantMessage('Previous response.', undefined, {
+        metadata: {
+          openrouter: {
+            reasoningEncryptedContent,
+          },
+        },
+      });
+
+      const request = transformOpenRouterResponsesRequest(
+        {
+          messages: [message],
+          params: {},
+          config: {},
+        },
+        'openai/o3-mini'
+      );
+
+      expect(Array.isArray(request.input)).toBe(true);
+      const inputItems = request.input as OpenRouterResponsesInputItem[];
+      const reasoningItem = inputItems.find((item) => item.type === 'reasoning');
+
+      expect(reasoningItem?.type).toBe('reasoning');
+      if (reasoningItem?.type === 'reasoning') {
+        expect(reasoningItem.encrypted_content).toBe('enc_previous');
+        expect(reasoningItem.summary?.[0]?.text).toBe('Previous summary.');
+      }
+    });
+
+    test('streaming accumulates reasoning and emits ReasoningDelta', () => {
+      const state = createOpenRouterResponsesStreamState();
+
+      const reasoningDeltaEvent: OpenRouterResponsesStreamEvent = {
+        type: 'response.reasoning.delta',
+        delta: 'Analyzing step 1...',
+      };
+
+      const events = transformOpenRouterResponsesStreamEvent(reasoningDeltaEvent, state);
+      const reasoningEvents = events.filter(e => e.type === StreamEventType.ReasoningDelta);
+
+      expect(reasoningEvents).toHaveLength(1);
+      expect(reasoningEvents[0]?.delta).toEqual({ text: 'Analyzing step 1...' });
+      expect(state.reasoningByIndex.get(0)).toBe('Analyzing step 1...');
+    });
+
+    test('streaming captures reasoning item on output_item.done', () => {
+      const state = createOpenRouterResponsesStreamState();
+
+      const outputItemDoneEvent: OpenRouterResponsesStreamEvent = {
+        type: 'response.output_item.done',
+        output_index: 0,
+        item: {
+          type: 'reasoning',
+          id: 'rs_done',
+          summary: [{ type: 'summary_text', text: 'Complete reasoning.' }],
+          encrypted_content: 'enc_done',
+        },
+      };
+
+      transformOpenRouterResponsesStreamEvent(outputItemDoneEvent, state);
+
+      expect(state.reasoningEncryptedContent).toBeDefined();
+      const parsed = JSON.parse(state.reasoningEncryptedContent ?? '{}');
+      expect(parsed.id).toBe('rs_done');
+      expect(parsed.encrypted_content).toBe('enc_done');
+    });
+
+    test('buildResponseFromState includes reasoning content and metadata', () => {
+      const state = createOpenRouterResponsesStreamState();
+      state.id = 'resp_id';
+      state.model = 'openai/o3-mini';
+      state.reasoningByIndex.set(0, 'My reasoning.');
+      state.textByIndex.set(0, 'Final answer.');
+      state.reasoningEncryptedContent = JSON.stringify({
+        id: 'rs_build',
+        summary: [{ type: 'summary_text', text: 'My reasoning.' }],
+        encrypted_content: 'enc_build',
+      });
+      state.status = 'completed';
+
+      const response = buildOpenRouterResponsesResponse(state);
+
+      expect(response.message.content).toHaveLength(2);
+      expect(response.message.content[0]?.type).toBe('reasoning');
+      if (response.message.content[0]?.type === 'reasoning') {
+        expect(response.message.content[0].text).toBe('My reasoning.');
+      }
+      expect(response.message.content[1]?.type).toBe('text');
+
+      const openrouterMeta = response.message.metadata?.openrouter as {
+        reasoningEncryptedContent?: string;
+      };
+      expect(openrouterMeta?.reasoningEncryptedContent).toBeDefined();
     });
   });
 });
