@@ -22,7 +22,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, DocumentBlock } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -297,12 +297,13 @@ export function transformToolResults(
 /**
  * Transforms a UPP content block to OpenAI user content format.
  *
- * Handles text and image content blocks. Images are converted to
+ * Handles text, image, and document content blocks. Images are converted to
  * data URLs for base64 and bytes sources, or passed through for URL sources.
+ * Documents (PDFs only) are converted to file content with base64 data URLs.
  *
  * @param block - The content block to transform
  * @returns The transformed OpenAI content part
- * @throws Error if the content type is unsupported or image source type is unknown
+ * @throws Error if the content type is unsupported or source type is unknown
  */
 function transformContentBlock(block: ContentBlock): OpenAIUserContent {
   switch (block.type) {
@@ -332,6 +333,45 @@ function transformContentBlock(block: ContentBlock): OpenAIUserContent {
         type: 'image_url',
         image_url: { url },
       };
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      if (documentBlock.mimeType !== 'application/pdf') {
+        throw new UPPError(
+          'OpenAI Chat Completions API only supports PDF documents',
+          ErrorCode.InvalidRequest,
+          'openai',
+          ModalityType.LLM
+        );
+      }
+
+      if (documentBlock.source.type === 'base64') {
+        return {
+          type: 'file',
+          file: {
+            filename: documentBlock.title ?? 'document.pdf',
+            file_data: `data:application/pdf;base64,${documentBlock.source.data}`,
+          },
+        };
+      }
+
+      if (documentBlock.source.type === 'url') {
+        throw new UPPError(
+          'OpenAI Chat Completions API does not support URL document sources. Use the Responses API instead.',
+          ErrorCode.InvalidRequest,
+          'openai',
+          ModalityType.LLM
+        );
+      }
+
+      throw new UPPError(
+        'Unknown document source type',
+        ErrorCode.InvalidRequest,
+        'openai',
+        ModalityType.LLM
+      );
     }
 
     default:

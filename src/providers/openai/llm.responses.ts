@@ -42,13 +42,14 @@ const OPENAI_RESPONSES_API_URL = 'https://api.openai.com/v1/responses';
  * - Tools: Function calling plus built-in tools (web search, code interpreter, etc.)
  * - Structured Output: JSON schema-based response formatting
  * - Image Input: Vision capabilities for image understanding
+ * - Document Input: PDF file support via inline base64 or URL
  */
 const OPENAI_CAPABILITIES: LLMCapabilities = {
   streaming: true,
   tools: true,
   structuredOutput: true,
   imageInput: true,
-  documentInput: false,
+  documentInput: true,
   videoInput: false,
   audioInput: false,
 };

@@ -22,7 +22,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock, DocumentBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -331,12 +331,13 @@ function transformMessage(message: Message): OpenAIResponsesInputItem[] {
 /**
  * Transforms a UPP content block to Responses API content part format.
  *
- * Handles text and image content blocks. The Responses API uses different
+ * Handles text, image, and document content blocks. The Responses API uses different
  * type names than Chat Completions (`input_text` vs `text`, `input_image` vs `image_url`).
+ * Documents (PDFs only) are converted to input_file content parts.
  *
  * @param block - The content block to transform
  * @returns The transformed Responses API content part
- * @throws Error if the content type is unsupported or image source type is unknown
+ * @throws Error if the content type is unsupported or source type is unknown
  */
 function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
   switch (block.type) {
@@ -372,6 +373,41 @@ function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
       }
 
       throw new Error('Unknown image source type');
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      if (documentBlock.mimeType !== 'application/pdf') {
+        throw new UPPError(
+          'OpenAI Responses API only supports PDF documents',
+          ErrorCode.InvalidRequest,
+          'openai',
+          ModalityType.LLM
+        );
+      }
+
+      if (documentBlock.source.type === 'base64') {
+        return {
+          type: 'input_file',
+          filename: documentBlock.title ?? 'document.pdf',
+          file_data: `data:application/pdf;base64,${documentBlock.source.data}`,
+        };
+      }
+
+      if (documentBlock.source.type === 'url') {
+        return {
+          type: 'input_file',
+          file_url: documentBlock.source.url,
+        };
+      }
+
+      throw new UPPError(
+        'Unknown document source type',
+        ErrorCode.InvalidRequest,
+        'openai',
+        ModalityType.LLM
+      );
     }
 
     default:

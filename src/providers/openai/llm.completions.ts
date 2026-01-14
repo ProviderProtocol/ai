@@ -42,13 +42,14 @@ const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
  * - Tools: Function calling for structured interactions
  * - Structured Output: JSON schema-based response formatting
  * - Image Input: Vision capabilities for image understanding
+ * - Document Input: PDF file support via inline base64
  */
 const OPENAI_CAPABILITIES: LLMCapabilities = {
   streaming: true,
   tools: true,
   structuredOutput: true,
   imageInput: true,
-  documentInput: false,
+  documentInput: true,
   videoInput: false,
   audioInput: false,
 };

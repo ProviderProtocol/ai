@@ -530,9 +530,9 @@ export interface OpenAIToolMessage {
 }
 
 /**
- * Union type for user content parts (text or image).
+ * Union type for user content parts (text, image, or file).
  */
-export type OpenAIUserContent = OpenAITextContent | OpenAIImageContent;
+export type OpenAIUserContent = OpenAITextContent | OpenAIImageContent | OpenAIFileContent;
 
 /** Text content part */
 export interface OpenAITextContent {
@@ -546,6 +546,17 @@ export interface OpenAIImageContent {
   image_url: {
     url: string;
     detail?: 'auto' | 'low' | 'high';
+  };
+}
+
+/** File content part (PDFs only) */
+export interface OpenAIFileContent {
+  type: 'file';
+  file: {
+    /** Filename for the document */
+    filename: string;
+    /** Base64 data URL (data:application/pdf;base64,...) */
+    file_data: string;
   };
 }
 
@@ -820,6 +831,7 @@ export interface OpenAIResponsesToolResultItem {
 export type OpenAIResponsesContentPart =
   | OpenAIResponsesTextPart
   | OpenAIResponsesImagePart
+  | OpenAIResponsesFilePart
   | OpenAIResponsesFunctionCallPart;
 
 /** Text content part (input or output) */
@@ -834,6 +846,19 @@ export interface OpenAIResponsesImagePart {
   image_url?: string;
   image?: string;
   detail?: 'auto' | 'low' | 'high';
+}
+
+/** File content part (PDFs only) */
+export interface OpenAIResponsesFilePart {
+  type: 'input_file';
+  /** Filename for the document */
+  filename?: string;
+  /** Base64 data URL (data:application/pdf;base64,...) */
+  file_data?: string;
+  /** URL to fetch the file from (Responses API only) */
+  file_url?: string;
+  /** Pre-uploaded file ID */
+  file_id?: string;
 }
 
 /** Function call content part (embedded in messages) */
