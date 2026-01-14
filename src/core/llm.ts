@@ -15,7 +15,6 @@ import type {
   InferenceInput,
   BoundLLMModel,
   LLMCapabilities,
-  LLMHandler,
 } from '../types/llm.ts';
 import type { UserMessage, AssistantMessage } from '../types/messages.ts';
 import type { ContentBlock } from '../types/content.ts';
@@ -31,7 +30,7 @@ import type { AfterCallResult, BeforeCallResult, Tool, ToolExecution, ToolResult
 import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
 import type { Thread } from '../types/thread.ts';
-import type { ProviderConfig } from '../types/provider.ts';
+import type { ProviderConfig, LLMHandler } from '../types/provider.ts';
 import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveLLMHandler } from './provider-handlers.ts';
 import {

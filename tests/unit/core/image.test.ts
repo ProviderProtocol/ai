@@ -6,7 +6,6 @@ import { image } from '../../../src/core/image.ts';
 import { createProvider } from '../../../src/core/provider.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../../src/types/errors.ts';
 import type {
-  ImageHandler,
   BoundImageModel,
   ImageResponse,
   ImageCapabilities,
@@ -15,7 +14,7 @@ import type {
   ImageProviderStreamResult,
   ImageStreamEvent,
 } from '../../../src/types/image.ts';
-import type { Provider, ModelReference, ImageProvider, ProviderConfig } from '../../../src/types/provider.ts';
+import type { Provider, ModelReference, ImageProvider, ProviderConfig, ImageHandler } from '../../../src/types/provider.ts';
 import { Image } from '../../../src/core/media/Image.ts';
 
 /**

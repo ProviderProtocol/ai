@@ -328,29 +328,3 @@ export interface BoundLLMModel<TParams = unknown> {
    */
   stream(request: LLMRequest<TParams>): LLMStreamResult;
 }
-
-/**
- * LLM Handler interface for providers.
- *
- * Implemented by providers to enable language model capabilities.
- *
- * @typeParam TParams - Provider-specific parameter type
- */
-export interface LLMHandler<TParams = unknown> {
-  /**
-   * Binds a model ID to create an executable model instance.
-   *
-   * @param modelId - The model identifier to bind
-   * @returns A bound LLM model ready for inference
-   */
-  bind(modelId: string): BoundLLMModel<TParams>;
-
-  /**
-   * Sets the parent provider reference.
-   * Called by createProvider() after the provider is constructed.
-   *
-   * @param provider - The parent provider
-   * @internal
-   */
-  _setProvider?(provider: LLMProvider<TParams>): void;
-}

@@ -9,6 +9,7 @@
 
 import type { UPPError } from './errors.ts';
 import type { BoundImageModel } from './image.ts';
+import type { BoundLLMModel } from './llm.ts';
 
 /**
  * API key strategy interface for managing multiple keys.
@@ -292,21 +293,6 @@ export interface ImageHandler<TParams = unknown> {
    * @internal
    */
   _setProvider?(provider: ImageProvider<TParams>): void;
-}
-
-/**
- * Bound LLM model interface (forward declaration).
- *
- * Full definition is in llm.ts to avoid circular dependencies.
- *
- * @typeParam TParams - Provider-specific parameter type
- */
-export interface BoundLLMModel<TParams = unknown> {
-  /** The model identifier */
-  readonly modelId: string;
-
-  /** Reference to the parent provider */
-  readonly provider: LLMProvider<TParams>;
 }
 
 /**

@@ -141,7 +141,9 @@ export type {
   LLMProvider,
   EmbeddingProvider,
   ImageProvider,
+  LLMHandler,
   EmbeddingHandler,
+  ImageHandler,
   BoundEmbeddingModel,
   EmbeddingRequest,
   EmbeddingResponse,
@@ -162,7 +164,6 @@ export type {
   LLMResponse,
   LLMStreamResult,
   BoundLLMModel,
-  LLMHandler,
   InferenceInput,
 } from './llm.ts';
 
@@ -202,6 +203,5 @@ export type {
   ImageResponse,
   ImageProviderStreamResult,
   BoundImageModel,
-  ImageHandler,
   ImageModelInput,
 } from './image.ts';

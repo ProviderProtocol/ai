@@ -326,29 +326,3 @@ export interface BoundImageModel<TParams = unknown> {
    */
   edit?(request: ImageEditRequest<TParams>): Promise<ImageResponse>;
 }
-
-/**
- * Image Handler interface for providers.
- *
- * Implemented by providers to enable image generation capabilities.
- *
- * @typeParam TParams - Provider-specific parameter type
- */
-export interface ImageHandler<TParams = unknown> {
-  /**
-   * Binds a model ID to create an executable image model.
-   *
-   * @param modelId - The model identifier to bind
-   * @returns A bound image model ready for generation
-   */
-  bind(modelId: string): BoundImageModel<TParams>;
-
-  /**
-   * Sets the parent provider reference.
-   * Called by createProvider() after the provider is constructed.
-   *
-   * @param provider - The parent provider
-   * @internal
-   */
-  _setProvider?(provider: ImageProvider<TParams>): void;
-}

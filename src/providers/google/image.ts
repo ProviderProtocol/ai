@@ -8,13 +8,12 @@
  * @module providers/google/image
  */
 
-import type { ImageProvider } from '../../types/provider.ts';
+import type { ImageProvider, ImageHandler } from '../../types/provider.ts';
 import type {
   BoundImageModel,
   ImageRequest,
   ImageResponse,
   ImageCapabilities,
-  ImageHandler,
   GeneratedImage,
 } from '../../types/image.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';

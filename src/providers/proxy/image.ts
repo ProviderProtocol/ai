@@ -8,7 +8,6 @@
  */
 
 import type {
-  ImageHandler,
   BoundImageModel,
   ImageRequest,
   ImageEditRequest,
@@ -17,7 +16,7 @@ import type {
   ImageStreamEvent,
   ImageCapabilities,
 } from '../../types/image.ts';
-import type { ImageProvider } from '../../types/provider.ts';
+import type { ImageProvider, ImageHandler } from '../../types/provider.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { doFetch, doStreamFetch } from '../../http/fetch.ts';
 import { normalizeHttpError } from '../../http/errors.ts';

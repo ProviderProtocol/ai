@@ -9,13 +9,13 @@
  */
 
 import type {
-  LLMHandler,
   BoundLLMModel,
   LLMRequest,
   LLMResponse,
   LLMStreamResult,
   LLMCapabilities,
 } from '../../types/llm.ts';
+import type { LLMHandler } from '../../types/provider.ts';
 import type { LLMProvider } from '../../types/provider.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import type { TurnJSON } from '../../types/turn.ts';

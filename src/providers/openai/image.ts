@@ -8,14 +8,13 @@
  * @module providers/openai/image
  */
 
-import type { ImageProvider } from '../../types/provider.ts';
+import type { ImageProvider, ImageHandler } from '../../types/provider.ts';
 import type {
   BoundImageModel,
   ImageRequest,
   ImageEditRequest,
   ImageResponse,
   ImageCapabilities,
-  ImageHandler,
   ImageProviderStreamResult,
   ImageStreamEvent,
   GeneratedImage,
