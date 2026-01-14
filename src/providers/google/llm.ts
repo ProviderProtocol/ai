@@ -33,7 +33,7 @@ const GOOGLE_CAPABILITIES: LLMCapabilities = {
   tools: true,
   structuredOutput: true,
   imageInput: true,
-  documentInput: false,
+  documentInput: true,
   videoInput: true,
   audioInput: true,
   imageOutput: true,

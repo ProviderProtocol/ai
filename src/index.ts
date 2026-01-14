@@ -51,6 +51,12 @@ export { Image } from './core/media/Image.ts';
 /** Document content wrapper for PDF and text documents */
 export { Document } from './core/media/document.ts';
 
+/** Audio content wrapper for audio inputs */
+export { Audio } from './core/media/Audio.ts';
+
+/** Video content wrapper for video inputs */
+export { Video } from './core/media/Video.ts';
+
 import { llm } from './core/llm.ts';
 import { embedding } from './core/embedding.ts';
 import { image } from './core/image.ts';

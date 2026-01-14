@@ -1355,8 +1355,109 @@ Implementations SHOULD provide an `Image` type with factory methods:
 | `Image.fromUrl(url, mimeType?)` | Create from URL reference (does not fetch) |
 | `Image.fromBytes(data, mimeType)` | Create from raw bytes |
 | `Image.fromBase64(base64, mimeType)` | Create from base64 string |
+| `Image.fromBlock(block)` | Create from an existing ImageBlock |
 
-### 6.6 Type Guards
+### 6.6 Document Type
+
+Implementations SHOULD provide a `Document` type with factory methods for PDF and text documents:
+
+**Document Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `source` | DocumentSource | The document source |
+| `mimeType` | String | MIME type (`application/pdf` or `text/plain`) |
+| `title` | String? | Optional document title (for citations) |
+| `hasData` | Boolean | True if data is loaded (false for URL sources) |
+| `isPdf` | Boolean | True if document is PDF |
+| `isText` | Boolean | True if document is plain text |
+
+**Document Methods:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `toBase64()` | String | Convert to base64 string (throws if not base64 source) |
+| `toText()` | String | Get text content (throws if not text source) |
+| `toUrl()` | String | Get URL (throws if not URL source) |
+| `toBlock()` | DocumentBlock | Convert to content block for messages |
+
+**Document Factory Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `Document.fromPath(path, title?)` | Create from file path (reads and base64-encodes) |
+| `Document.fromUrl(url, title?)` | Create from URL reference (PDF only, does not fetch) |
+| `Document.fromBase64(base64, mimeType, title?)` | Create from base64 string |
+| `Document.fromText(text, title?)` | Create from plain text content |
+| `Document.fromBlock(block)` | Create from an existing DocumentBlock |
+
+### 6.7 Audio Type
+
+Implementations SHOULD provide an `Audio` type with factory methods:
+
+**Audio Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `data` | Bytes | The audio data as raw bytes |
+| `mimeType` | String | MIME type (e.g., `audio/mp3`, `audio/wav`) |
+| `duration` | Number? | Duration in seconds |
+| `size` | Integer | Size in bytes |
+
+**Audio Methods:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `toBase64()` | String | Convert to base64 string |
+| `toDataUrl()` | String | Convert to data URL |
+| `toBytes()` | Bytes | Get raw bytes |
+| `toBlock()` | AudioBlock | Convert to content block for messages |
+
+**Audio Factory Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `Audio.fromPath(path, duration?)` | Create from file path (reads file into memory) |
+| `Audio.fromBytes(data, mimeType, duration?)` | Create from raw bytes |
+| `Audio.fromBase64(base64, mimeType, duration?)` | Create from base64 string |
+| `Audio.fromBlock(block)` | Create from an existing AudioBlock |
+
+### 6.8 Video Type
+
+Implementations SHOULD provide a `Video` type with factory methods:
+
+**Video Properties:**
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `data` | Bytes | The video data as raw bytes |
+| `mimeType` | String | MIME type (e.g., `video/mp4`, `video/webm`) |
+| `duration` | Number? | Duration in seconds |
+| `width` | Integer? | Width in pixels |
+| `height` | Integer? | Height in pixels |
+| `size` | Integer | Size in bytes |
+
+**Video Methods:**
+
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `toBase64()` | String | Convert to base64 string |
+| `toDataUrl()` | String | Convert to data URL |
+| `toBytes()` | Bytes | Get raw bytes |
+| `toBlock()` | VideoBlock | Convert to content block for messages |
+
+**Video Factory Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `Video.fromPath(path, options?)` | Create from file path (reads file into memory) |
+| `Video.fromBytes(data, mimeType, options?)` | Create from raw bytes |
+| `Video.fromBase64(base64, mimeType, options?)` | Create from base64 string |
+| `Video.fromBlock(block)` | Create from an existing VideoBlock |
+
+Options for Video factory methods may include `duration`, `width`, and `height`.
+
+### 6.9 Type Guards
 
 UPP implementations SHOULD provide type guard functions for message handling:
 
@@ -3169,6 +3270,9 @@ UPP implementations SHOULD export the following types through their language's s
 
 **Utilities:**
 - `Image`
+- `Document`
+- `Audio`
+- `Video`
 - `isUserMessage`
 - `isAssistantMessage`
 - `isToolResultMessage`
@@ -4167,6 +4271,10 @@ Tools execute arbitrary code based on LLM-provided arguments:
 
 ### 1.2.0-draft
 
+- **Added** `Document` helper type (Section 6.6) with factory methods for PDF and text documents
+- **Added** `Audio` helper type (Section 6.7) with factory methods for audio content
+- **Added** `Video` helper type (Section 6.8) with factory methods for video content
+- **Added** `Image.fromBlock()` factory method to create Image from existing ImageBlock
 - **Simplified** specification to pure protocol architecture; removed all vendor-specific implementation details including: metadata option tables (6.1, 10.1), system prompt mappings (5.10.4), structured output wiring (11.3), mask conventions (13.6), provider tool reference (10.9.5), embedding params (12.10), image params (13.14), capability matrix (13.14.9), and example model names (1.5)
 - **Removed** Image conformance levels for vary/upscale/outpaint (16.1.3) to match interface; renumbered Streaming to Level 3
 - **Added** Section 10.9 Provider-Native Tools documenting server-side built-in tools (web search, image generation, code interpreter, etc.)

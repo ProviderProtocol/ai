@@ -18,7 +18,14 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, AssistantContent, ImageBlock } from '../../types/content.ts';
+import type {
+  ContentBlock,
+  AssistantContent,
+  ImageBlock,
+  DocumentBlock,
+  AudioBlock,
+  VideoBlock,
+} from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -300,14 +307,29 @@ function transformMessages(messages: Message[]): GoogleContent[] {
 }
 
 /**
+ * Converts a Uint8Array to a base64 string.
+ *
+ * @param bytes - The byte array to encode
+ * @returns Base64-encoded string
+ */
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  return btoa(
+    Array.from(bytes)
+      .map((b) => String.fromCharCode(b))
+      .join('')
+  );
+}
+
+/**
  * Transforms a UPP content block to a Google part.
  *
- * Supports text and image content types. Images must be base64 or bytes
- * encoded; URL sources are not supported by Google's API directly.
+ * Supports text, image, document, audio, and video content types.
+ * Binary data (images, audio, video, PDFs) is sent as base64-encoded inlineData.
+ * URL sources are not supported by Google's API directly.
  *
  * @param block - The UPP content block to transform
  * @returns Google-formatted part object
- * @throws Error if the content type is unsupported or if an image uses URL source
+ * @throws Error if the content type is unsupported or uses URL source
  */
 function transformContentBlock(block: ContentBlock): GooglePart {
   switch (block.type) {
@@ -321,11 +343,7 @@ function transformContentBlock(block: ContentBlock): GooglePart {
       if (imageBlock.source.type === 'base64') {
         data = imageBlock.source.data;
       } else if (imageBlock.source.type === 'bytes') {
-        data = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        data = uint8ArrayToBase64(imageBlock.source.data);
       } else {
         throw new Error('Google API does not support URL image sources directly');
       }
@@ -334,6 +352,45 @@ function transformContentBlock(block: ContentBlock): GooglePart {
         inlineData: {
           mimeType: imageBlock.mimeType,
           data,
+        },
+      };
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      if (documentBlock.source.type === 'base64') {
+        return {
+          inlineData: {
+            mimeType: documentBlock.mimeType,
+            data: documentBlock.source.data,
+          },
+        };
+      }
+
+      if (documentBlock.source.type === 'text') {
+        return { text: documentBlock.source.data };
+      }
+
+      throw new Error('Google API does not support URL document sources directly');
+    }
+
+    case 'audio': {
+      const audioBlock = block as AudioBlock;
+      return {
+        inlineData: {
+          mimeType: audioBlock.mimeType,
+          data: uint8ArrayToBase64(audioBlock.data),
+        },
+      };
+    }
+
+    case 'video': {
+      const videoBlock = block as VideoBlock;
+      return {
+        inlineData: {
+          mimeType: videoBlock.mimeType,
+          data: uint8ArrayToBase64(videoBlock.data),
         },
       };
     }
