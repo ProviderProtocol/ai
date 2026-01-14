@@ -52,4 +52,6 @@ export type {
   OpenRouterModelReference,
   OpenRouterProviderPreferences,
   OpenRouterEmbedParams,
+  OpenRouterImageConfig,
+  OpenRouterHeaders,
 } from '../providers/openrouter/index.ts';

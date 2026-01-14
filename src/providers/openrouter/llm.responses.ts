@@ -33,18 +33,18 @@ const OPENROUTER_RESPONSES_API_URL = 'https://openrouter.ai/api/v1/responses';
 /**
  * Capability flags for the OpenRouter Responses API.
  *
- * The Responses API shares the same capabilities as the Completions API,
- * with additional support for reasoning models.
+ * The Responses API supports streaming, function calling (tools), structured JSON output,
+ * image inputs, document/PDF inputs, audio inputs, video inputs, and reasoning models.
  */
 const OPENROUTER_CAPABILITIES: LLMCapabilities = {
   streaming: true,
   tools: true,
   structuredOutput: true,
   imageInput: true,
-  documentInput: false,
+  documentInput: true,
   imageOutput: true,
-  videoInput: false,
-  audioInput: false,
+  videoInput: true,
+  audioInput: true,
 };
 
 /**

@@ -553,11 +553,6 @@ export interface OpenRouterCacheControl {
 }
 
 /**
- * Union type for user message content parts.
- */
-export type OpenRouterUserContent = OpenRouterTextContent | OpenRouterImageContent;
-
-/**
  * Text content part in a user message.
  */
 export interface OpenRouterTextContent {
@@ -586,6 +581,77 @@ export interface OpenRouterImageContent {
     detail?: 'auto' | 'low' | 'high';
   };
 }
+
+/**
+ * File (PDF) content part in a user message.
+ *
+ * Used to attach PDF documents to messages. OpenRouter supports PDF processing
+ * through multiple engines and will parse content even for models without
+ * native file support.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/pdfs}
+ */
+export interface OpenRouterFileContent {
+  /** Content type identifier. */
+  type: 'file';
+  /** File data configuration. */
+  file: {
+    /** Filename for the document. */
+    filename: string;
+    /** File data as base64 data URL (for inline documents). */
+    file_data?: string;
+    /** File URL for remote documents. */
+    file_url?: string;
+  };
+}
+
+/**
+ * Audio content part in a user message.
+ *
+ * Audio must be provided as base64-encoded data; direct URLs are not supported.
+ * Supported formats: wav, mp3, aiff, aac, ogg, flac, m4a, pcm16, pcm24.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/audio}
+ */
+export interface OpenRouterAudioContent {
+  /** Content type identifier. */
+  type: 'input_audio';
+  /** Audio data configuration. */
+  input_audio: {
+    /** Base64-encoded audio data. */
+    data: string;
+    /** Audio format identifier. */
+    format: string;
+  };
+}
+
+/**
+ * Video content part in a user message.
+ *
+ * Videos can be provided as URLs or base64 data URLs.
+ * Supported formats: video/mp4, video/mpeg, video/mov, video/webm.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/videos}
+ */
+export interface OpenRouterVideoContent {
+  /** Content type identifier. */
+  type: 'video_url';
+  /** Video URL configuration. */
+  video_url: {
+    /** Video URL (HTTP URL or base64 data URL). */
+    url: string;
+  };
+}
+
+/**
+ * Union type for user message content parts.
+ */
+export type OpenRouterUserContent =
+  | OpenRouterTextContent
+  | OpenRouterImageContent
+  | OpenRouterFileContent
+  | OpenRouterAudioContent
+  | OpenRouterVideoContent;
 
 /**
  * Tool call made by the assistant in a Chat Completions response.
@@ -937,6 +1003,9 @@ export type OpenRouterResponsesContentPart =
   | OpenRouterResponsesInputTextPart
   | OpenRouterResponsesOutputTextPart
   | OpenRouterResponsesImagePart
+  | OpenRouterResponsesFilePart
+  | OpenRouterResponsesAudioPart
+  | OpenRouterResponsesVideoPart
   | OpenRouterResponsesFunctionCallPart;
 
 /**
@@ -978,6 +1047,57 @@ export interface OpenRouterResponsesImagePart {
   image?: string;
   /** Image detail level for vision models. */
   detail?: 'auto' | 'low' | 'high';
+}
+
+/**
+ * File (PDF) content part for Responses API.
+ *
+ * Used to attach PDF documents to messages.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/pdfs}
+ */
+export interface OpenRouterResponsesFilePart {
+  /** Content type identifier. */
+  type: 'input_file';
+  /** Filename for the document. */
+  filename: string;
+  /** File URL (HTTP URL or base64 data URL). */
+  file_url?: string;
+  /** Base64-encoded file data. */
+  file_data?: string;
+}
+
+/**
+ * Audio content part for Responses API.
+ *
+ * Audio must be provided as base64-encoded data.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/audio}
+ */
+export interface OpenRouterResponsesAudioPart {
+  /** Content type identifier. */
+  type: 'input_audio';
+  /** Audio data configuration. */
+  input_audio: {
+    /** Base64-encoded audio data. */
+    data: string;
+    /** Audio format identifier. */
+    format: string;
+  };
+}
+
+/**
+ * Video content part for Responses API.
+ *
+ * Videos can be provided as URLs or base64 data URLs.
+ *
+ * @see {@link https://openrouter.ai/docs/guides/overview/multimodal/videos}
+ */
+export interface OpenRouterResponsesVideoPart {
+  /** Content type identifier. */
+  type: 'input_video';
+  /** Video URL (HTTP URL or base64 data URL). */
+  video_url: string;
 }
 
 /**

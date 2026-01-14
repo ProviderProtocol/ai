@@ -14,7 +14,16 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock, AssistantContent, ReasoningBlock } from '../../types/content.ts';
+import type {
+  ContentBlock,
+  TextBlock,
+  ImageBlock,
+  DocumentBlock,
+  AudioBlock,
+  VideoBlock,
+  AssistantContent,
+  ReasoningBlock,
+} from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -362,11 +371,7 @@ function transformContentPart(block: ContentBlock): OpenRouterResponsesContentPa
 
       if (imageBlock.source.type === 'bytes') {
         // Convert bytes to base64
-        const base64 = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
         return {
           type: 'input_image',
           image_url: `data:${imageBlock.mimeType};base64,${base64}`,
@@ -375,6 +380,80 @@ function transformContentPart(block: ContentBlock): OpenRouterResponsesContentPa
       }
 
       throw new Error('Unknown image source type');
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      // Text documents: include as inline text (OpenRouter file type is for PDFs)
+      if (documentBlock.source.type === 'text') {
+        if (!documentBlock.source.data) {
+          throw new UPPError(
+            'Text document source data is empty',
+            ErrorCode.InvalidRequest,
+            'openrouter',
+            ModalityType.LLM
+          );
+        }
+        const title = documentBlock.title ? `[Document: ${documentBlock.title}]\n` : '';
+        return { type: 'input_text', text: `${title}${documentBlock.source.data}` };
+      }
+
+      // PDF documents: use file type
+      const filename = documentBlock.title ?? 'document.pdf';
+
+      if (documentBlock.source.type === 'base64') {
+        // Use data URL format
+        const fileData = `data:${documentBlock.mimeType};base64,${documentBlock.source.data}`;
+        return {
+          type: 'input_file',
+          filename,
+          file_data: fileData,
+        };
+      }
+
+      if (documentBlock.source.type === 'url') {
+        return {
+          type: 'input_file',
+          filename,
+          file_url: documentBlock.source.url,
+        };
+      }
+
+      throw new UPPError(
+        'Unknown document source type',
+        ErrorCode.InvalidRequest,
+        'openrouter',
+        ModalityType.LLM
+      );
+    }
+
+    case 'audio': {
+      const audioBlock = block as AudioBlock;
+      // Audio requires base64 encoding
+      const base64 = Buffer.from(audioBlock.data).toString('base64');
+      // Extract format from mime type (e.g., 'audio/mp3' -> 'mp3')
+      const format = audioBlock.mimeType.split('/')[1] ?? 'mp3';
+
+      return {
+        type: 'input_audio',
+        input_audio: {
+          data: base64,
+          format,
+        },
+      };
+    }
+
+    case 'video': {
+      const videoBlock = block as VideoBlock;
+      // Convert bytes to base64 data URL
+      const base64 = Buffer.from(videoBlock.data).toString('base64');
+      const url = `data:${videoBlock.mimeType};base64,${base64}`;
+
+      return {
+        type: 'input_video',
+        video_url: url,
+      };
     }
 
     default:

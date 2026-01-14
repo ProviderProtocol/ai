@@ -34,17 +34,17 @@ const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions';
  * Capability flags for the OpenRouter Chat Completions API.
  *
  * OpenRouter supports streaming, function calling (tools), structured JSON output,
- * and image inputs. Video and audio inputs are not currently supported.
+ * image inputs, document/PDF inputs, audio inputs, and video inputs.
  */
 const OPENROUTER_CAPABILITIES: LLMCapabilities = {
   streaming: true,
   tools: true,
   structuredOutput: true,
   imageInput: true,
-  documentInput: false,
+  documentInput: true,
   imageOutput: true,
-  videoInput: false,
-  audioInput: false,
+  videoInput: true,
+  audioInput: true,
 };
 
 /**
