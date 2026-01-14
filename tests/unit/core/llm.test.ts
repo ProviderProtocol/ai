@@ -15,7 +15,7 @@ import { Thread } from '../../../src/types/thread.ts';
 import type { StreamEvent } from '../../../src/types/stream.ts';
 import { StreamEventType, textDelta } from '../../../src/types/stream.ts';
 import type { LLMProvider } from '../../../src/types/provider.ts';
-import type { ImageBlock } from '../../../src/types/content.ts';
+import type { ImageBlock, DocumentBlock } from '../../../src/types/content.ts';
 
 type MockParams = { temperature?: number };
 
@@ -52,6 +52,7 @@ function createMockLLMHandler(options: {
     tools: true,
     structuredOutput: true,
     imageInput: false,
+    documentInput: false,
     videoInput: false,
     audioInput: false,
     ...options.capabilities,
@@ -469,6 +470,29 @@ describe('LLM generate execution', () => {
     await expect(instance.generate(new UserMessage([imageBlock]))).rejects.toThrow(UPPError);
   });
 
+  test('rejects unsupported document inputs', async () => {
+    const handler = createMockLLMHandler({
+      responses: [createResponse(new AssistantMessage('ok'), defaultUsage(1, 1))],
+    });
+
+    const provider = createProvider<MockParams>({
+      name: 'mock-llm',
+      version: '1.0.0',
+      handlers: { llm: handler },
+    });
+
+    const documentBlock: DocumentBlock = {
+      type: 'document',
+      source: { type: 'text', data: 'Document contents' },
+      mimeType: 'text/plain',
+      title: 'Notes',
+    };
+
+    const instance = llm<MockParams>({ model: provider('mock-model') });
+
+    await expect(instance.generate(documentBlock)).rejects.toThrow(UPPError);
+  });
+
   test('propagates provider errors from complete()', async () => {
     let providerRef: LLMProvider<MockParams> | null = null;
     const handler: LLMHandler<MockParams> = {
@@ -483,6 +507,7 @@ describe('LLM generate execution', () => {
             tools: true,
             structuredOutput: true,
             imageInput: false,
+            documentInput: false,
             videoInput: false,
             audioInput: false,
           },
@@ -589,6 +614,7 @@ describe('LLM stream execution', () => {
             tools: false,
             structuredOutput: false,
             imageInput: false,
+            documentInput: false,
             videoInput: false,
             audioInput: false,
           },

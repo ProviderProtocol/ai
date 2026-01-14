@@ -29,6 +29,7 @@ const XAI_RESPONSES_CAPABILITIES: LLMCapabilities = {
   tools: true,
   structuredOutput: true,
   imageInput: true,
+  documentInput: false,
   videoInput: false,
   audioInput: false,
 };
@@ -138,9 +139,10 @@ export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
           const data = await parseJsonResponse<XAIResponsesResponse>(response, 'xai', 'llm');
 
           // Check for error in response
-          if (data.status === 'failed' && data.error) {
+          if (data.status === 'failed') {
+            const message = data.error?.message ?? 'Provider returned a failed response.';
             throw new UPPError(
-              data.error.message,
+              message,
               ErrorCode.ProviderError,
               'xai',
               ModalityType.LLM

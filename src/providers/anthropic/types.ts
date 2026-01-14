@@ -322,6 +322,7 @@ export interface AnthropicMessage {
 export type AnthropicContent =
   | AnthropicTextContent
   | AnthropicImageContent
+  | AnthropicDocumentContent
   | AnthropicToolUseContent
   | AnthropicToolResultContent
   | AnthropicThinkingContent;
@@ -380,6 +381,76 @@ export interface AnthropicImageContent {
   };
   /** Cache control for prompt caching. */
   cache_control?: AnthropicCacheControl;
+}
+
+/**
+ * Document content block for PDF and text document support.
+ *
+ * Documents can be provided as base64-encoded PDFs, PDF URLs, or plain text.
+ *
+ * @example
+ * ```typescript
+ * // Base64 PDF
+ * const pdfContent: AnthropicDocumentContent = {
+ *   type: 'document',
+ *   source: {
+ *     type: 'base64',
+ *     media_type: 'application/pdf',
+ *     data: 'JVBERi0xLjQK...',
+ *   },
+ * };
+ *
+ * // URL PDF
+ * const urlContent: AnthropicDocumentContent = {
+ *   type: 'document',
+ *   source: {
+ *     type: 'url',
+ *     url: 'https://example.com/document.pdf',
+ *   },
+ * };
+ *
+ * // Plain text document
+ * const textContent: AnthropicDocumentContent = {
+ *   type: 'document',
+ *   source: {
+ *     type: 'text',
+ *     media_type: 'text/plain',
+ *     data: 'Document content here...',
+ *   },
+ * };
+ * ```
+ */
+export interface AnthropicDocumentContent {
+  /** Content type discriminator. */
+  type: 'document';
+  /** Document source configuration. */
+  source:
+    | {
+        /** Base64-encoded document (PDF). */
+        type: 'base64';
+        /** MIME type ('application/pdf'). */
+        media_type: string;
+        /** Base64-encoded document data. */
+        data: string;
+      }
+    | {
+        /** URL to PDF document. */
+        type: 'url';
+        /** URL of the PDF. */
+        url: string;
+      }
+    | {
+        /** Plain text document. */
+        type: 'text';
+        /** MIME type ('text/plain'). */
+        media_type: string;
+        /** Plain text content. */
+        data: string;
+      };
+  /** Cache control for prompt caching. */
+  cache_control?: AnthropicCacheControl;
+  /** Enable citations from document content. */
+  citations?: { enabled: boolean };
 }
 
 /**

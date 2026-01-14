@@ -7,6 +7,7 @@ import {
   isAssistantMessage,
   isToolResultMessage,
 } from '../../../src/types/messages.ts';
+import type { DocumentBlock } from '../../../src/types/content.ts';
 
 describe('UserMessage', () => {
   test('creates from string', () => {
@@ -24,6 +25,22 @@ describe('UserMessage', () => {
     ]);
     expect(msg.text).toBe('First\n\nSecond');
     expect(msg.content).toHaveLength(2);
+  });
+
+  test('exposes document blocks', () => {
+    const documentBlock: DocumentBlock = {
+      type: 'document',
+      source: { type: 'text', data: 'Notes content' },
+      mimeType: 'text/plain',
+      title: 'Notes',
+    };
+    const msg = new UserMessage([
+      { type: 'text', text: 'Read this' },
+      documentBlock,
+    ]);
+
+    expect(msg.documents).toHaveLength(1);
+    expect(msg.documents[0]).toBe(documentBlock);
   });
 
   test('has unique id and timestamp', () => {

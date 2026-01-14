@@ -14,7 +14,7 @@ import type { Message } from '../../../types/messages.ts';
 import type { EmbeddingInput } from '../../../types/provider.ts';
 import type { Turn } from '../../../types/turn.ts';
 import type { StreamResult } from '../../../types/stream.ts';
-import type { MessageJSON } from '../../../types/thread.ts';
+import type { MessageJSON } from '../../../types/messages.ts';
 import type { JSONSchema } from '../../../types/schema.ts';
 import type { Tool, ToolMetadata } from '../../../types/tool.ts';
 import type { EmbeddingResult } from '../../../types/embedding.ts';

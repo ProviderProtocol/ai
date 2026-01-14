@@ -14,7 +14,7 @@ import type { Message } from '../../types/messages.ts';
 import { StreamEventType, type StreamEvent } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock, ReasoningBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, DocumentBlock, ReasoningBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -394,6 +394,43 @@ function transformContentBlock(
         };
       }
       throw new Error(`Unknown image source type`);
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+      if (documentBlock.source.type === 'base64') {
+        return {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: documentBlock.mimeType,
+            data: documentBlock.source.data,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      if (documentBlock.source.type === 'url') {
+        return {
+          type: 'document',
+          source: {
+            type: 'url',
+            url: documentBlock.source.url,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      if (documentBlock.source.type === 'text') {
+        return {
+          type: 'document',
+          source: {
+            type: 'text',
+            media_type: documentBlock.mimeType,
+            data: documentBlock.source.data,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      throw new Error(`Unknown document source type`);
     }
 
     default:

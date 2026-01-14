@@ -49,6 +49,7 @@ const OLLAMA_CAPABILITIES: LLMCapabilities = {
   tools: false,
   structuredOutput: true,
   imageInput: true,
+  documentInput: false,
   videoInput: false,
   audioInput: false,
 };

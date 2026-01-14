@@ -14,6 +14,7 @@ import type {
   TextBlock,
   ReasoningBlock,
   ImageBlock,
+  DocumentBlock,
   AudioBlock,
   VideoBlock,
   UserContent,
@@ -161,6 +162,13 @@ export abstract class Message {
    */
   get images(): ImageBlock[] {
     return this.getContent().filter((block): block is ImageBlock => block.type === 'image');
+  }
+
+  /**
+   * All document content blocks in this message.
+   */
+  get documents(): DocumentBlock[] {
+    return this.getContent().filter((block): block is DocumentBlock => block.type === 'document');
   }
 
   /**

@@ -30,28 +30,32 @@ export type {
 
 /**
  * Content block types for multimodal message content.
- * Supports text, images, audio, video, and binary data.
+ * Supports text, images, documents, audio, video, and binary data.
  */
 export type {
   ContentBlock,
   TextBlock,
   ReasoningBlock,
   ImageBlock,
+  DocumentBlock,
   AudioBlock,
   VideoBlock,
   BinaryBlock,
   ImageSource,
+  DocumentSource,
   UserContent,
   AssistantContent,
 } from './content.ts';
 export {
   ContentBlockType,
   ImageSourceType,
+  DocumentSourceType,
   text,
   reasoning,
   isTextBlock,
   isReasoningBlock,
   isImageBlock,
+  isDocumentBlock,
   isAudioBlock,
   isVideoBlock,
   isBinaryBlock,
@@ -100,7 +104,8 @@ export { createTurn, emptyUsage, aggregateUsage } from './turn.ts';
  * Provides utilities for building and manipulating message sequences.
  */
 export { Thread } from './thread.ts';
-export type { ThreadJSON, MessageJSON } from './thread.ts';
+export type { ThreadJSON } from './thread.ts';
+export type { MessageJSON } from './messages.ts';
 
 /**
  * Streaming types for real-time inference responses.

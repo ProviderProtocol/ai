@@ -43,6 +43,7 @@ const PROXY_CAPABILITIES: LLMCapabilities = {
   tools: true,
   structuredOutput: true,
   imageInput: true,
+  documentInput: true,
   videoInput: true,
   audioInput: true,
 };

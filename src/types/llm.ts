@@ -76,6 +76,9 @@ export interface LLMCapabilities {
   /** Provider API supports image input in messages */
   imageInput: boolean;
 
+  /** Provider API supports document input in messages (PDFs, text files) */
+  documentInput: boolean;
+
   /** Provider API supports video input in messages */
   videoInput: boolean;
 

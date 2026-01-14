@@ -48,6 +48,9 @@ export { createProvider } from './core/provider.ts';
 /** Image content wrapper for multimodal inputs */
 export { Image } from './core/media/Image.ts';
 
+/** Document content wrapper for PDF and text documents */
+export { Document } from './core/media/document.ts';
+
 import { llm } from './core/llm.ts';
 import { embedding } from './core/embedding.ts';
 import { image } from './core/image.ts';

@@ -69,12 +69,14 @@ const ANTHROPIC_VERSION = '2023-06-01';
  * - tools: Function calling / tool use
  * - structuredOutput: JSON schema-constrained responses (via tool forcing)
  * - imageInput: Vision capabilities for image analysis
+ * - documentInput: PDF and text document analysis
  */
 const ANTHROPIC_CAPABILITIES: LLMCapabilities = {
   streaming: true,
   tools: true,
   structuredOutput: true,
   imageInput: true,
+  documentInput: true,
   videoInput: false,
   audioInput: false,
 };

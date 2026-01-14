@@ -29,6 +29,7 @@ const XAI_MESSAGES_CAPABILITIES: LLMCapabilities = {
   tools: true,
   structuredOutput: true,
   imageInput: true,
+  documentInput: false,
   videoInput: false,
   audioInput: false,
 };

@@ -4,8 +4,9 @@ import { openai } from '../../src/openai/index.ts';
 import type { OpenAIResponsesParams } from '../../src/openai/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import type { Message } from '../../src/types/messages.ts';
-import { UPPError } from '../../src/types/errors.ts';
+import { UPPError, ErrorCode } from '../../src/types/errors.ts';
 import { StreamEventType } from '../../src/types/stream.ts';
+import type { DocumentBlock } from '../../src/types/content.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { safeEvaluateExpression } from '../helpers/math.ts';
@@ -44,6 +45,31 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
 
     expect(turn.response.text.toLowerCase()).toContain('responses');
     expect(turn.usage.totalTokens).toBeGreaterThan(0);
+  });
+
+  test('rejects document inputs when unsupported', async () => {
+    const gpt = llm<OpenAIResponsesParams>({
+      model: openai('gpt-5.2'),
+      params: { max_output_tokens: 20 },
+    });
+
+    const documentBlock: DocumentBlock = {
+      type: 'document',
+      source: { type: 'text', data: 'Document contents' },
+      mimeType: 'text/plain',
+      title: 'Notes',
+    };
+
+    try {
+      await gpt.generate(documentBlock);
+      throw new Error('Expected document input rejection');
+    } catch (error) {
+      expect(error).toBeInstanceOf(UPPError);
+      if (error instanceof UPPError) {
+        expect(error.code).toBe(ErrorCode.InvalidRequest);
+        expect(error.message).toContain('document input');
+      }
+    }
   });
 
   test('streaming text generation', async () => {

@@ -13,6 +13,10 @@ import { join } from 'path';
 const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
 const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 
+// Load helloworld.pdf for document tests
+const HELLO_PDF_PATH = join(import.meta.dir, '../assets/helloworld.pdf');
+const HELLO_PDF_BASE64 = readFileSync(HELLO_PDF_PATH).toString('base64');
+
 type CityData = { city: string; population: number; isCapital: boolean };
 type CityCountryData = { city: string; country: string; population: number };
 
@@ -521,5 +525,112 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Error Handling', () =
       expect([ErrorCode.ModelNotFound, ErrorCode.InvalidRequest] as string[]).toContain(uppError.code);
       expect(uppError.provider).toBe('anthropic');
     }
+  });
+});
+
+/**
+ * Document input tests (PDF support)
+ */
+describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Document Input', () => {
+  test('PDF document with base64 encoding', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 100 },
+    });
+
+    // Create a user message with PDF document
+    const docMessage = new UserMessage([
+      { type: 'text', text: 'What text is shown in this PDF document? Reply with just the text.' },
+      {
+        type: 'document',
+        mimeType: 'application/pdf',
+        source: { type: 'base64', data: HELLO_PDF_BASE64 },
+      },
+    ]);
+
+    const turn = await claude.generate([docMessage]);
+
+    // Should identify the "Hello, world!" text
+    expect(turn.response.text.toLowerCase()).toMatch(/hello.*world|hello,\s*world/i);
+    expect(turn.usage.totalTokens).toBeGreaterThan(0);
+  });
+
+  test('plain text document', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 100 },
+    });
+
+    const docMessage = new UserMessage([
+      { type: 'text', text: 'What is the capital mentioned in this document? Reply with just the city name.' },
+      {
+        type: 'document',
+        mimeType: 'text/plain',
+        source: { type: 'text', data: 'The capital of France is Paris. It is known for the Eiffel Tower.' },
+      },
+    ]);
+
+    const turn = await claude.generate([docMessage]);
+
+    expect(turn.response.text.toLowerCase()).toContain('paris');
+  });
+
+  test('mixed content with image and document', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 200 },
+    });
+
+    const mixedMessage = new UserMessage([
+      { type: 'text', text: 'I have an image and a document. What animal is in the image and what text is in the PDF?' },
+      {
+        type: 'image',
+        mimeType: 'image/png',
+        source: { type: 'base64', data: DUCK_IMAGE_BASE64 },
+      },
+      {
+        type: 'document',
+        mimeType: 'application/pdf',
+        source: { type: 'base64', data: HELLO_PDF_BASE64 },
+      },
+    ]);
+
+    const turn = await claude.generate([mixedMessage]);
+
+    const text = turn.response.text.toLowerCase();
+    // Should mention both the duck and "hello world"
+    expect(text).toMatch(/duck|bird|waterfowl/);
+    expect(text).toMatch(/hello.*world|hello,\s*world/i);
+  });
+
+  test('streaming with document input', async () => {
+    const claude = llm<AnthropicLLMParams>({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 100 },
+    });
+
+    const docMessage = new UserMessage([
+      { type: 'text', text: 'Read this document and tell me what it says.' },
+      {
+        type: 'document',
+        mimeType: 'application/pdf',
+        source: { type: 'base64', data: HELLO_PDF_BASE64 },
+      },
+    ]);
+
+    const stream = claude.stream([docMessage]);
+
+    let text = '';
+    for await (const event of stream) {
+      if (event.type === StreamEventType.TextDelta && event.delta.text) {
+        text += event.delta.text;
+      }
+    }
+
+    const turn = await stream.turn;
+
+    // Both streamed text and final turn should contain "hello world"
+    expect(text.toLowerCase()).toMatch(/hello.*world|hello,\s*world/i);
+    expect(turn.response.text.toLowerCase()).toMatch(/hello.*world|hello,\s*world/i);
   });
 });

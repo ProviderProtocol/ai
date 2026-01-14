@@ -40,6 +40,7 @@ const OPENROUTER_CAPABILITIES: LLMCapabilities = {
   tools: true,
   structuredOutput: true,
   imageInput: true,
+  documentInput: false,
   imageOutput: true,
   videoInput: false,
   audioInput: false,
@@ -127,9 +128,10 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParam
           const data = await parseJsonResponse<OpenRouterResponsesResponse>(response, 'openrouter', 'llm');
 
           // Check for error in response
-          if (data.status === 'failed' && data.error) {
+          if (data.status === 'failed') {
+            const message = data.error?.message ?? 'Provider returned a failed response.';
             throw new UPPError(
-              data.error.message,
+              message,
               ErrorCode.ProviderError,
               'openrouter',
               ModalityType.LLM

@@ -10,7 +10,7 @@
 
 import type { Message, AssistantMessage } from './messages.ts';
 import type { ToolExecution } from './tool.ts';
-import type { MessageJSON } from './thread.ts';
+import type { MessageJSON } from './messages.ts';
 
 /**
  * Token usage information for an inference request.

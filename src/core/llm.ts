@@ -22,6 +22,7 @@ import type { ContentBlock } from '../types/content.ts';
 import {
   isTextBlock,
   isImageBlock,
+  isDocumentBlock,
   isAudioBlock,
   isVideoBlock,
   isBinaryBlock,
@@ -303,7 +304,13 @@ function inputToMessage(input: InferenceInput): Message {
     return new UserMessageClass(block.text);
   }
 
-  if (isImageBlock(block) || isAudioBlock(block) || isVideoBlock(block) || isBinaryBlock(block)) {
+  if (
+    isImageBlock(block) ||
+    isDocumentBlock(block) ||
+    isAudioBlock(block) ||
+    isVideoBlock(block) ||
+    isBinaryBlock(block)
+  ) {
     return new UserMessageClass([block]);
   }
 
@@ -803,7 +810,7 @@ async function executeTools(
 /**
  * Validates that message content is compatible with provider capabilities.
  *
- * Checks user messages for media types (image, video, audio) and throws
+ * Checks user messages for media types (image, document, video, audio) and throws
  * if the provider does not support the required input modality.
  *
  * @param messages - Messages to validate
@@ -823,6 +830,14 @@ function validateMediaCapabilities(
       if (block.type === 'image' && !capabilities.imageInput) {
         throw new UPPError(
           `Provider '${providerName}' does not support image input`,
+          ErrorCode.InvalidRequest,
+          providerName,
+          ModalityType.LLM
+        );
+      }
+      if (block.type === 'document' && !capabilities.documentInput) {
+        throw new UPPError(
+          `Provider '${providerName}' does not support document input`,
           ErrorCode.InvalidRequest,
           providerName,
           ModalityType.LLM

@@ -19,9 +19,6 @@ import {
 import type { UserContent, AssistantContent } from './content.ts';
 import type { Turn } from './turn.ts';
 
-// Re-export for convenience
-export type { MessageJSON };
-
 /**
  * Thread serialized to JSON format.
  * Picks id from Thread, converts dates to strings.

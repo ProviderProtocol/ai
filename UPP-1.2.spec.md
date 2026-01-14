@@ -783,6 +783,7 @@ await claude.generate(thread, "Continue the conversation")
 | `tools` | Boolean | Provider API supports tool/function calling |
 | `structuredOutput` | Boolean | Provider API supports native structured output |
 | `imageInput` | Boolean | Provider API supports image input |
+| `documentInput` | Boolean | Provider API supports document input (PDFs, text files) |
 | `videoInput` | Boolean | Provider API supports video input |
 | `audioInput` | Boolean | Provider API supports audio input |
 
@@ -1037,6 +1038,7 @@ UPP does NOT validate the response against the schema. Modern LLMs with structur
 Similarly, `llm()` core checks capabilities before using other features:
 - `tools` provided but `capabilities.tools` is `false` → MUST throw `INVALID_REQUEST`
 - Image content provided but `capabilities.imageInput` is `false` → MUST throw `INVALID_REQUEST`
+- Document content provided but `capabilities.documentInput` is `false` → MUST throw `INVALID_REQUEST`
 - `stream()` called but `capabilities.streaming` is `false` → MUST throw `INVALID_REQUEST`
 
 #### 5.10.6 Error Handling
@@ -1080,6 +1082,7 @@ Messages are represented as a type hierarchy, allowing type-safe handling and pr
 | `type` | MessageType | Message type discriminator |
 | `text` | String | Convenience accessor - concatenates all text blocks with "\n\n" |
 | `images` | List<ImageBlock> | Convenience accessor - returns all image blocks |
+| `documents` | List<DocumentBlock> | Convenience accessor - returns all document blocks |
 | `audio` | List<AudioBlock> | Convenience accessor - returns all audio blocks |
 | `video` | List<VideoBlock> | Convenience accessor - returns all video blocks |
 
@@ -1112,7 +1115,7 @@ Providers MUST ignore metadata namespaces they don't recognize. Message metadata
 | `type` | "user" | Always "user" |
 | `content` | List<UserContent> | Content blocks |
 
-`UserContent` can be: `TextBlock`, `ImageBlock`, `AudioBlock`, `VideoBlock`, `BinaryBlock`
+`UserContent` can be: `TextBlock`, `ImageBlock`, `DocumentBlock`, `AudioBlock`, `VideoBlock`, `BinaryBlock`
 
 Constructor accepts either a string (converted to TextBlock) or array of content blocks.
 
@@ -1226,6 +1229,30 @@ This content represents the model's internal reasoning process before generating
 
 // Raw bytes
 { type: "bytes", data: <binary data> }
+```
+
+**DocumentBlock:**
+
+```pseudocode
+{
+  type: "document",
+  source: DocumentSource,
+  mimeType: "application/pdf",  // or "text/plain"
+  title: "Annual Report"        // optional, used for citations
+}
+```
+
+**DocumentSource Variants:**
+
+```pseudocode
+// Base64 encoded PDF
+{ type: "base64", data: "JVBERi0xLjQK..." }
+
+// URL reference to PDF
+{ type: "url", url: "https://example.com/document.pdf" }
+
+// Plain text content
+{ type: "text", data: "This is the document content..." }
 ```
 
 **AudioBlock:**
@@ -3052,10 +3079,12 @@ UPP implementations SHOULD export the following types through their language's s
 - `ContentBlock`
 - `TextBlock`
 - `ImageBlock`
+- `DocumentBlock`
 - `AudioBlock`
 - `VideoBlock`
 - `BinaryBlock`
 - `ImageSource`
+- `DocumentSource`
 
 **Tool Types:**
 - `ToolCall`
@@ -3180,6 +3209,7 @@ UPP exports named constant objects for all discriminated union types. These cons
 | `ContentBlockType.Text` | `'text'` |
 | `ContentBlockType.Reasoning` | `'reasoning'` |
 | `ContentBlockType.Image` | `'image'` |
+| `ContentBlockType.Document` | `'document'` |
 | `ContentBlockType.Audio` | `'audio'` |
 | `ContentBlockType.Video` | `'video'` |
 | `ContentBlockType.Binary` | `'binary'` |
@@ -3191,6 +3221,14 @@ UPP exports named constant objects for all discriminated union types. These cons
 | `ImageSourceType.Base64` | `'base64'` |
 | `ImageSourceType.Url` | `'url'` |
 | `ImageSourceType.Bytes` | `'bytes'` |
+
+**DocumentSourceType Constants:**
+
+| Constant | Value |
+|----------|-------|
+| `DocumentSourceType.Base64` | `'base64'` |
+| `DocumentSourceType.Url` | `'url'` |
+| `DocumentSourceType.Text` | `'text'` |
 
 **MessageRole Constants:**
 
@@ -3662,8 +3700,9 @@ Providers may implement one or more modalities. For each modality, conformance i
 - Enable vendor's structured output mode
 - Parse and return structured data as JSON
 
-**Level 5: Multimodal Input** (`capabilities.imageInput`, `videoInput`, `audioInput`)
+**Level 5: Multimodal Input** (`capabilities.imageInput`, `documentInput`, `videoInput`, `audioInput`)
 - Image input handling (base64, URL conversion) if `imageInput: true`
+- Document input handling (PDF base64, PDF URL, plain text) if `documentInput: true`
 - Video input handling if `videoInput: true`
 - Audio input handling if `audioInput: true`
 
@@ -3871,6 +3910,44 @@ Tools execute arbitrary code based on LLM-provided arguments:
         "height": { "type": "integer" }
       }
     },
+    "DocumentSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "base64" },
+            "data": { "type": "string" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "url"],
+          "properties": {
+            "type": { "const": "url" },
+            "url": { "type": "string", "format": "uri" }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "data"],
+          "properties": {
+            "type": { "const": "text" },
+            "data": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "DocumentBlock": {
+      "type": "object",
+      "required": ["type", "source", "mimeType"],
+      "properties": {
+        "type": { "const": "document" },
+        "source": { "$ref": "#/definitions/DocumentSource" },
+        "mimeType": { "type": "string" },
+        "title": { "type": "string" }
+      }
+    },
     "AudioBlock": {
       "type": "object",
       "required": ["type", "data", "mimeType"],
@@ -3908,6 +3985,7 @@ Tools execute arbitrary code based on LLM-provided arguments:
         { "$ref": "#/definitions/TextBlock" },
         { "$ref": "#/definitions/ReasoningBlock" },
         { "$ref": "#/definitions/ImageBlock" },
+        { "$ref": "#/definitions/DocumentBlock" },
         { "$ref": "#/definitions/AudioBlock" },
         { "$ref": "#/definitions/VideoBlock" },
         { "$ref": "#/definitions/BinaryBlock" }

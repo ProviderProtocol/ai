@@ -8,3 +8,4 @@
  */
 
 export { Image } from './Image.ts';
+export { Document } from './document.ts';

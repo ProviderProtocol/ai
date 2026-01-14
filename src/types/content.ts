@@ -31,6 +31,8 @@ export const ContentBlockType = {
   Reasoning: 'reasoning',
   /** Image content */
   Image: 'image',
+  /** Document content (PDFs, text files) */
+  Document: 'document',
   /** Audio content */
   Audio: 'audio',
   /** Video content */
@@ -108,6 +110,69 @@ export type ImageSource =
   | { type: 'bytes'; data: Uint8Array };
 
 /**
+ * Document source type constants.
+ *
+ * @example
+ * ```typescript
+ * import { DocumentSourceType } from 'upp';
+ *
+ * if (source.type === DocumentSourceType.Base64) {
+ *   // Handle base64 encoded document (PDF)
+ * } else if (source.type === DocumentSourceType.Url) {
+ *   // Handle URL reference (PDF)
+ * } else if (source.type === DocumentSourceType.Text) {
+ *   // Handle plain text document
+ * }
+ * ```
+ */
+export const DocumentSourceType = {
+  /** Base64-encoded document data (for PDFs) */
+  Base64: 'base64',
+  /** URL reference to document (for PDFs) */
+  Url: 'url',
+  /** Plain text document content */
+  Text: 'text',
+} as const;
+
+/**
+ * Document source type discriminator union.
+ *
+ * This type is derived from {@link DocumentSourceType} constants.
+ */
+export type DocumentSourceType = (typeof DocumentSourceType)[keyof typeof DocumentSourceType];
+
+/**
+ * Document source variants for DocumentBlock.
+ *
+ * Documents can be provided as base64-encoded data (PDFs), URLs (PDFs), or plain text.
+ *
+ * @example
+ * ```typescript
+ * // Base64 encoded PDF
+ * const base64Source: DocumentSource = {
+ *   type: 'base64',
+ *   data: 'JVBERi0xLjQK...'
+ * };
+ *
+ * // URL reference to PDF
+ * const urlSource: DocumentSource = {
+ *   type: 'url',
+ *   url: 'https://example.com/document.pdf'
+ * };
+ *
+ * // Plain text document
+ * const textSource: DocumentSource = {
+ *   type: 'text',
+ *   data: 'This is the document content...'
+ * };
+ * ```
+ */
+export type DocumentSource =
+  | { type: 'base64'; data: string }
+  | { type: 'url'; url: string }
+  | { type: 'text'; data: string };
+
+/**
  * Text content block.
  *
  * The most common content block type, containing plain text content.
@@ -181,6 +246,44 @@ export interface ImageBlock {
 
   /** Image height in pixels */
   height?: number;
+}
+
+/**
+ * Document content block.
+ *
+ * Contains a document (PDF or plain text) with its source and metadata.
+ * Supports PDF documents via base64 encoding or URL, and plain text content.
+ *
+ * @example
+ * ```typescript
+ * // PDF document from base64
+ * const pdfBlock: DocumentBlock = {
+ *   type: 'document',
+ *   source: { type: 'base64', data: 'JVBERi0xLjQK...' },
+ *   mimeType: 'application/pdf',
+ *   title: 'Annual Report'
+ * };
+ *
+ * // Plain text document
+ * const textDoc: DocumentBlock = {
+ *   type: 'document',
+ *   source: { type: 'text', data: 'Document contents here...' },
+ *   mimeType: 'text/plain'
+ * };
+ * ```
+ */
+export interface DocumentBlock {
+  /** Discriminator for document blocks */
+  type: 'document';
+
+  /** The document data source */
+  source: DocumentSource;
+
+  /** MIME type of the document ('application/pdf' or 'text/plain') */
+  mimeType: string;
+
+  /** Optional document title (used for citations) */
+  title?: string;
 }
 
 /**
@@ -287,6 +390,7 @@ export type ContentBlock =
   | TextBlock
   | ReasoningBlock
   | ImageBlock
+  | DocumentBlock
   | AudioBlock
   | VideoBlock
   | BinaryBlock;
@@ -299,6 +403,7 @@ export type ContentBlock =
 export type UserContent =
   | TextBlock
   | ImageBlock
+  | DocumentBlock
   | AudioBlock
   | VideoBlock
   | BinaryBlock;
@@ -396,6 +501,23 @@ export function isReasoningBlock(block: ContentBlock): block is ReasoningBlock {
  */
 export function isImageBlock(block: ContentBlock): block is ImageBlock {
   return block.type === ContentBlockType.Image;
+}
+
+/**
+ * Type guard for DocumentBlock.
+ *
+ * @param block - The content block to check
+ * @returns True if the block is a DocumentBlock
+ *
+ * @example
+ * ```typescript
+ * if (isDocumentBlock(block)) {
+ *   console.log(block.mimeType, block.title);
+ * }
+ * ```
+ */
+export function isDocumentBlock(block: ContentBlock): block is DocumentBlock {
+  return block.type === ContentBlockType.Document;
 }
 
 /**
