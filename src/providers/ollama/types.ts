@@ -163,6 +163,8 @@ export interface OllamaMessage {
 export interface OllamaToolCall {
   /** The function to call. */
   function: {
+    /** Index of the tool call for correlation (may be provided by the API). */
+    index?: number;
     /** The name of the function to invoke. */
     name: string;
     /** The arguments to pass to the function as key-value pairs. */

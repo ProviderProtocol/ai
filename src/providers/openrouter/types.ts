@@ -237,7 +237,7 @@ export interface OpenRouterResponsesParams {
    * Reasoning configuration
    */
   reasoning?: {
-    effort?: 'low' | 'medium' | 'high';
+    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'minimal' | 'none';
   };
 
   /**
@@ -889,12 +889,13 @@ export interface OpenRouterResponsesRequest {
   temperature?: number;
   top_p?: number;
   stream?: boolean;
+  stream_options?: { include_usage?: boolean };
   tools?: OpenRouterResponsesTool[];
   tool_choice?: OpenRouterResponsesToolChoice;
   parallel_tool_calls?: boolean;
   text?: OpenRouterResponsesTextConfig;
   reasoning?: {
-    effort?: 'low' | 'medium' | 'high';
+    effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'minimal' | 'none';
   };
 }
 

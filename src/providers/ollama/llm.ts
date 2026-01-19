@@ -38,15 +38,10 @@ const OLLAMA_DEFAULT_URL = 'http://localhost:11434';
 
 /**
  * Capability flags for the Ollama provider.
- *
- * **Important:** Tool calling is intentionally disabled. Ollama recommends
- * using their OpenAI-compatible API (`/v1/chat/completions`) for function
- * calling. To use tools with Ollama, configure the OpenAI provider with
- * `baseUrl` pointed to your Ollama instance.
  */
 const OLLAMA_CAPABILITIES: LLMCapabilities = {
   streaming: true,
-  tools: false,
+  tools: true,
   structuredOutput: true,
   imageInput: true,
   documentInput: false,

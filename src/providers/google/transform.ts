@@ -235,6 +235,7 @@ function transformMessages(messages: Message[]): GoogleContent[] {
 
       const googleMeta = msg.metadata?.google as {
         functionCallParts?: Array<{
+          id?: string;
           name: string;
           args: Record<string, unknown>;
           thoughtSignature?: string;
@@ -259,6 +260,7 @@ function transformMessages(messages: Message[]): GoogleContent[] {
         for (const fc of googleMeta.functionCallParts) {
           const part: GoogleFunctionCallPart = {
             functionCall: {
+              id: fc.id,
               name: fc.name,
               args: fc.args,
             },
@@ -313,11 +315,7 @@ function transformMessages(messages: Message[]): GoogleContent[] {
  * @returns Base64-encoded string
  */
 function uint8ArrayToBase64(bytes: Uint8Array): string {
-  return btoa(
-    Array.from(bytes)
-      .map((b) => String.fromCharCode(b))
-      .join('')
-  );
+  return Buffer.from(bytes).toString('base64');
 }
 
 /**
@@ -449,6 +447,7 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
   let structuredData: unknown;
   let lastThoughtSignature: string | undefined;
   const functionCallParts: Array<{
+    id?: string;
     name: string;
     args: Record<string, unknown>;
     thoughtSignature?: string;
@@ -475,13 +474,14 @@ export function transformResponse(data: GoogleResponse): LLMResponse {
       }
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
-      const toolCallId = createGoogleToolCallId(fc.functionCall.name, toolCalls.length);
+      const toolCallId = fc.functionCall.id ?? createGoogleToolCallId(fc.functionCall.name, toolCalls.length);
       toolCalls.push({
         toolCallId,
         toolName: fc.functionCall.name,
         arguments: fc.functionCall.args,
       });
       functionCallParts.push({
+        id: fc.functionCall.id,
         name: fc.functionCall.name,
         args: fc.functionCall.args,
         thoughtSignature: fc.thoughtSignature,
@@ -552,7 +552,7 @@ export interface StreamState {
   /** Encrypted thought signature for multi-turn context (Gemini 3+). */
   thoughtSignature?: string;
   /** Accumulated tool calls with their arguments and optional thought signatures. */
-  toolCalls: Array<{ id: string; name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
+  toolCalls: Array<{ id: string; nativeId?: string; name: string; args: Record<string, unknown>; thoughtSignature?: string }>;
   /** Base64 image data from inline image response parts. */
   images: Array<{ data: string; mimeType: string }>;
   /** The finish reason from the final chunk, if received. */
@@ -643,9 +643,10 @@ export function transformStreamChunk(
       }
     } else if ('functionCall' in part) {
       const fc = part as GoogleFunctionCallPart;
-      const toolCallId = createGoogleToolCallId(fc.functionCall.name, state.toolCalls.length);
+      const toolCallId = fc.functionCall.id ?? createGoogleToolCallId(fc.functionCall.name, state.toolCalls.length);
       state.toolCalls.push({
         id: toolCallId,
+        nativeId: fc.functionCall.id,
         name: fc.functionCall.name,
         args: fc.functionCall.args,
         thoughtSignature: fc.thoughtSignature,
@@ -711,6 +712,7 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
   const toolCalls: ToolCall[] = [];
   let structuredData: unknown;
   const functionCallParts: Array<{
+    id?: string;
     name: string;
     args: Record<string, unknown>;
     thoughtSignature?: string;
@@ -745,6 +747,7 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
       arguments: tc.args,
     });
     functionCallParts.push({
+      id: tc.nativeId,
       name: tc.name,
       args: tc.args,
       thoughtSignature: tc.thoughtSignature,
@@ -790,6 +793,8 @@ function normalizeStopReason(reason: string | null | undefined): string {
     case 'SAFETY':
     case 'RECITATION':
       return 'content_filter';
+    case 'TOOL_USE':
+      return 'tool_use';
     case 'OTHER':
       return 'end_turn';
     default:

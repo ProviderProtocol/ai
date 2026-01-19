@@ -33,7 +33,6 @@ export type {
   XAIAPIMode,
   XAIModelOptions,
   XAIModelReference,
-  XAISearchParameters,
   XAIAgentTool,
   XAIHeaders,
   XAIBuiltInTool,

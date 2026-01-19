@@ -327,12 +327,7 @@ function transformContentPart(block: ContentBlock): XAIResponsesContentPart {
       }
 
       if (imageBlock.source.type === 'bytes') {
-        // Convert bytes to base64
-        const base64 = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
         return {
           type: 'input_image',
           image_url: `data:${imageBlock.mimeType};base64,${base64}`,

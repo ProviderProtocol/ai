@@ -332,6 +332,8 @@ export interface GoogleImagePart {
 export interface GoogleFunctionCallPart {
   /** Function call details. */
   functionCall: {
+    /** Unique identifier for this function call (native ID from API). */
+    id?: string;
     /** Name of the function to call. */
     name: string;
     /** Arguments to pass to the function. */
@@ -350,6 +352,8 @@ export interface GoogleFunctionCallPart {
 export interface GoogleFunctionResponsePart {
   /** Function response details. */
   functionResponse: {
+    /** Unique identifier to correlate with the function call (matches functionCall.id if provided). */
+    id?: string;
     /** Name of the function that was called. */
     name: string;
     /** Response data from the function execution. */

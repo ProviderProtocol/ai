@@ -97,15 +97,12 @@ export type XAIProvider = Provider<XAIProviderOptions>;
  *   }
  * });
  *
- * // Using Live Search (deprecated Dec 2025)
+ * // Using Agent Tools (web search, code execution, etc.)
  * const searchModel = llm({
- *   model: xai('grok-4'),
+ *   model: xai('grok-4', { api: 'responses' }),
  *   params: {
  *     max_tokens: 1000,
- *     search_parameters: {
- *       mode: 'auto',
- *       sources: ['web', 'x', 'news'],
- *     }
+ *     tools: [tools.webSearch()],
  *   }
  * });
  *
@@ -141,7 +138,6 @@ export type {
   XAIAPIMode,
   XAIModelOptions,
   XAIModelReference,
-  XAISearchParameters,
   XAIAgentTool,
   XAIHeaders,
   XAIBuiltInTool,

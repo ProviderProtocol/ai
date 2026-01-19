@@ -105,7 +105,9 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
 
   if (allTools.length > 0) {
     anthropicRequest.tools = allTools;
-    anthropicRequest.tool_choice = { type: 'auto' };
+    if (!anthropicRequest.tool_choice) {
+      anthropicRequest.tool_choice = { type: 'auto' };
+    }
   }
 
   if (request.structure) {
@@ -378,11 +380,7 @@ function transformContentBlock(
         };
       }
       if (imageBlock.source.type === 'bytes') {
-        const base64 = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
         return {
           type: 'image',
           source: {

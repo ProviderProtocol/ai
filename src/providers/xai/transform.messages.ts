@@ -4,7 +4,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, ReasoningBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -21,7 +21,6 @@ import type {
   XAIMessagesTool,
   XAIMessagesResponse,
   XAIMessagesStreamEvent,
-  XAIMessagesContentBlockDeltaEvent,
 } from './types.ts';
 
 /**
@@ -96,7 +95,9 @@ export function transformRequest(
 
   if (request.tools && request.tools.length > 0) {
     xaiRequest.tools = request.tools.map(transformTool);
-    xaiRequest.tool_choice = { type: 'auto' };
+    if (!xaiRequest.tool_choice) {
+      xaiRequest.tool_choice = { type: 'auto' };
+    }
   }
 
   if (request.structure) {
@@ -238,12 +239,7 @@ function transformContentBlock(block: ContentBlock): XAIMessagesContent {
         };
       }
       if (imageBlock.source.type === 'bytes') {
-        // Convert bytes to base64
-        const base64 = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
         return {
           type: 'image',
           source: {

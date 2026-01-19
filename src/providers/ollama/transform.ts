@@ -200,12 +200,7 @@ function transformMessages(messages: Message[], system?: string | unknown[]): Ol
           if (imageBlock.source.type === 'base64') {
             images.push(imageBlock.source.data);
           } else if (imageBlock.source.type === 'bytes') {
-            // Convert bytes to base64
-            const base64 = btoa(
-              Array.from(imageBlock.source.data)
-                .map((b) => String.fromCharCode(b))
-                .join('')
-            );
+            const base64 = Buffer.from(imageBlock.source.data).toString('base64');
             images.push(base64);
           } else if (imageBlock.source.type === 'url') {
             // Ollama doesn't support URL images directly
@@ -255,9 +250,14 @@ function transformMessages(messages: Message[], system?: string | unknown[]): Ol
     } else if (isToolResultMessage(msg)) {
       // Tool results are sent as 'tool' role messages
       for (const result of msg.results) {
+        // Extract tool name from toolCallId (format: {name}_{index})
+        const underscoreIndex = result.toolCallId.lastIndexOf('_');
+        const toolName = underscoreIndex > 0
+          ? result.toolCallId.slice(0, underscoreIndex)
+          : result.toolCallId;
         ollamaMessages.push({
           role: 'tool',
-          tool_name: result.toolCallId, // In our UPP, toolCallId maps to tool name for Ollama
+          tool_name: toolName,
           content:
             typeof result.result === 'string'
               ? result.result
@@ -337,9 +337,11 @@ export function transformResponse(data: OllamaResponse): LLMResponse {
 
   // Extract tool calls
   if (data.message.tool_calls) {
-    for (const call of data.message.tool_calls) {
+    for (let idx = 0; idx < data.message.tool_calls.length; idx++) {
+      const call = data.message.tool_calls[idx]!;
+      const index = call.function.index ?? idx;
       toolCalls.push({
-        toolCallId: call.function.name, // Ollama doesn't have separate IDs, use name
+        toolCallId: `${call.function.name}_${index}`,
         toolName: call.function.name,
         arguments: call.function.arguments,
       });
@@ -499,15 +501,17 @@ export function transformStreamChunk(
     // Tool calls (typically come in final chunk)
     if (chunk.message.tool_calls) {
       for (const call of chunk.message.tool_calls) {
+        const idx = state.toolCalls.length;
+        const toolCallId = `${call.function.name}_${call.function.index ?? idx}`;
         state.toolCalls.push({
           name: call.function.name,
           args: call.function.arguments,
         });
         events.push({
           type: StreamEventType.ToolCallDelta,
-          index: state.toolCalls.length - 1,
+          index: idx,
           delta: {
-            toolCallId: call.function.name,
+            toolCallId,
             toolName: call.function.name,
             argumentsJson: JSON.stringify(call.function.arguments),
           },
@@ -561,9 +565,10 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     }
   }
 
-  for (const tc of state.toolCalls) {
+  for (let idx = 0; idx < state.toolCalls.length; idx++) {
+    const tc = state.toolCalls[idx]!;
     toolCalls.push({
-      toolCallId: tc.name,
+      toolCallId: `${tc.name}_${idx}`,
       toolName: tc.name,
       arguments: tc.args,
     });

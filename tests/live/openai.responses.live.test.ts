@@ -67,7 +67,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses API Live', () => 
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
         expect(error.code).toBe(ErrorCode.InvalidRequest);
-        expect(error.message).toContain('document input');
+        expect(error.message).toContain('PDF documents');
       }
     }
   });

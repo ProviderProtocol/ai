@@ -361,11 +361,7 @@ function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
       }
 
       if (imageBlock.source.type === 'bytes') {
-        const base64 = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
         return {
           type: 'input_image',
           image_url: `data:${imageBlock.mimeType};base64,${base64}`,
@@ -827,7 +823,7 @@ export function transformStreamEvent(
         index: event.output_index,
         delta: {
           toolCallId: toolCall.callId ?? toolCall.itemId ?? '',
-          toolName: toolCall.name,
+          toolName: toolCall.name ?? '',
           argumentsJson: event.delta,
         },
       });

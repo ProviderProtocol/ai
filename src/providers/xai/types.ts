@@ -74,12 +74,6 @@ export interface XAICompletionsParams {
 
   /** Response format for structured output */
   response_format?: XAIResponseFormat;
-
-  /**
-   * Live Search parameters (deprecated, will be removed Dec 15, 2025)
-   * Use Agent Tools API instead for new implementations
-   */
-  search_parameters?: XAISearchParameters;
 }
 
 /**
@@ -139,12 +133,6 @@ export interface XAIResponsesParams {
 
   /** Metadata key-value pairs */
   metadata?: Record<string, string>;
-
-  /**
-   * Live Search parameters (deprecated, will be removed Dec 15, 2025)
-   * Use Agent Tools API instead for new implementations
-   */
-  search_parameters?: XAISearchParameters;
 
   /**
    * Built-in agentic tools for server-side execution.
@@ -228,6 +216,15 @@ export interface XAIMessagesParams {
     type: 'enabled';
     budget_tokens: number;
   };
+
+  /**
+   * Tool selection strategy.
+   *
+   * - `auto`: Model decides when to use tools
+   * - `any`: Model must use at least one tool
+   * - `tool`: Model must use the specific tool named in `name`
+   */
+  tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string };
 }
 
 /**
@@ -264,25 +261,6 @@ export interface XAIModelReference {
 export interface XAIConfig {
   /** The API mode to use (defaults to 'completions') */
   api?: XAIAPIMode;
-}
-
-/**
- * Live Search parameters for real-time web search integration.
- *
- * @deprecated Live Search API will be removed on December 15, 2025.
- * Use the Agent Tools API with `web_search` tool instead.
- */
-export interface XAISearchParameters {
-  /** Search mode */
-  mode?: 'auto' | 'on' | 'off';
-  /** Limit search to specific date range */
-  from_date?: string;
-  /** End date for search range */
-  to_date?: string;
-  /** Sources to search */
-  sources?: Array<'web' | 'x' | 'news' | 'rss'>;
-  /** Maximum number of search results */
-  max_search_results?: number;
 }
 
 // ============================================
@@ -684,7 +662,6 @@ export interface XAICompletionsRequest {
   reasoning_effort?: string;
   store?: boolean;
   metadata?: Record<string, string>;
-  search_parameters?: XAISearchParameters;
 }
 
 /**
@@ -977,7 +954,6 @@ export interface XAIResponsesRequest {
   };
   include?: string[];
   previous_response_id?: string;
-  search_parameters?: XAISearchParameters;
 }
 
 /**

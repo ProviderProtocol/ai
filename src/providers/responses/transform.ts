@@ -324,11 +324,7 @@ function transformContentPart(block: ContentBlock): ResponsesContentPart {
       }
 
       if (imageBlock.source.type === 'bytes') {
-        const base64 = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
         return {
           type: 'input_image',
           image_url: `data:${imageBlock.mimeType};base64,${base64}`,
@@ -362,7 +358,7 @@ function transformContentPart(block: ContentBlock): ResponsesContentPart {
       }
 
       if (documentBlock.source.type === 'text') {
-        const base64 = btoa(documentBlock.source.data);
+        const base64 = Buffer.from(documentBlock.source.data).toString('base64');
         return {
           type: 'input_file',
           filename: documentBlock.title ?? 'document.txt',
@@ -380,11 +376,7 @@ function transformContentPart(block: ContentBlock): ResponsesContentPart {
 
     case 'video': {
       const videoBlock = block as VideoBlock;
-      const base64 = btoa(
-        Array.from(videoBlock.data)
-          .map((b) => String.fromCharCode(b))
-          .join('')
-      );
+      const base64 = Buffer.from(videoBlock.data).toString('base64');
       return {
         type: 'input_video' as ResponsesContentPart['type'],
         video: `data:${videoBlock.mimeType};base64,${base64}`,
@@ -393,11 +385,7 @@ function transformContentPart(block: ContentBlock): ResponsesContentPart {
 
     case 'audio': {
       const audioBlock = block as AudioBlock;
-      const base64 = btoa(
-        Array.from(audioBlock.data)
-          .map((b) => String.fromCharCode(b))
-          .join('')
-      );
+      const base64 = Buffer.from(audioBlock.data).toString('base64');
       return {
         type: 'input_file',
         filename: 'audio',

@@ -4,7 +4,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock, ReasoningBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -280,12 +280,7 @@ function transformContentBlock(block: ContentBlock): XAIUserContent {
       } else if (imageBlock.source.type === 'url') {
         url = imageBlock.source.url;
       } else if (imageBlock.source.type === 'bytes') {
-        // Convert bytes to base64
-        const base64 = btoa(
-          Array.from(imageBlock.source.data)
-            .map((b) => String.fromCharCode(b))
-            .join('')
-        );
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
         url = `data:${imageBlock.mimeType};base64,${base64}`;
       } else {
         throw new Error('Unknown image source type');

@@ -201,6 +201,15 @@ export interface AnthropicLLMParams {
    * Pass the container ID from a previous response to reuse the same environment.
    */
   container?: string;
+
+  /**
+   * Tool selection strategy.
+   *
+   * - `auto`: Model decides when to use tools
+   * - `any`: Model must use at least one tool
+   * - `tool`: Model must use the specific tool named in `name`
+   */
+  tool_choice?: { type: 'auto' | 'any' | 'tool'; name?: string };
 }
 
 /**

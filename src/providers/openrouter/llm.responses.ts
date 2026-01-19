@@ -164,6 +164,7 @@ export function createResponsesLLMHandler(): LLMHandler<OpenRouterResponsesParam
               const baseUrl = request.config.baseUrl ?? OPENROUTER_RESPONSES_API_URL;
               const body = transformRequest(request, modelId);
               body.stream = true;
+              body.stream_options = { include_usage: true };
 
               const headers: Record<string, string> = {
                 'Content-Type': 'application/json',
