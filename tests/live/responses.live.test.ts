@@ -1,19 +1,22 @@
 import { test, expect, describe } from 'bun:test';
-import { llm } from '../../src/index.ts';
+import { llm, parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/index.ts';
 import { responses } from '../../src/responses/index.ts';
 import type { ResponsesParams } from '../../src/responses/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';
 import type { Message } from '../../src/types/messages.ts';
 import { UPPError } from '../../src/types/errors.ts';
-import { StreamEventType } from '../../src/types/stream.ts';
+import { StreamEventType, type StreamEvent } from '../../src/types/stream.ts';
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import { safeEvaluateExpression } from '../helpers/math.ts';
 
+/** Helper to access parsed field from middleware-enhanced events */
+const getParsed = (event: StreamEvent): unknown => (event as ParsedStreamEvent).delta.parsed;
+
 const DUCK_IMAGE_PATH = join(import.meta.dir, '../assets/duck.png');
 const DUCK_IMAGE_BASE64 = readFileSync(DUCK_IMAGE_PATH).toString('base64');
 
-type CityData = { city: string; population: number; isCapital: boolean };
+type CityData = { city: string; population: number; isCapital: boolean; country?: string };
 
 /**
  * Live API tests for OpenResponses provider using OpenAI as the backend.
@@ -192,6 +195,53 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenResponses Provider Live (OpenA
     const data = turn.data as CityData;
     expect(data.city).toContain('Paris');
     expect(typeof data.population).toBe('number');
+  });
+
+  test('structured output streaming emits object_delta with parsed', async () => {
+    const model = llm<ResponsesParams>({
+      model: responses('gpt-5.2', {
+        host: OPENAI_HOST,
+        apiKeyEnv: 'OPENAI_API_KEY',
+      }),
+      params: { max_output_tokens: 200 },
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          country: { type: 'string' },
+          population: { type: 'number' },
+        },
+        required: ['city', 'country', 'population'],
+      },
+      middleware: [parsedObjectMiddleware()],
+    });
+
+    const stream = model.stream('Tell me about Tokyo, Japan. Include the population.');
+
+    const parsedSnapshots: unknown[] = [];
+    let hasObjectDelta = false;
+
+    for await (const event of stream) {
+      if (event.type === StreamEventType.ObjectDelta) {
+        hasObjectDelta = true;
+        if (getParsed(event) !== undefined) {
+          parsedSnapshots.push(getParsed(event));
+        }
+      }
+    }
+
+    const turn = await stream.turn;
+
+    expect(hasObjectDelta).toBe(true);
+    expect(parsedSnapshots.length).toBeGreaterThan(0);
+
+    const lastParsed = parsedSnapshots[parsedSnapshots.length - 1] as CityData;
+    expect(lastParsed.city).toBeDefined();
+    expect(lastParsed.country).toBeDefined();
+
+    expect(turn.data).toBeDefined();
+    const data = turn.data as CityData & { country: string };
+    expect(data.city.toLowerCase()).toContain('tokyo');
   });
 
   test('streaming with tool execution', async () => {

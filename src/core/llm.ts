@@ -31,6 +31,7 @@ import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
 import type { Thread } from '../types/thread.ts';
 import type { ProviderConfig, LLMHandler } from '../types/provider.ts';
+import type { Middleware, MiddlewareContext, StreamContext } from '../types/middleware.ts';
 import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveLLMHandler } from './provider-handlers.ts';
 import {
@@ -47,6 +48,15 @@ import {
   toolExecutionEnd,
 } from '../types/stream.ts';
 import { toError } from '../utils/error.ts';
+import {
+  runHook,
+  runErrorHook,
+  runToolHook,
+  runStreamEndHook,
+  createStreamTransformer,
+  createMiddlewareContext,
+  createStreamContext,
+} from '../middleware/runner.ts';
 
 /** Default maximum iterations for the tool execution loop */
 const DEFAULT_MAX_ITERATIONS = 10;
@@ -83,7 +93,16 @@ const DEFAULT_MAX_ITERATIONS = 10;
 export function llm<TParams = unknown>(
   options: LLMOptions<TParams>
 ): LLMInstance<TParams> {
-  const { model: modelRef, config: explicitConfig = {}, params, system, tools, toolStrategy, structure } = options;
+  const {
+    model: modelRef,
+    config: explicitConfig = {},
+    params,
+    system,
+    tools,
+    toolStrategy,
+    structure,
+    middleware = [],
+  } = options;
 
   // Merge providerConfig from model reference with explicit config
   // Explicit config takes precedence, with headers being deep-merged
@@ -160,7 +179,8 @@ export function llm<TParams = unknown>(
         toolStrategy,
         structure,
         history,
-        messages
+        messages,
+        middleware
       );
     },
 
@@ -187,7 +207,8 @@ export function llm<TParams = unknown>(
         toolStrategy,
         structure,
         history,
-        messages
+        messages,
+        middleware
       );
     },
   };
@@ -347,7 +368,8 @@ async function executeGenerate<TParams>(
   toolStrategy: LLMOptions<TParams>['toolStrategy'],
   structure: LLMOptions<TParams>['structure'],
   history: Message[],
-  newMessages: Message[]
+  newMessages: Message[],
+  middleware: Middleware[]
 ): Promise<Turn> {
   validateMediaCapabilities(
     [...history, ...newMessages],
@@ -362,65 +384,109 @@ async function executeGenerate<TParams>(
 
   let structuredData: unknown;
 
-  while (cycles < maxIterations + 1) {
-    cycles++;
+  // Create initial request for middleware context
+  const initialRequest: LLMRequest<TParams> = {
+    messages: allMessages,
+    system,
+    params,
+    tools,
+    structure,
+    config,
+  };
 
-    const request: LLMRequest<TParams> = {
-      messages: allMessages,
-      system,
-      params,
-      tools,
-      structure,
-      config,
-    };
-
-    const response = await model.complete(request);
-    usages.push(response.usage);
-    allMessages.push(response.message);
-
-    if (response.data !== undefined) {
-      structuredData = response.data;
-    }
-
-    if (response.message.hasToolCalls && tools && tools.length > 0) {
-      if (response.data !== undefined) {
-        break;
-      }
-
-      if (cycles >= maxIterations) {
-        await toolStrategy?.onMaxIterations?.(maxIterations);
-        throw new UPPError(
-          `Tool execution exceeded maximum iterations (${maxIterations})`,
-          ErrorCode.InvalidRequest,
-          model.provider.name,
-          ModalityType.LLM
-        );
-      }
-
-      const results = await executeTools(
-        response.message,
-        tools,
-        toolStrategy,
-        toolExecutions
-      );
-
-      allMessages.push(new ToolResultMessage(results));
-
-      continue;
-    }
-
-    break;
-  }
-
-  const data = structure ? structuredData : undefined;
-
-  return createTurn(
-    allMessages.slice(history.length),
-    toolExecutions,
-    aggregateUsage(usages),
-    cycles,
-    data
+  const ctx = createMiddlewareContext(
+    'llm',
+    model.modelId,
+    model.provider.name,
+    false,
+    initialRequest
   );
+
+  try {
+    // Run middleware start hooks
+    await runHook(middleware, 'onStart', ctx);
+    await runHook(middleware, 'onRequest', ctx);
+
+    while (cycles < maxIterations + 1) {
+      cycles++;
+
+      const request: LLMRequest<TParams> = {
+        messages: allMessages,
+        system,
+        params,
+        tools,
+        structure,
+        config,
+      };
+
+      const response = await model.complete(request);
+      usages.push(response.usage);
+      allMessages.push(response.message);
+
+      if (response.data !== undefined) {
+        structuredData = response.data;
+      }
+
+      if (response.message.hasToolCalls && tools && tools.length > 0) {
+        if (response.data !== undefined) {
+          break;
+        }
+
+        if (cycles >= maxIterations) {
+          await toolStrategy?.onMaxIterations?.(maxIterations);
+          throw new UPPError(
+            `Tool execution exceeded maximum iterations (${maxIterations})`,
+            ErrorCode.InvalidRequest,
+            model.provider.name,
+            ModalityType.LLM
+          );
+        }
+
+        const results = await executeTools(
+          response.message,
+          tools,
+          toolStrategy,
+          toolExecutions,
+          undefined,
+          middleware,
+          ctx
+        );
+
+        allMessages.push(new ToolResultMessage(results));
+
+        continue;
+      }
+
+      break;
+    }
+
+    const data = structure ? structuredData : undefined;
+
+    const turn = createTurn(
+      allMessages.slice(history.length),
+      toolExecutions,
+      aggregateUsage(usages),
+      cycles,
+      data
+    );
+
+    // Set response and run end hooks
+    ctx.response = {
+      message: turn.response,
+      usage: turn.usage,
+      stopReason: 'end_turn',
+      data,
+    };
+    ctx.endTime = Date.now();
+    await runHook(middleware, 'onResponse', ctx, true);
+    await runHook(middleware, 'onEnd', ctx, true);
+
+    return turn;
+  } catch (error) {
+    const err = toError(error);
+    await runErrorHook(middleware, err, ctx);
+    throw err;
+  }
 }
 
 /**
@@ -452,7 +518,8 @@ function executeStream<TParams>(
   toolStrategy: LLMOptions<TParams>['toolStrategy'],
   structure: LLMOptions<TParams>['structure'],
   history: Message[],
-  newMessages: Message[]
+  newMessages: Message[],
+  middleware: Middleware[]
 ): StreamResult {
   validateMediaCapabilities(
     [...history, ...newMessages],
@@ -469,6 +536,27 @@ function executeStream<TParams>(
   let generatorError: Error | null = null;
   let structuredData: unknown;
   let generatorCompleted = false;
+
+  // Create middleware contexts
+  const initialRequest: LLMRequest<TParams> = {
+    messages: allMessages,
+    system,
+    params,
+    tools,
+    structure,
+    config,
+  };
+
+  const ctx = createMiddlewareContext(
+    'llm',
+    model.modelId,
+    model.provider.name,
+    true,
+    initialRequest
+  );
+
+  const streamCtx = createStreamContext(ctx.state);
+  const transformer = createStreamTransformer(middleware, streamCtx);
 
   let resolveGenerator: () => void;
   let rejectGenerator: (error: Error) => void;
@@ -513,6 +601,10 @@ function executeStream<TParams>(
       // Check if already aborted before starting
       ensureNotAborted();
 
+      // Run middleware start hooks
+      await runHook(middleware, 'onStart', ctx);
+      await runHook(middleware, 'onRequest', ctx);
+
       while (cycles < maxIterations + 1) {
         cycles++;
         ensureNotAborted();
@@ -531,7 +623,16 @@ function executeStream<TParams>(
 
         for await (const event of streamResult) {
           ensureNotAborted();
-          yield event;
+          // Apply middleware stream transformer
+          const transformed = transformer(event);
+          if (transformed === null) continue;
+          if (Array.isArray(transformed)) {
+            for (const e of transformed) {
+              yield e;
+            }
+          } else {
+            yield transformed;
+          }
         }
 
         const response = await streamResult.response;
@@ -563,12 +664,23 @@ function executeStream<TParams>(
             tools,
             toolStrategy,
             toolExecutions,
-            (event) => toolEvents.push(event)
+            (event) => toolEvents.push(event),
+            middleware,
+            ctx
           );
 
           for (const event of toolEvents) {
             ensureNotAborted();
-            yield event;
+            // Tool events also go through transformer
+            const transformed = transformer(event);
+            if (transformed === null) continue;
+            if (Array.isArray(transformed)) {
+              for (const e of transformed) {
+                yield e;
+              }
+            } else {
+              yield transformed;
+            }
           }
 
           allMessages.push(new ToolResultMessage(results));
@@ -578,11 +690,16 @@ function executeStream<TParams>(
 
         break;
       }
+
+      // Run stream end hooks
+      await runStreamEndHook(middleware, streamCtx);
+
       generatorCompleted = true;
       resolveGenerator();
     } catch (error) {
       const err = toError(error);
       generatorError = err;
+      await runErrorHook(middleware, err, ctx);
       rejectGenerator(err);
       throw err;
     } finally {
@@ -607,13 +724,26 @@ function executeStream<TParams>(
 
     const data = structure ? structuredData : undefined;
 
-    return createTurn(
+    const turn = createTurn(
       allMessages.slice(history.length),
       toolExecutions,
       aggregateUsage(usages),
       cycles,
       data
     );
+
+    // Set response and run end hooks
+    ctx.response = {
+      message: turn.response,
+      usage: turn.usage,
+      stopReason: 'end_turn',
+      data,
+    };
+    ctx.endTime = Date.now();
+    await runHook(middleware, 'onResponse', ctx, true);
+    await runHook(middleware, 'onEnd', ctx, true);
+
+    return turn;
   };
 
   return createStreamResult(generateStream(), createTurnPromise, abortController);
@@ -628,12 +758,15 @@ function executeStream<TParams>(
  * - Approval handlers
  * - Execution tracking and timing
  * - Stream event emission for real-time updates
+ * - Middleware tool hooks
  *
  * @param message - The assistant message containing tool calls
  * @param tools - Available tools to execute
  * @param toolStrategy - Strategy for controlling tool execution behavior
  * @param executions - Array to collect execution records (mutated in place)
  * @param onEvent - Optional callback for emitting stream events during execution
+ * @param middleware - Optional middleware array for tool hooks
+ * @param ctx - Optional middleware context
  * @returns Array of tool results to send back to the model
  */
 async function executeTools(
@@ -641,7 +774,9 @@ async function executeTools(
   tools: Tool[],
   toolStrategy: LLMOptions<unknown>['toolStrategy'],
   executions: ToolExecution[],
-  onEvent?: (event: StreamEvent) => void
+  onEvent?: (event: StreamEvent) => void,
+  middleware: Middleware[] = [],
+  ctx?: MiddlewareContext
 ): Promise<ToolResult[]> {
   const toolCalls = message.toolCalls ?? [];
   const results: ToolResult[] = [];
@@ -686,6 +821,10 @@ async function executeTools(
 
     try {
       await toolStrategy?.onToolCall?.(tool, effectiveParams);
+      // Run middleware onToolCall hooks
+      if (ctx) {
+        await runToolHook(middleware, 'onToolCall', tool, effectiveParams, ctx);
+      }
     } catch (error) {
       return endWithError(toError(error).message);
     }
@@ -756,6 +895,11 @@ async function executeTools(
         if (isAfterCallResult(afterResult)) {
           result = afterResult.result;
         }
+      }
+
+      // Run middleware onToolResult hooks
+      if (ctx) {
+        await runToolHook(middleware, 'onToolResult', tool, result, ctx);
       }
 
       const execution: ToolExecution = {

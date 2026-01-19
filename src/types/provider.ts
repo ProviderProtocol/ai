@@ -341,6 +341,8 @@ export interface EmbeddingRequest<TParams = unknown> {
   config: ProviderConfig;
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+  /** Input type hint for provider-specific optimization */
+  inputType?: 'document' | 'query';
 }
 
 /**

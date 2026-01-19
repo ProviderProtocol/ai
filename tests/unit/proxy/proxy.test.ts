@@ -7,8 +7,11 @@ import {
   serializeMessage,
   deserializeMessage,
   serializeTurn,
+  serializeStreamEvent,
+  deserializeStreamEvent,
   proxy,
 } from '../../../src/proxy/index.ts';
+import { StreamEventType } from '../../../src/types/stream.ts';
 import {
   UserMessage,
   AssistantMessage,
@@ -148,6 +151,72 @@ describe('Proxy Serialization Utilities', () => {
       const json = serializeTurn(turn);
 
       expect(json.data).toEqual({ name: 'Test', value: 42 });
+    });
+  });
+
+  describe('serializeStreamEvent/deserializeStreamEvent', () => {
+    test('serializes tool_call_delta correctly', () => {
+      const event = {
+        type: StreamEventType.ToolCallDelta,
+        index: 0,
+        delta: {
+          toolCallId: 'call_123',
+          toolName: 'get_weather',
+          argumentsJson: '{"city":"Par',
+        },
+      };
+
+      const serialized = serializeStreamEvent(event);
+
+      expect(serialized.delta.argumentsJson).toBe('{"city":"Par');
+      expect(serialized.delta.toolCallId).toBe('call_123');
+    });
+
+    test('serializes object_delta correctly', () => {
+      const event = {
+        type: StreamEventType.ObjectDelta,
+        index: 0,
+        delta: {
+          text: '{"name":"John",',
+        },
+      };
+
+      const serialized = serializeStreamEvent(event);
+
+      expect(serialized.delta.text).toBe('{"name":"John",');
+    });
+
+    test('preserves other event types unchanged', () => {
+      const event = {
+        type: StreamEventType.TextDelta,
+        index: 0,
+        delta: {
+          text: 'Hello world',
+        },
+      };
+
+      const serialized = serializeStreamEvent(event);
+      const deserialized = deserializeStreamEvent(serialized);
+
+      expect(deserialized.type).toBe(StreamEventType.TextDelta);
+      expect(deserialized.delta.text).toBe('Hello world');
+    });
+
+    test('converts Uint8Array to base64 and back', () => {
+      const event = {
+        type: StreamEventType.AudioDelta,
+        index: 0,
+        delta: {
+          data: new Uint8Array([72, 101, 108, 108, 111]),
+        },
+      };
+
+      const serialized = serializeStreamEvent(event);
+      expect(typeof serialized.delta.data).toBe('string');
+
+      const deserialized = deserializeStreamEvent(serialized);
+      expect(deserialized.delta.data).toBeInstanceOf(Uint8Array);
+      expect(Array.from(deserialized.delta.data as Uint8Array)).toEqual([72, 101, 108, 108, 111]);
     });
   });
 });

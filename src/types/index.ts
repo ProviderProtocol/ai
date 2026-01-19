@@ -209,3 +209,16 @@ export type {
   BoundImageModel,
   ImageModelInput,
 } from './image.ts';
+
+/**
+ * Middleware types for composable request/response/stream transformations.
+ * Enable logging, parsing, filtering, and custom processing across all modalities.
+ */
+export type {
+  Middleware,
+  MiddlewareContext,
+  StreamContext,
+  MiddlewareModality,
+  AnyRequest,
+  AnyResponse,
+} from './middleware.ts';

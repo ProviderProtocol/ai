@@ -9,7 +9,6 @@ import type { BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabi
 import type { LLMHandler } from '../../types/provider.ts';
 import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType, objectDelta } from '../../types/stream.ts';
-import { parsePartialJson } from '../../utils/partial-json.ts';
 import type { LLMProvider } from '../../types/provider.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
@@ -266,9 +265,8 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
                   const uppEvents = transformStreamEvent(event, state);
                   for (const uppEvent of uppEvents) {
                     if (request.structure && uppEvent.type === StreamEventType.TextDelta) {
-                      const accumulatedText = state.content[uppEvent.index]?.text ?? '';
-                      const parseResult = parsePartialJson(accumulatedText);
-                      yield objectDelta(uppEvent.delta.text ?? '', parseResult.value, uppEvent.index);
+                      // Emit ObjectDelta without parsing - middleware handles parsing
+                      yield objectDelta(uppEvent.delta.text ?? '', uppEvent.index);
                     } else {
                       yield uppEvent;
                     }

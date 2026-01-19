@@ -66,34 +66,47 @@ export type StreamEventType = (typeof StreamEventType)[keyof typeof StreamEventT
  * Event delta data payload.
  *
  * Contains the type-specific data for a streaming event.
- * Different fields are populated depending on the event type.
+ * Different fields are populated depending on the event type:
+ *
+ * | Event Type | Fields |
+ * |------------|--------|
+ * | `text_delta` | `text` |
+ * | `reasoning_delta` | `text` |
+ * | `object_delta` | `text` |
+ * | `image_delta` | `data` |
+ * | `audio_delta` | `data` |
+ * | `video_delta` | `data` |
+ * | `tool_call_delta` | `toolCallId`, `toolName`, `argumentsJson` |
+ * | `tool_execution_start` | `toolCallId`, `toolName`, `timestamp` |
+ * | `tool_execution_end` | `toolCallId`, `toolName`, `result`, `isError`, `timestamp` |
+ * | `message_start` | (none) |
+ * | `message_stop` | (none) |
+ * | `content_block_start` | (none) |
+ * | `content_block_stop` | (none) |
  */
 export interface EventDelta {
-  /** Incremental text content (for text_delta, reasoning_delta) */
+  /** Incremental text content (text_delta, reasoning_delta, object_delta) */
   text?: string;
 
-  /** Incremental binary data (for image_delta, audio_delta, video_delta) */
+  /** Incremental binary data (image_delta, audio_delta, video_delta) */
   data?: Uint8Array;
 
-  /** Tool call identifier (for tool_call_delta, tool_execution_start/end) */
+  /** Tool call identifier (tool_call_delta, tool_execution_start/end) */
   toolCallId?: string;
 
-  /** Tool name (for tool_call_delta, tool_execution_start/end) */
+  /** Tool name (tool_call_delta, tool_execution_start/end) */
   toolName?: string;
 
-  /** Incremental JSON arguments string (for tool_call_delta) */
+  /** Incremental JSON arguments string (tool_call_delta) */
   argumentsJson?: string;
 
-  /** Partially parsed JSON object (for tool_call_delta, object_delta) */
-  parsed?: unknown;
-
-  /** Tool execution result (for tool_execution_end) */
+  /** Tool execution result (tool_execution_end) */
   result?: unknown;
 
-  /** Whether tool execution resulted in an error (for tool_execution_end) */
+  /** Whether tool execution resulted in an error (tool_execution_end) */
   isError?: boolean;
 
-  /** Timestamp in milliseconds (for tool_execution_start/end) */
+  /** Timestamp in milliseconds (tool_execution_start/end) */
   timestamp?: number;
 }
 
@@ -241,20 +254,18 @@ export function textDelta(text: string, index = 0): StreamEvent {
  * @param toolName - Name of the tool being called
  * @param argumentsJson - Incremental JSON arguments string
  * @param index - Content block index (default: 0)
- * @param parsed - Optional partially parsed JSON arguments object
  * @returns A tool_call_delta StreamEvent
  */
 export function toolCallDelta(
   toolCallId: string,
   toolName: string,
   argumentsJson: string,
-  index = 0,
-  parsed?: unknown
+  index = 0
 ): StreamEvent {
   return {
     type: StreamEventType.ToolCallDelta,
     index,
-    delta: { toolCallId, toolName, argumentsJson, parsed },
+    delta: { toolCallId, toolName, argumentsJson },
   };
 }
 
@@ -262,15 +273,14 @@ export function toolCallDelta(
  * Creates an object delta stream event for structured output responses.
  *
  * @param text - The incremental text content
- * @param parsed - The partially parsed object
  * @param index - Content block index (default: 0)
  * @returns An object_delta StreamEvent
  */
-export function objectDelta(text: string, parsed: unknown, index = 0): StreamEvent {
+export function objectDelta(text: string, index = 0): StreamEvent {
   return {
     type: StreamEventType.ObjectDelta,
     index,
-    delta: { text, parsed },
+    delta: { text },
   };
 }
 

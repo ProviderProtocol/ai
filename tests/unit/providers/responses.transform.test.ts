@@ -4,7 +4,10 @@ import {
   createStreamState,
   transformRequest,
   transformResponse,
+  transformStreamEvent,
 } from '../../../src/providers/responses/transform.ts';
+import { StreamEventType } from '../../../src/types/stream.ts';
+import type { ResponsesStreamEvent } from '../../../src/providers/responses/types.ts';
 import { UserMessage, AssistantMessage } from '../../../src/types/messages.ts';
 import type { LLMRequest } from '../../../src/types/llm.ts';
 import type { ResponsesParams, ResponsesResponse } from '../../../src/providers/responses/types.ts';
@@ -322,6 +325,59 @@ describe('responses transform', () => {
 
       const response = buildResponseFromState(state);
       expect(response.stopReason).toBe('content_filter');
+    });
+  });
+
+  describe('transformStreamEvent tool call delta', () => {
+    test('tool call delta includes argumentsJson with partial JSON', () => {
+      const state = createStreamState();
+      state.toolCalls.set(0, {
+        itemId: 'fc_1',
+        callId: 'call_1',
+        name: 'getWeather',
+        arguments: '',
+      });
+
+      const event: ResponsesStreamEvent = {
+        type: 'response.function_call_arguments.delta',
+        output_index: 0,
+        item_id: 'fc_1',
+        delta: '{"city":"Par',
+      };
+
+      const events = transformStreamEvent(event, state);
+
+      expect(events).toHaveLength(1);
+      expect(events[0]?.type).toBe(StreamEventType.ToolCallDelta);
+      expect(events[0]?.delta.argumentsJson).toBe('{"city":"Par');
+    });
+
+    test('tool call delta accumulates arguments incrementally', () => {
+      const state = createStreamState();
+      state.toolCalls.set(0, {
+        itemId: 'fc_1',
+        callId: 'call_1',
+        name: 'calculate',
+        arguments: '',
+      });
+
+      const event1: ResponsesStreamEvent = {
+        type: 'response.function_call_arguments.delta',
+        output_index: 0,
+        item_id: 'fc_1',
+        delta: '{"a":10,',
+      };
+      const events1 = transformStreamEvent(event1, state);
+      expect(events1[0]?.delta.argumentsJson).toBe('{"a":10,');
+
+      const event2: ResponsesStreamEvent = {
+        type: 'response.function_call_arguments.delta',
+        output_index: 0,
+        item_id: 'fc_1',
+        delta: '"b":20}',
+      };
+      const events2 = transformStreamEvent(event2, state);
+      expect(events2[0]?.delta.argumentsJson).toBe('"b":20}');
     });
   });
 });

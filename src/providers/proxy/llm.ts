@@ -211,8 +211,9 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
                       if ('messages' in parsed && 'usage' in parsed && 'cycles' in parsed) {
                         resolveResponse(turnJSONToLLMResponse(parsed as TurnJSON));
                       } else {
-                        // It's a StreamEvent
-                        yield deserializeStreamEvent(parsed as StreamEvent);
+                        // It's a StreamEvent - deserialize (middleware handles parsing)
+                        const event = deserializeStreamEvent(parsed as StreamEvent);
+                        yield event;
                       }
                     } catch {
                       // Skip malformed JSON
@@ -238,7 +239,8 @@ export function createLLMHandler(options: ProxyProviderOptions): LLMHandler<Prox
                       if ('messages' in parsed && 'usage' in parsed && 'cycles' in parsed) {
                         resolveResponse(turnJSONToLLMResponse(parsed as TurnJSON));
                       } else {
-                        yield deserializeStreamEvent(parsed as StreamEvent);
+                        const event = deserializeStreamEvent(parsed as StreamEvent);
+                        yield event;
                       }
                     } catch {
                       // Skip malformed JSON

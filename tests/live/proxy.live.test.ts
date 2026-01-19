@@ -1,7 +1,10 @@
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
 import type { Server } from 'bun';
-import { llm } from '../../src/index.ts';
-import { StreamEventType } from '../../src/types/stream.ts';
+import { llm, parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/index.ts';
+import { StreamEventType, type StreamEvent } from '../../src/types/stream.ts';
+
+/** Helper to access parsed field from middleware-enhanced events */
+const getParsed = (event: StreamEvent): unknown => (event as ParsedStreamEvent).delta.parsed;
 
 type BunServer = Server<unknown>;
 import { anthropic } from '../../src/anthropic/index.ts';
@@ -266,6 +269,46 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Proxy Live API', () => {
     const data = turn.data as { name: string; age: number };
     expect(data.name.toLowerCase()).toContain('alice');
     expect(data.age).toBe(25);
+  });
+
+  test('structured output streaming via proxy with parsed field', async () => {
+    const backend = proxy({ endpoint: TEST_ENDPOINT });
+    const instance = llm({
+      model: backend('default'),
+      structure: {
+        type: 'object',
+        properties: {
+          city: { type: 'string' },
+          country: { type: 'string' },
+        },
+        required: ['city', 'country'],
+      },
+      middleware: [parsedObjectMiddleware()],
+    });
+
+    const stream = instance.stream('Tell me about Paris, France.');
+
+    const parsedSnapshots: unknown[] = [];
+    let hasObjectDelta = false;
+
+    for await (const event of stream) {
+      if (event.type === StreamEventType.ObjectDelta) {
+        hasObjectDelta = true;
+        if (getParsed(event) !== undefined) {
+          parsedSnapshots.push(structuredClone(getParsed(event)));
+        }
+      }
+    }
+
+    const turn = await stream.turn;
+
+    expect(hasObjectDelta).toBe(true);
+    expect(parsedSnapshots.length).toBeGreaterThan(0);
+
+    const lastParsed = parsedSnapshots[parsedSnapshots.length - 1] as { city?: string; country?: string };
+    expect(lastParsed.city || lastParsed.country).toBeDefined();
+
+    expect(turn.data).toBeDefined();
   });
 });
 

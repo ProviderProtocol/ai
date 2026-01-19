@@ -355,6 +355,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Image
         max_output_tokens: 1000,
         modalities: ['text', 'image'],
       },
+      
     });
 
     const turn = await model.generate('Generate a simple image of a red circle on a white background.');

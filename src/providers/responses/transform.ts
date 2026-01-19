@@ -38,7 +38,6 @@ import {
 } from '../../types/messages.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
-import { parsePartialJson } from '../../utils/partial-json.ts';
 import type {
   ResponsesParams,
   ResponsesRequest,
@@ -738,7 +737,6 @@ export function transformStreamEvent(
         toolCall.callId = event.call_id;
       }
       toolCall.arguments += event.delta;
-      const parseResult = parsePartialJson(toolCall.arguments);
       events.push({
         type: StreamEventType.ToolCallDelta,
         index: event.output_index,
@@ -746,7 +744,6 @@ export function transformStreamEvent(
           toolCallId: toolCall.callId ?? toolCall.itemId ?? '',
           toolName: toolCall.name,
           argumentsJson: event.delta,
-          parsed: parseResult.value,
         },
       });
       break;

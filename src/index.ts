@@ -85,6 +85,33 @@ export const ai = {
 
 export * from './types/index.ts';
 
+/**
+ * Middleware exports for composable request/response/stream transformations.
+ *
+ * @example
+ * ```typescript
+ * import { llm, parsedObjectMiddleware, loggingMiddleware } from '@providerprotocol/ai';
+ *
+ * const model = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   structure: mySchema,
+ *   middleware: [
+ *     loggingMiddleware(),
+ *     parsedObjectMiddleware(),
+ *   ],
+ * });
+ * ```
+ */
+export {
+  parsedObjectMiddleware,
+  loggingMiddleware,
+  type ParsedObjectOptions,
+  type ParsedEventDelta,
+  type ParsedStreamEvent,
+  type LoggingOptions,
+  type LogLevel,
+} from './middleware/index.ts';
+
 export {
   RoundRobinKeys,
   WeightedKeys,

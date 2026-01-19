@@ -509,14 +509,16 @@ describe('embed() - cancellation', () => {
     const controller = new AbortController();
     const promise = embedder.embed('cancel me', { signal: controller.signal });
 
-    expect(capturedSignal).toBe(controller.signal);
-
+    // Abort the signal (model.embed is called asynchronously after middleware hooks)
     controller.abort();
 
     try {
       await promise;
       throw new Error('Expected embed to throw');
     } catch (error) {
+      // Verify signal was passed to the provider
+      expect(capturedSignal).toBe(controller.signal);
+
       expect(error).toBeInstanceOf(UPPError);
       if (error instanceof UPPError) {
         expect(error.code).toBe(ErrorCode.Cancelled);

@@ -15,6 +15,7 @@ import type { Turn, TokenUsage } from './turn.ts';
 import type { StreamEvent, StreamResult } from './stream.ts';
 import type { ProviderConfig, LLMProvider, ProviderIdentity } from './provider.ts';
 import type { Thread } from './thread.ts';
+import type { Middleware } from './middleware.ts';
 
 /**
  * Structural type for model input that accepts any ModelReference.
@@ -144,6 +145,25 @@ export interface LLMOptions<TParams = unknown> {
 
   /** Structured output schema (JSON Schema) */
   structure?: JSONSchema;
+
+  /**
+   * Middleware for intercepting and transforming requests, responses, and streams.
+   *
+   * Middleware are executed in array order for request/start hooks,
+   * and reverse order for response/end hooks.
+   *
+   * @example
+   * ```typescript
+   * const model = llm({
+   *   model: anthropic('claude-sonnet-4-20250514'),
+   *   middleware: [
+   *     loggingMiddleware(),
+   *     parsedObjectMiddleware(),
+   *   ],
+   * });
+   * ```
+   */
+  middleware?: Middleware[];
 }
 
 /**

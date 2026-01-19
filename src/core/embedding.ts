@@ -21,10 +21,13 @@ import type {
   BoundEmbeddingModel,
   EmbeddingResponse,
   ProviderConfig,
+  EmbeddingRequest,
 } from '../types/provider.ts';
+import type { Middleware } from '../types/middleware.ts';
 import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveEmbeddingHandler } from './provider-handlers.ts';
 import { toError } from '../utils/error.ts';
+import { runHook, runErrorHook, createMiddlewareContext } from '../middleware/runner.ts';
 
 /**
  * Creates an embedding instance configured with the specified options.
@@ -64,7 +67,7 @@ import { toError } from '../utils/error.ts';
 export function embedding<TParams = unknown>(
   options: EmbeddingOptions<TParams>
 ): EmbeddingInstance<TParams> {
-  const { model: modelRef, config: explicitConfig = {}, params } = options;
+  const { model: modelRef, config: explicitConfig = {}, params, middleware = [] } = options;
   const providerConfig = modelRef.providerConfig ?? {};
   const config: ProviderConfig = {
     ...providerConfig,
@@ -103,10 +106,10 @@ export function embedding<TParams = unknown>(
     const inputs = Array.isArray(input) ? input : [input];
 
     if (embedOptions?.chunked) {
-      return createChunkedStream(boundModel, inputs, params, config, embedOptions);
+      return createChunkedStream(boundModel, inputs, params, config, embedOptions, middleware);
     }
 
-    return executeEmbed(boundModel, inputs, params, config, embedOptions?.signal);
+    return executeEmbed(boundModel, inputs, params, config, embedOptions?.signal, embedOptions?.inputType, middleware);
   }
 
   return {
@@ -124,6 +127,8 @@ export function embedding<TParams = unknown>(
  * @param params - Provider-specific params
  * @param config - Provider configuration
  * @param signal - Abort signal
+ * @param inputType - Input type hint for optimization
+ * @param middleware - Middleware array
  * @returns Normalized embedding result
  */
 async function executeEmbed<TParams>(
@@ -131,16 +136,44 @@ async function executeEmbed<TParams>(
   inputs: EmbeddingInput[],
   params: TParams | undefined,
   config: EmbeddingOptions<TParams>['config'],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  inputType?: EmbedOptions['inputType'],
+  middleware: Middleware[] = []
 ): Promise<EmbeddingResult> {
-  const response = await model.embed({
+  const request: EmbeddingRequest<TParams> = {
     inputs,
     params,
     config: config ?? {},
     signal,
-  });
+    inputType,
+  };
 
-  return normalizeResponse(response, model.provider.name);
+  const ctx = createMiddlewareContext(
+    'embedding',
+    model.modelId,
+    model.provider.name,
+    false,
+    request
+  );
+
+  try {
+    await runHook(middleware, 'onStart', ctx);
+    await runHook(middleware, 'onRequest', ctx);
+
+    const response = await model.embed(request);
+    const result = normalizeResponse(response, model.provider.name);
+
+    ctx.response = response;
+    ctx.endTime = Date.now();
+    await runHook(middleware, 'onResponse', ctx, true);
+    await runHook(middleware, 'onEnd', ctx, true);
+
+    return result;
+  } catch (error) {
+    const err = toError(error);
+    await runErrorHook(middleware, err, ctx);
+    throw err;
+  }
 }
 
 /**
@@ -218,6 +251,7 @@ function decodeBase64(b64: string, providerName: string): number[] {
  * @param params - Provider-specific params
  * @param config - Provider configuration
  * @param options - Chunked stream options
+ * @param middleware - Middleware array
  * @returns Embedding stream with progress updates
  */
 function createChunkedStream<TParams>(
@@ -225,7 +259,8 @@ function createChunkedStream<TParams>(
   inputs: EmbeddingInput[],
   params: TParams | undefined,
   config: EmbeddingOptions<TParams>['config'],
-  options: EmbedOptions
+  options: EmbedOptions,
+  middleware: Middleware[] = []
 ): EmbeddingStream {
   const abortController = new AbortController();
   const batchSize = options.batchSize ?? model.maxBatchSize;
@@ -273,6 +308,23 @@ function createChunkedStream<TParams>(
     }
   };
 
+  // Create middleware context for the overall chunked operation
+  const request: EmbeddingRequest<TParams> = {
+    inputs,
+    params,
+    config: config ?? {},
+    signal: abortController.signal,
+    inputType: options.inputType,
+  };
+
+  const ctx = createMiddlewareContext(
+    'embedding',
+    model.modelId,
+    model.provider.name,
+    true,
+    request
+  );
+
   async function* generate(): AsyncGenerator<EmbeddingProgress> {
     const total = inputs.length;
     const allEmbeddings: Embedding[] = [];
@@ -284,6 +336,10 @@ function createChunkedStream<TParams>(
     }
 
     try {
+      // Run middleware start hooks
+      await runHook(middleware, 'onStart', ctx);
+      await runHook(middleware, 'onRequest', ctx);
+
       for (let i = 0; i < batches.length; i += concurrency) {
         if (abortController.signal.aborted || options.signal?.aborted) {
           throw cancelError();
@@ -334,12 +390,22 @@ function createChunkedStream<TParams>(
       const orderedEmbeddings = [...allEmbeddings].sort(
         (left, right) => left.index - right.index
       );
-      resolveResult({
+
+      const result = {
         embeddings: orderedEmbeddings,
         usage: { totalTokens },
-      });
+      };
+
+      // Run middleware end hooks
+      ctx.response = { embeddings: orderedEmbeddings.map((e) => ({ vector: e.vector, index: e.index })), usage: { totalTokens } };
+      ctx.endTime = Date.now();
+      await runHook(middleware, 'onResponse', ctx, true);
+      await runHook(middleware, 'onEnd', ctx, true);
+
+      resolveResult(result);
     } catch (error) {
       const err = toError(error);
+      await runErrorHook(middleware, err, ctx);
       rejectResult(err);
       throw err;
     } finally {

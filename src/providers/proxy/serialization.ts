@@ -91,8 +91,11 @@ export function serializeTurn(turn: Turn): TurnJSON {
  * Converts Uint8Array data to base64 string.
  */
 export function serializeStreamEvent(event: StreamEvent): StreamEvent {
-  if (event.delta.data instanceof Uint8Array) {
-    const { data, ...rest } = event.delta;
+  const delta = event.delta;
+
+  // Convert Uint8Array to base64
+  if (delta.data instanceof Uint8Array) {
+    const { data, ...rest } = delta;
     const bytes = Array.from(data);
     const base64 = btoa(bytes.map((b) => String.fromCharCode(b)).join(''));
     return {
@@ -101,6 +104,7 @@ export function serializeStreamEvent(event: StreamEvent): StreamEvent {
       delta: { ...rest, data: base64 as unknown as Uint8Array },
     };
   }
+
   return event;
 }
 

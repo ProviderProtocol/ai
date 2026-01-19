@@ -18,11 +18,14 @@ import type {
   ImageCapabilities,
   BoundImageModel,
   ImageGenerateOptions,
+  ImageRequest,
 } from '../types/image.ts';
 import type { ProviderConfig } from '../types/provider.ts';
+import type { Middleware } from '../types/middleware.ts';
 import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveImageHandler } from './provider-handlers.ts';
 import { toError } from '../utils/error.ts';
+import { runHook, runErrorHook, createMiddlewareContext } from '../middleware/runner.ts';
 
 /**
  * Creates an image generation instance configured with the specified options.
@@ -53,7 +56,7 @@ import { toError } from '../utils/error.ts';
 export function image<TParams = unknown>(
   options: ImageOptions<TParams>
 ): ImageInstance<TParams> {
-  const { model: modelRef, config: explicitConfig = {}, params } = options;
+  const { model: modelRef, config: explicitConfig = {}, params, middleware = [] } = options;
   const providerConfig = modelRef.providerConfig ?? {};
   const config: ProviderConfig = {
     ...providerConfig,
@@ -95,54 +98,103 @@ export function image<TParams = unknown>(
     async generate(input: ImageInput, options?: ImageGenerateOptions): Promise<ImageResult> {
       const prompt = normalizeInput(input);
 
-      try {
-        const response = await boundModel.generate({
-          prompt,
-          params,
-          config,
-          signal: options?.signal,
-        });
+      const request: ImageRequest<TParams> = {
+        prompt,
+        params,
+        config,
+        signal: options?.signal,
+      };
 
-        return {
+      const ctx = createMiddlewareContext(
+        'image',
+        boundModel.modelId,
+        provider.name,
+        false,
+        request
+      );
+
+      try {
+        await runHook(middleware, 'onStart', ctx);
+        await runHook(middleware, 'onRequest', ctx);
+
+        const response = await boundModel.generate(request);
+
+        const result: ImageResult = {
           images: response.images,
           metadata: response.metadata,
           usage: response.usage,
         };
+
+        ctx.response = response;
+        ctx.endTime = Date.now();
+        await runHook(middleware, 'onResponse', ctx, true);
+        await runHook(middleware, 'onEnd', ctx, true);
+
+        return result;
       } catch (error) {
+        const err = toError(error);
+        await runErrorHook(middleware, err, ctx);
         throw normalizeImageError(error);
       }
     },
   };
 
   if (capabilities.streaming && boundModel.stream) {
-    const stream = boundModel.stream;
+    const streamFn = boundModel.stream;
     instance.stream = function (input: ImageInput): ImageStreamResult {
       const prompt = normalizeInput(input);
 
       const abortController = new AbortController();
-      const providerStream = stream({
+      const request: ImageRequest<TParams> = {
         prompt,
         params,
         config,
         signal: abortController.signal,
-      });
+      };
 
-      const resultPromise = providerStream.response
-        .then((response) => ({
-          images: response.images,
-          metadata: response.metadata,
-          usage: response.usage,
-        }))
-        .catch((error) => {
+      const ctx = createMiddlewareContext(
+        'image',
+        boundModel.modelId,
+        provider.name,
+        true,
+        request
+      );
+
+      const providerStream = streamFn(request);
+
+      const resultPromise = (async () => {
+        try {
+          const response = await providerStream.response;
+          const result = {
+            images: response.images,
+            metadata: response.metadata,
+            usage: response.usage,
+          };
+
+          ctx.response = response;
+          ctx.endTime = Date.now();
+          await runHook(middleware, 'onResponse', ctx, true);
+          await runHook(middleware, 'onEnd', ctx, true);
+
+          return result;
+        } catch (error) {
+          const err = toError(error);
+          await runErrorHook(middleware, err, ctx);
           throw normalizeImageError(error);
-        });
+        }
+      })();
 
       async function* wrappedStream(): AsyncGenerator<ImageStreamEvent, void, unknown> {
         try {
+          await runHook(middleware, 'onStart', ctx);
+          await runHook(middleware, 'onRequest', ctx);
+
           for await (const event of providerStream) {
             yield event;
           }
         } catch (error) {
+          const err = toError(error);
+          await runErrorHook(middleware, err, ctx);
           throw normalizeImageError(error);
         }
       }

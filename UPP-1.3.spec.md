@@ -1,6 +1,6 @@
 # UPP-1.3: Unified Provider Protocol Specification
 
-**Version:** 1.3.0
+**Version:** 1.3.1
 **Status:** Draft
 **Authors:** UPP Working Group
 
@@ -25,13 +25,14 @@ UPP establishes uniform interfaces for Large Language Models (LLM), Embedding Mo
 7. [Turns](#7-turns)
 8. [Threads](#8-threads)
 9. [Streaming](#9-streaming)
-10. [Tools](#10-tools)
-11. [Structured Outputs](#11-structured-outputs)
-12. [Embedding Interface](#12-embedding-interface)
-13. [Image Interface](#13-image-interface)
-14. [Data Types](#14-data-types)
-15. [Conformance](#15-conformance)
-16. [Security Considerations](#16-security-considerations)
+10. [Middleware](#10-middleware)
+11. [Tools](#11-tools)
+12. [Structured Outputs](#12-structured-outputs)
+13. [Embedding Interface](#13-embedding-interface)
+14. [Image Interface](#14-image-interface)
+15. [Data Types](#15-data-types)
+16. [Conformance](#16-conformance)
+17. [Security Considerations](#17-security-considerations)
 
 ---
 
@@ -598,9 +599,164 @@ When aborted during tool execution:
 
 ---
 
-## 10. Tools
+## 10. Middleware
 
-### 10.1 Tool Definition
+### 10.1 Overview
+
+Middleware provides a composable mechanism to intercept and transform requests, responses, and stream events. Middleware is configured per-instance and executes in a defined order.
+
+```
+claude = llm({
+  model: anthropic("claude-sonnet-4-20250514"),
+  middleware: [
+    loggingMiddleware(),
+    parsedObjectMiddleware()
+  ]
+})
+```
+
+### 10.2 Middleware Interface
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | String | Yes | Middleware name for debugging |
+| `onStart` | Function | No | Called when generate/stream starts |
+| `onEnd` | Function | No | Called when generate/stream completes |
+| `onError` | Function | No | Called on any error |
+| `onRequest` | Function | No | Called before provider execution |
+| `onResponse` | Function | No | Called after provider execution |
+| `onStreamEvent` | Function | No | Called for each stream event |
+| `onStreamEnd` | Function | No | Called when stream completes |
+| `onToolCall` | Function | No | Called before tool execution |
+| `onToolResult` | Function | No | Called after tool execution |
+
+### 10.3 MiddlewareContext
+
+Context passed to lifecycle hooks:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `modality` | Modality | `llm`, `embedding`, or `image` |
+| `modelId` | String | Model identifier |
+| `provider` | String | Provider name |
+| `streaming` | Boolean | Whether this is a streaming request |
+| `request` | AnyRequest | The request object |
+| `response` | AnyResponse? | Response (populated after execution) |
+| `state` | Map | Shared state across middleware |
+| `startTime` | Integer | Request start timestamp |
+| `endTime` | Integer? | Request end timestamp |
+
+### 10.4 StreamContext
+
+Context passed to stream event hooks:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `state` | Map | Shared state across middleware |
+
+Middleware that need to accumulate text or other data SHOULD manage their own state using the provided `state` map with namespaced keys (e.g., `myMiddleware:accumulator`).
+
+### 10.5 Hook Execution Order
+
+```
+generate() / stream() called
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  onStart (all middleware, in order)     │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  onRequest (all middleware, in order)   │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  Provider execution                     │
+│  ├─ For streaming: onStreamEvent()      │
+│  │   called per event (pipeline)        │
+│  └─ Tool loop: onToolCall/onToolResult  │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  onResponse (all middleware, reverse)   │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
+│  onEnd (all middleware, reverse order)  │
+└─────────────────────────────────────────┘
+    │
+    ▼ (on error at any point)
+┌─────────────────────────────────────────┐
+│  onError (all middleware that have it)  │
+└─────────────────────────────────────────┘
+```
+
+Lifecycle hooks (`onStart`, `onRequest`) execute in middleware array order. Response hooks (`onResponse`, `onEnd`) execute in reverse order.
+
+### 10.6 Stream Event Transformation
+
+The `onStreamEvent` hook MAY transform, filter, or expand events:
+
+| Return Value | Behavior |
+|--------------|----------|
+| `StreamEvent` | Replace event with returned event |
+| `StreamEvent[]` | Expand into multiple events |
+| `null` | Filter out (suppress) the event |
+
+```
+// Example: Filter out reasoning events
+onStreamEvent(event, ctx) {
+  if (event.type == "reasoning_delta") return null
+  return event
+}
+```
+
+### 10.7 Built-in Middleware
+
+**parsedObjectMiddleware(options?)**
+
+Parses incremental JSON from `object_delta` and `tool_call_delta` events. Adds a `parsed` field to the event delta containing the incrementally parsed value.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `parseObjects` | Boolean | true | Parse ObjectDelta events |
+| `parseToolCalls` | Boolean | true | Parse ToolCallDelta events |
+
+**loggingMiddleware(options?)**
+
+Logs request lifecycle events for debugging.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `level` | LogLevel | "info" | Minimum log level |
+| `logger` | Function | console | Custom logger function |
+
+### 10.8 Type Extensions
+
+Middleware that adds fields to events SHOULD export extended types:
+
+```
+// parsedObjectMiddleware exports:
+interface ParsedEventDelta extends EventDelta {
+  parsed?: Any
+}
+
+interface ParsedStreamEvent extends StreamEvent {
+  delta: ParsedEventDelta
+}
+```
+
+Consumers accessing middleware-added fields MUST cast to the extended type.
+
+---
+
+## 11. Tools
+
+### 11.1 Tool Definition
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -611,7 +767,7 @@ When aborted during tool execution:
 | `approval` | Function | No | Approval handler |
 | `metadata` | Map | No | Provider-specific metadata |
 
-### 10.2 Tool Execution
+### 11.2 Tool Execution
 
 By default, `llm()` handles tool execution automatically:
 
@@ -623,7 +779,7 @@ By default, `llm()` handles tool execution automatically:
 
 **IMPORTANT:** `llm()` SHALL NOT validate tool arguments against the schema. Tool implementations MUST treat arguments as untrusted input.
 
-### 10.3 ToolUseStrategy
+### 11.3 ToolUseStrategy
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -634,7 +790,7 @@ By default, `llm()` handles tool execution automatically:
 | `onError` | Function | Called on execution error |
 | `onMaxIterations` | Function | Called when max reached |
 
-### 10.4 Provider-Native Tools
+### 11.4 Provider-Native Tools
 
 Some providers offer built-in server-side tools (web search, code interpreter, etc.). These differ from UPP function tools:
 
@@ -657,9 +813,9 @@ gpt = llm({
 
 ---
 
-## 11. Structured Outputs
+## 12. Structured Outputs
 
-### 11.1 Overview
+### 12.1 Overview
 
 Structured outputs constrain model responses to a JSON schema:
 
@@ -680,7 +836,7 @@ turn = await claude.generate("John Doe is 30 years old.")
 print(turn.data)  // { name: "John Doe", age: 30 }
 ```
 
-### 11.2 Requirements
+### 12.2 Requirements
 
 If a provider's API does not support native structured outputs (`capabilities.structuredOutput` is `false`), the `llm()` core MUST throw `INVALID_REQUEST` when `structure` is provided.
 
@@ -688,15 +844,15 @@ UPP SHALL NOT validate responses against the schema. Schema validation is the ap
 
 ---
 
-## 12. Embedding Interface
+## 13. Embedding Interface
 
-### 12.1 Function Signature
+### 14.1 Function Signature
 
 ```
 embedding(options: EmbeddingOptions) -> EmbeddingInstance
 ```
 
-### 12.2 EmbeddingOptions
+### 13.2 EmbeddingOptions
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -704,7 +860,7 @@ embedding(options: EmbeddingOptions) -> EmbeddingInstance
 | `config` | ProviderConfig | No | Provider configuration |
 | `params` | Map | No | Provider-specific parameters |
 
-### 12.3 EmbeddingInstance
+### 13.3 EmbeddingInstance
 
 | Method | Description |
 |--------|-------------|
@@ -712,7 +868,7 @@ embedding(options: EmbeddingOptions) -> EmbeddingInstance
 
 **EmbeddingInput:** `String | TextBlock | ImageBlock`
 
-### 12.4 EmbeddingResult
+### 13.4 EmbeddingResult
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -728,7 +884,7 @@ embedding(options: EmbeddingOptions) -> EmbeddingInstance
 | `dimensions` | Integer | Vector dimensionality |
 | `index` | Integer | Input array position |
 
-### 12.5 Chunked Mode
+### 13.5 Chunked Mode
 
 For large-scale embedding, use chunked mode:
 
@@ -743,15 +899,15 @@ for await (progress in stream) {
 
 ---
 
-## 13. Image Interface
+## 14. Image Interface
 
-### 13.1 Function Signature
+### 14.1 Function Signature
 
 ```
 image(options: ImageOptions) -> ImageInstance
 ```
 
-### 13.2 ImageOptions
+### 14.2 ImageOptions
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
@@ -761,7 +917,7 @@ image(options: ImageOptions) -> ImageInstance
 
 All provider-specific options (size, quality, style, etc.) flow through `params`.
 
-### 13.3 ImageInstance
+### 14.3 ImageInstance
 
 | Method | Description |
 |--------|-------------|
@@ -770,7 +926,7 @@ All provider-specific options (size, quality, style, etc.) flow through `params`
 | `edit(input)` | Edit existing image (if supported) |
 | `capabilities` | Model capabilities |
 
-### 13.4 ImageCapabilities
+### 14.4 ImageCapabilities
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -779,7 +935,7 @@ All provider-specific options (size, quality, style, etc.) flow through `params`
 | `edit` | Boolean | Supports image editing |
 | `maxImages` | Integer? | Maximum images per request |
 
-### 13.5 ImageResult
+### 14.5 ImageResult
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -787,7 +943,7 @@ All provider-specific options (size, quality, style, etc.) flow through `params`
 | `metadata` | Map? | Provider-specific metadata |
 | `usage` | ImageUsage? | Usage information |
 
-### 13.6 Basic Usage
+### 14.6 Basic Usage
 
 ```
 dalle = image({
@@ -801,9 +957,9 @@ imageData = result.images[0].image.toBytes()
 
 ---
 
-## 14. Data Types
+## 15. Data Types
 
-### 14.1 Primitive Types
+### 15.1 Primitive Types
 
 | Type | Description |
 |------|-------------|
@@ -818,7 +974,7 @@ imageData = result.images[0].image.toBytes()
 | `T?` | Optional value |
 | `Any` | Any JSON value |
 
-### 14.2 Platform Types
+### 15.2 Platform Types
 
 Implementations MUST use platform-appropriate equivalents:
 
@@ -828,21 +984,21 @@ Implementations MUST use platform-appropriate equivalents:
 | `AsyncIterable<T>` | Async iteration protocol |
 | `Promise<T>` | Promise/future resolving to T |
 
-### 14.3 Modality Type
+### 15.3 Modality Type
 
 ```
 Modality = "llm" | "embedding" | "image"
 ```
 
-### 14.4 Type Constants
+### 15.4 Type Constants
 
 Implementations SHOULD export named constants for discriminated union types (e.g., `StreamEventType.TextDelta`, `ErrorCode.RateLimited`, `MessageRole.User`). Using constants instead of raw strings enables better tooling support and type safety.
 
 ---
 
-## 15. Conformance
+## 16. Conformance
 
-### 15.1 Provider Conformance
+### 16.1 Provider Conformance
 
 Providers MAY implement one or more modalities. For each implemented modality:
 
@@ -871,7 +1027,7 @@ Providers MAY implement one or more modalities. For each implemented modality:
 | Editing | `edit()` method (if `capabilities.edit`) |
 | Streaming | `stream()` method (if `capabilities.streaming`) |
 
-### 15.2 Error Handling Requirements
+### 16.2 Error Handling Requirements
 
 All providers MUST:
 
@@ -880,7 +1036,7 @@ All providers MUST:
 - Include `provider` name and `modality` in all errors
 - Preserve original error as `cause` when available
 
-### 15.3 Configuration Requirements
+### 16.3 Configuration Requirements
 
 All providers MUST:
 
@@ -890,7 +1046,7 @@ All providers MUST:
 - Respect `timeout` setting
 - Use provided `retryStrategy`
 
-### 15.4 Metadata Requirements
+### 16.4 Metadata Requirements
 
 All providers MUST:
 
@@ -899,28 +1055,28 @@ All providers MUST:
 
 ---
 
-## 16. Security Considerations
+## 17. Security Considerations
 
-### 16.1 API Key Handling
+### 17.1 API Key Handling
 
 - API keys MUST NOT be logged
 - API keys SHOULD NOT appear in error messages
 - Implementations SHOULD support secure key storage
 
-### 16.2 Tool Execution
+### 17.2 Tool Execution
 
 - Tool arguments MUST be treated as untrusted input
 - Implementations MUST NOT validate arguments against schema automatically
 - Tool implementations SHOULD validate and sanitize inputs
 - Sensitive operations SHOULD use approval handlers
 
-### 16.3 Content Handling
+### 17.3 Content Handling
 
 - Binary data may come from untrusted sources
 - Implementations SHOULD validate MIME types
 - Large content SHOULD be size-limited
 
-### 16.4 Network Security
+### 17.4 Network Security
 
 - Implementations SHOULD default to TLS/SSL
 - Custom base URLs allow MITM if misconfigured
@@ -929,6 +1085,20 @@ All providers MUST:
 ---
 
 ## Changelog
+
+### 1.3.1
+
+- **Added** Middleware system (Section 10) with composable request/response/stream interception
+- **Added** `Middleware` interface with lifecycle hooks (`onStart`, `onEnd`, `onRequest`, `onResponse`, `onError`)
+- **Added** Stream event transformation via `onStreamEvent` hook
+- **Added** Tool execution hooks (`onToolCall`, `onToolResult`)
+- **Added** `MiddlewareContext` and `StreamContext` types for hook parameters
+- **Added** Built-in `parsedObjectMiddleware()` for incremental JSON parsing
+- **Added** Built-in `loggingMiddleware()` for request lifecycle logging
+- **Added** `ParsedEventDelta` and `ParsedStreamEvent` extended types
+- **Simplified** `StreamContext` to only contain shared `state` map; middleware manage their own accumulation
+- **Breaking** Removed `parsed` field from base `EventDelta` type; use `parsedObjectMiddleware()` for incremental JSON parsing during streaming
+- **Updated** Section numbering (Sections 10-16 renumbered to 11-17)
 
 ### 1.3.0
 

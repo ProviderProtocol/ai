@@ -32,7 +32,6 @@ import {
 } from '../../types/messages.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
-import { parsePartialJson } from '../../utils/partial-json.ts';
 import type {
   OpenRouterCompletionsParams,
   OpenRouterCompletionsRequest,
@@ -745,7 +744,6 @@ export function transformStreamEvent(
         }
         if (toolCallDelta.function?.arguments) {
           toolCall.arguments += toolCallDelta.function.arguments;
-          const parseResult = parsePartialJson(toolCall.arguments);
           events.push({
             type: StreamEventType.ToolCallDelta,
             index: index,
@@ -753,7 +751,6 @@ export function transformStreamEvent(
               toolCallId: toolCall.id,
               toolName: toolCall.name,
               argumentsJson: toolCallDelta.function.arguments,
-              parsed: parseResult.value,
             },
           });
         }

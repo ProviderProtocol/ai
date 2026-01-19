@@ -9,6 +9,7 @@
 
 import type { ProviderConfig, ImageProvider, ProviderIdentity } from './provider.ts';
 import type { Image } from '../core/media/Image.ts';
+import type { Middleware } from './middleware.ts';
 
 /**
  * Structural type for image model input.
@@ -50,6 +51,14 @@ export interface ImageOptions<TParams = unknown> {
 
   /** Provider-specific parameters (passed through unchanged) */
   params?: TParams;
+
+  /**
+   * Middleware for intercepting and transforming requests and responses.
+   *
+   * Middleware are executed in array order for request/start hooks,
+   * and reverse order for response/end hooks.
+   */
+  middleware?: Middleware[];
 }
 
 /**

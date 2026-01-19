@@ -1,5 +1,5 @@
 import { test, expect, describe } from 'bun:test';
-import { llm } from '../../src/index.ts';
+import { llm, parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/index.ts';
 import { openai } from '../../src/openai/index.ts';
 import { anthropic } from '../../src/anthropic/index.ts';
 import { xai } from '../../src/xai/index.ts';
@@ -12,7 +12,10 @@ import type { XAICompletionsParams, XAIResponsesParams, XAIMessagesParams } from
 import type { OpenRouterCompletionsParams, OpenRouterResponsesParams } from '../../src/openrouter/index.ts';
 import type { GoogleLLMParams } from '../../src/google/index.ts';
 import type { OllamaLLMParams } from '../../src/ollama/index.ts';
-import { StreamEventType } from '../../src/types/stream.ts';
+import { StreamEventType, type StreamEvent } from '../../src/types/stream.ts';
+
+/** Helper to access parsed field from middleware-enhanced events */
+const getParsed = (event: StreamEvent): unknown => (event as ParsedStreamEvent).delta.parsed;
 
 /**
  * Live API tests for partial JSON streaming across all providers.
@@ -59,6 +62,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions - Partial JSON 
       model: openai('gpt-4.1-mini', { api: 'completions' }),
       params: { max_tokens: 200 },
       tools: [multiplyTool],
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = gpt.stream('What is 7 times 8? Use the multiply tool.');
@@ -69,8 +73,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions - Partial JSON 
     for await (const event of stream) {
       if (event.type === StreamEventType.ToolCallDelta) {
         sawToolCallDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -88,6 +92,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions - Partial JSON 
       model: openai('gpt-4.1-mini', { api: 'completions' }),
       params: { max_tokens: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = gpt.stream('Tell me about Tokyo, Japan.');
@@ -100,8 +105,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions - Partial JSON 
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
         objectDeltaCount++;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -128,6 +133,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses - Partial JSON St
       model: openai('gpt-4.1-mini', { api: 'responses' }),
       params: { max_output_tokens: 200 },
       tools: [multiplyTool],
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = gpt.stream('What is 9 times 6? Use the multiply tool.');
@@ -138,8 +144,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses - Partial JSON St
     for await (const event of stream) {
       if (event.type === StreamEventType.ToolCallDelta) {
         sawToolCallDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -156,6 +162,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses - Partial JSON St
       model: openai('gpt-4.1-mini', { api: 'responses' }),
       params: { max_output_tokens: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = gpt.stream('Tell me about Paris, France.');
@@ -166,8 +173,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Responses - Partial JSON St
     for await (const event of stream) {
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -191,6 +198,7 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic - Partial JSON Stream
       model: anthropic('claude-sonnet-4-20250514'),
       params: { max_tokens: 200 },
       tools: [multiplyTool],
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = claude.stream('What is 5 times 12? Use the multiply tool.');
@@ -201,8 +209,8 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic - Partial JSON Stream
     for await (const event of stream) {
       if (event.type === StreamEventType.ToolCallDelta) {
         sawToolCallDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -243,6 +251,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions - Partial JSON Stream
       model: xai('grok-3-mini-fast', { api: 'completions' }),
       params: { max_tokens: 200 },
       tools: [multiplyTool],
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = grok.stream('What is 4 times 11? Use the multiply tool.');
@@ -253,8 +262,8 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions - Partial JSON Stream
     for await (const event of stream) {
       if (event.type === StreamEventType.ToolCallDelta) {
         sawToolCallDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -271,6 +280,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions - Partial JSON Stream
       model: xai('grok-3-mini-fast', { api: 'completions' }),
       params: { max_tokens: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = grok.stream('Tell me about Berlin, Germany.');
@@ -281,8 +291,8 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Completions - Partial JSON Stream
     for await (const event of stream) {
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -320,6 +330,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Responses - Partial JSON Streamin
       model: xai('grok-3-mini-fast', { api: 'responses' }),
       params: { max_output_tokens: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = grok.stream('Tell me about Sydney, Australia.');
@@ -330,8 +341,8 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Responses - Partial JSON Streamin
     for await (const event of stream) {
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -355,6 +366,7 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Messages - Partial JSON Streaming
       model: xai('grok-3-mini-fast', { api: 'messages' }),
       params: { max_tokens: 200 },
       tools: [multiplyTool],
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = grok.stream('What is 6 times 6? Use the multiply tool.');
@@ -365,8 +377,8 @@ describe.skipIf(!process.env.XAI_API_KEY)('xAI Messages - Partial JSON Streaming
     for await (const event of stream) {
       if (event.type === StreamEventType.ToolCallDelta) {
         sawToolCallDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -403,6 +415,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions - Parti
       model: openrouter('openai/gpt-4.1-mini', { api: 'completions' }),
       params: { max_tokens: 200 },
       tools: [multiplyTool],
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = model.stream('What is 3 times 15? Use the multiply tool.');
@@ -413,8 +426,8 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions - Parti
     for await (const event of stream) {
       if (event.type === StreamEventType.ToolCallDelta) {
         sawToolCallDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -431,6 +444,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions - Parti
       model: openrouter('openai/gpt-4.1-mini', { api: 'completions' }),
       params: { max_tokens: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = model.stream('Tell me about Madrid, Spain.');
@@ -441,8 +455,8 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Completions - Parti
     for await (const event of stream) {
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -480,6 +494,7 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses - Partial
       model: openrouter('openai/gpt-4.1-mini', { api: 'responses' }),
       params: { max_output_tokens: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = model.stream('Tell me about Amsterdam, Netherlands.');
@@ -490,8 +505,8 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses - Partial
     for await (const event of stream) {
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -518,6 +533,7 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini - Partial JSON Strea
       model: google('gemini-2.0-flash'),
       params: { maxOutputTokens: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = gemini.stream('Tell me about Cairo, Egypt.');
@@ -528,8 +544,8 @@ describe.skipIf(!process.env.GOOGLE_API_KEY)('Google Gemini - Partial JSON Strea
     for await (const event of stream) {
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -558,6 +574,7 @@ describe('Ollama - Partial JSON Streaming', () => {
       model: ollama(OLLAMA_TEST_MODEL),
       params: { num_predict: 200 },
       structure: cityStructure,
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = local.stream('Tell me about Mumbai, India.');
@@ -568,8 +585,8 @@ describe('Ollama - Partial JSON Streaming', () => {
     for await (const event of stream) {
       if (event.type === StreamEventType.ObjectDelta) {
         sawObjectDelta = true;
-        if (event.delta.parsed !== undefined) {
-          lastParsed = event.delta.parsed;
+        if (getParsed(event) !== undefined) {
+          lastParsed = getParsed(event);
         }
       }
     }
@@ -604,6 +621,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('Partial JSON Evolution', () => {
         },
         required: ['name', 'age', 'city', 'country', 'occupation'],
       },
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = gpt.stream(
@@ -613,8 +631,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('Partial JSON Evolution', () => {
     const parsedSnapshots: unknown[] = [];
 
     for await (const event of stream) {
-      if (event.type === StreamEventType.ObjectDelta && event.delta.parsed !== undefined) {
-        parsedSnapshots.push(structuredClone(event.delta.parsed));
+      if (event.type === StreamEventType.ObjectDelta && getParsed(event) !== undefined) {
+        parsedSnapshots.push(structuredClone(getParsed(event)));
       }
     }
 
@@ -669,6 +687,7 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('Partial JSON Evolution', () => {
       model: openai('gpt-4.1-mini', { api: 'completions' }),
       params: { max_tokens: 300 },
       tools: [calculatorTool],
+      middleware: [parsedObjectMiddleware()],
     });
 
     const stream = gpt.stream('Calculate 47 multiplied by 83. Use the calculate tool.');
@@ -676,8 +695,8 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('Partial JSON Evolution', () => {
     const parsedSnapshots: unknown[] = [];
 
     for await (const event of stream) {
-      if (event.type === StreamEventType.ToolCallDelta && event.delta.parsed !== undefined) {
-        parsedSnapshots.push(structuredClone(event.delta.parsed));
+      if (event.type === StreamEventType.ToolCallDelta && getParsed(event) !== undefined) {
+        parsedSnapshots.push(structuredClone(getParsed(event)));
       }
     }
 
