@@ -16,6 +16,19 @@ import type {
 } from './provider.ts';
 
 /**
+ * Input type hints for provider-specific embedding optimization.
+ * Some providers optimize embeddings differently for queries vs documents.
+ */
+export const EmbeddingInputType = {
+  /** Input is a document to be stored/indexed */
+  Document: 'document',
+  /** Input is a query for retrieval/search */
+  Query: 'query',
+} as const;
+
+export type EmbeddingInputType = (typeof EmbeddingInputType)[keyof typeof EmbeddingInputType];
+
+/**
  * Structural type for embedding model input.
  * Uses structural typing to avoid generic variance issues with Provider generics.
  *
@@ -75,6 +88,9 @@ export interface EmbedOptions {
 
   /** Abort signal for cancellation */
   signal?: AbortSignal;
+
+  /** Hint for embedding optimization (provider-specific) */
+  inputType?: EmbeddingInputType;
 }
 
 /**

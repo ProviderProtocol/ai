@@ -509,7 +509,10 @@ function transformResponse(data: OpenAIImagesResponse): ImageResponse {
 
     return {
       image,
-      metadata: item.revised_prompt ? { revised_prompt: item.revised_prompt } : undefined,
+      // Per-image metadata namespaced under provider (Spec 15.4)
+      metadata: item.revised_prompt
+        ? { openai: { revised_prompt: item.revised_prompt } }
+        : undefined,
     };
   });
 

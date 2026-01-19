@@ -16,6 +16,7 @@ export {
   RoundRobinKeys,
   WeightedKeys,
   DynamicKey,
+  maskApiKey,
 } from './keys.ts';
 
 export {
@@ -26,7 +27,7 @@ export {
   RetryAfterStrategy,
 } from './retry.ts';
 
-export { doFetch, doStreamFetch } from './fetch.ts';
+export { doFetch, doStreamFetch, warnInsecureUrl } from './fetch.ts';
 
 export { parseSSEStream, parseSimpleTextStream } from './sse.ts';
 

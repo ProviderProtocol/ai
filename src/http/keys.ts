@@ -186,6 +186,26 @@ export class DynamicKey implements KeyStrategy {
 }
 
 /**
+ * Masks an API key for safe logging.
+ * Shows first 4 and last 4 characters with ellipsis, or '***' for short keys.
+ *
+ * @param key - The API key to mask
+ * @returns Masked key like "sk-ab...yz12" or "***" for short keys
+ *
+ * @example
+ * ```typescript
+ * maskApiKey('sk-abc123def456xyz789'); // 'sk-a...z789'
+ * maskApiKey('short'); // '***'
+ * ```
+ */
+export function maskApiKey(key: string): string {
+  if (key.length <= 8) {
+    return '***';
+  }
+  return `${key.slice(0, 4)}...${key.slice(-4)}`;
+}
+
+/**
  * Type guard to check if a value implements the KeyStrategy interface.
  *
  * @param value - The value to check

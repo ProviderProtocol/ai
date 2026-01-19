@@ -90,3 +90,70 @@ describe('retry strategies', () => {
     expect(forked.onRetry(error, 1)).toBe(1000);
   });
 });
+
+describe('TokenBucket stress tests', () => {
+  test('handles high concurrency without race conditions', async () => {
+    const bucket = new TokenBucket({ maxTokens: 10, refillRate: 100 });
+    const concurrentRequests = 50;
+
+    const results = await Promise.all(
+      Array.from({ length: concurrentRequests }, () => bucket.beforeRequest())
+    );
+
+    // First 10 should be immediate (0 delay)
+    const immediateRequests = results.filter(delay => delay === 0);
+    expect(immediateRequests.length).toBe(10);
+
+    // Remaining should have increasing delays
+    const delayedRequests = results.filter(delay => delay > 0);
+    expect(delayedRequests.length).toBe(40);
+
+    // Delays should be sequential (each subsequent request waits longer)
+    for (let i = 1; i < delayedRequests.length; i++) {
+      expect(delayedRequests[i]!).toBeGreaterThanOrEqual(delayedRequests[i - 1]!);
+    }
+  });
+
+  test('refills tokens correctly over time', async () => {
+    // refillRate = 1 means 1 token per second
+    const bucket = new TokenBucket({ maxTokens: 1, refillRate: 1 });
+
+    // First request is immediate (consumes the 1 available token)
+    expect(await bucket.beforeRequest()).toBe(0);
+
+    // Second should wait ~1 second for refill (1 token per second)
+    const secondDelay = await bucket.beforeRequest();
+    expect(secondDelay).toBeGreaterThanOrEqual(1000);
+    expect(secondDelay).toBeLessThan(2000);
+  });
+});
+
+describe('ExponentialBackoff edge cases', () => {
+  test('handles very high attempt numbers without overflow', () => {
+    const strategy = new ExponentialBackoff({
+      maxAttempts: 100,
+      baseDelay: 1000,
+      maxDelay: 60000,
+      jitter: false,
+    });
+    const error = new UPPError('timeout', ErrorCode.Timeout, 'mock', ModalityType.LLM);
+
+    // Attempt 50 would be 2^49 * 1000 which overflows, but should be capped
+    const delay = strategy.onRetry(error, 50);
+    expect(delay).toBe(60000); // Should be capped at maxDelay
+  });
+
+  test('handles base delay of 0', () => {
+    const strategy = new ExponentialBackoff({
+      maxAttempts: 3,
+      baseDelay: 0,
+      maxDelay: 1000,
+      jitter: false,
+    });
+    const error = new UPPError('timeout', ErrorCode.Timeout, 'mock', ModalityType.LLM);
+
+    expect(strategy.onRetry(error, 1)).toBe(0);
+    expect(strategy.onRetry(error, 2)).toBe(0);
+  });
+
+});

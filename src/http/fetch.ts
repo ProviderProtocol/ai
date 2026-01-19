@@ -18,6 +18,25 @@ import { toError } from '../utils/error.ts';
 const DEFAULT_TIMEOUT = 120000;
 const MAX_RETRY_AFTER_SECONDS = 3600;
 
+/**
+ * Warns when a non-TLS URL is used with a provider.
+ * Only warns in non-production, excludes localhost for local development.
+ */
+export function warnInsecureUrl(url: string, provider: string): void {
+  if (
+    process.env.NODE_ENV !== 'production' &&
+    url.startsWith('http://') &&
+    !url.includes('localhost') &&
+    !url.includes('127.0.0.1') &&
+    !url.includes('[::1]')
+  ) {
+    console.warn(
+      `[UPP] Provider "${provider}" using non-TLS URL: ${url}. ` +
+      'API keys may be exposed to network interception.'
+    );
+  }
+}
+
 type ForkableRetryStrategy = RetryStrategy & {
   fork: () => RetryStrategy | undefined;
 };
@@ -75,6 +94,9 @@ export async function doFetch(
   const timeout = config.timeout ?? DEFAULT_TIMEOUT;
   const baseStrategy = config.retryStrategy;
   const strategy = hasFork(baseStrategy) ? baseStrategy.fork() : baseStrategy;
+
+  // Warn about potential security issue with non-TLS URLs
+  warnInsecureUrl(url, provider);
 
   let attempt = 0;
 

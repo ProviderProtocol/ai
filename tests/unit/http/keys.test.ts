@@ -4,6 +4,7 @@ import {
   RoundRobinKeys,
   WeightedKeys,
   DynamicKey,
+  maskApiKey,
 } from '../../../src/http/keys.ts';
 import { UPPError, ErrorCode } from '../../../src/types/errors.ts';
 
@@ -117,5 +118,36 @@ describe('resolveApiKey', () => {
     process.env.TEST_KEY = 'env-value';
     const key = await resolveApiKey({ apiKey: 'config-value' }, 'TEST_KEY');
     expect(key).toBe('config-value');
+  });
+});
+
+describe('maskApiKey', () => {
+  test('masks long keys showing first 4 and last 4 chars', () => {
+    expect(maskApiKey('sk-abc123def456xyz789')).toBe('sk-a...z789');
+  });
+
+  test('returns *** for short keys (8 chars or less)', () => {
+    expect(maskApiKey('short')).toBe('***');
+    expect(maskApiKey('12345678')).toBe('***');
+  });
+
+  test('masks keys just above threshold', () => {
+    expect(maskApiKey('123456789')).toBe('1234...6789');
+  });
+
+  test('handles empty string', () => {
+    expect(maskApiKey('')).toBe('***');
+  });
+
+  test('handles typical API key formats', () => {
+    expect(maskApiKey('sk-proj-abc123456789xyz')).toBe('sk-p...9xyz');
+    expect(maskApiKey('AIzaSyABC123XYZ456')).toBe('AIza...Z456');
+  });
+
+  test('never leaks full key in output', () => {
+    const secretKey = 'super-secret-api-key-12345';
+    const masked = maskApiKey(secretKey);
+    expect(masked).not.toBe(secretKey);
+    expect(masked.length).toBeLessThan(secretKey.length);
   });
 });

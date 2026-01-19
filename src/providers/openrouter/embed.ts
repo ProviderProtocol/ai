@@ -195,7 +195,10 @@ export function createEmbeddingHandler(): EmbeddingHandler<OpenRouterEmbedParams
               index: d.index,
             })),
             usage: { totalTokens: data.usage.total_tokens },
-            metadata: data.usage.cost !== undefined ? { cost: data.usage.cost } : undefined,
+            // Response metadata namespaced under provider (Spec 15.4)
+            metadata: data.usage.cost !== undefined
+              ? { openrouter: { cost: data.usage.cost } }
+              : undefined,
           };
         },
       };

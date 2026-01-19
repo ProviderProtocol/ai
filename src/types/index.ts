@@ -181,6 +181,7 @@ export type {
   EmbeddingStream,
   EmbeddingModelInput,
 } from './embedding.ts';
+export { EmbeddingInputType } from './embedding.ts';
 
 /**
  * Image generation types for text-to-image and image editing.

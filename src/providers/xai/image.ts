@@ -194,7 +194,10 @@ function transformResponse(data: XAIImagesResponse): ImageResponse {
 
     return {
       image,
-      metadata: item.revised_prompt ? { revised_prompt: item.revised_prompt } : undefined,
+      // Per-image metadata namespaced under provider (Spec 15.4)
+      metadata: item.revised_prompt
+        ? { xai: { revised_prompt: item.revised_prompt } }
+        : undefined,
     };
   });
 

@@ -1,5 +1,5 @@
-import { describe, expect, test } from 'bun:test';
-import { doFetch, doStreamFetch } from '../../../src/http/fetch.ts';
+import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test';
+import { doFetch, doStreamFetch, warnInsecureUrl } from '../../../src/http/fetch.ts';
 import type { RetryStrategy } from '../../../src/types/provider.ts';
 import { UPPError, ErrorCode } from '../../../src/types/errors.ts';
 
@@ -284,5 +284,57 @@ describe('doStreamFetch', () => {
         'llm'
       )
     ).rejects.toMatchObject({ code: ErrorCode.NetworkError });
+  });
+});
+
+describe('warnInsecureUrl', () => {
+  const originalEnv = process.env.NODE_ENV;
+  let warnSpy: ReturnType<typeof spyOn>;
+
+  beforeEach(() => {
+    warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
+    process.env.NODE_ENV = 'development';
+  });
+
+  afterEach(() => {
+    warnSpy.mockRestore();
+    process.env.NODE_ENV = originalEnv;
+  });
+
+  test('warns for non-TLS URLs in non-production', () => {
+    warnInsecureUrl('http://api.example.com', 'test');
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0]![0]).toContain('non-TLS URL');
+  });
+
+  test('does not warn for HTTPS URLs', () => {
+    warnInsecureUrl('https://api.example.com', 'test');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('does not warn for localhost', () => {
+    warnInsecureUrl('http://localhost:8080', 'test');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('does not warn for 127.0.0.1', () => {
+    warnInsecureUrl('http://127.0.0.1:8080', 'test');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('does not warn for IPv6 localhost [::1]', () => {
+    warnInsecureUrl('http://[::1]:8080', 'test');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('does not warn in production', () => {
+    process.env.NODE_ENV = 'production';
+    warnInsecureUrl('http://api.example.com', 'test');
+    expect(warnSpy).not.toHaveBeenCalled();
+  });
+
+  test('includes provider name in warning', () => {
+    warnInsecureUrl('http://api.example.com', 'openai');
+    expect(warnSpy.mock.calls[0]![0]).toContain('openai');
   });
 });

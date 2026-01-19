@@ -181,9 +181,9 @@ export function createEmbeddingHandler(): EmbeddingHandler<GoogleEmbedParams> {
               vector: e.values,
               index,
               tokens: e.statistics?.tokenCount,
-              // Per-embedding metadata (NOT redacted)
+              // Per-embedding metadata namespaced under provider (Spec 15.4)
               metadata: e.statistics ? {
-                truncated: e.statistics.truncated,
+                google: { truncated: e.statistics.truncated },
               } : undefined,
             })),
             usage: { totalTokens },

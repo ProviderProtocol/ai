@@ -162,9 +162,12 @@ export function createEmbeddingHandler(): EmbeddingHandler<OllamaEmbedParams> {
             usage: {
               totalTokens: data.prompt_eval_count ?? 0,
             },
+            // Response metadata namespaced under provider (Spec 15.4)
             metadata: {
-              totalDuration: data.total_duration,
-              loadDuration: data.load_duration,
+              ollama: {
+                totalDuration: data.total_duration,
+                loadDuration: data.load_duration,
+              },
             },
           };
         },
