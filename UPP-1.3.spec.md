@@ -573,7 +573,7 @@ Streaming returns a `StreamResult`:
 
 **StreamEventType Values:**
 
-`text_delta`, `reasoning_delta`, `image_delta`, `audio_delta`, `video_delta`, `tool_call_delta`, `tool_execution_start`, `tool_execution_end`, `message_start`, `message_stop`, `content_block_start`, `content_block_stop`
+`text_delta`, `reasoning_delta`, `image_delta`, `audio_delta`, `video_delta`, `object_delta`, `tool_call_delta`, `tool_execution_start`, `tool_execution_end`, `message_start`, `message_stop`, `content_block_start`, `content_block_stop`
 
 ### 9.3 Usage
 

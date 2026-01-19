@@ -121,10 +121,13 @@ export {
   createStreamResult,
   textDelta,
   toolCallDelta,
+  objectDelta,
   messageStart,
   messageStop,
   contentBlockStart,
   contentBlockStop,
+  toolExecutionStart,
+  toolExecutionEnd,
 } from './stream.ts';
 
 /**

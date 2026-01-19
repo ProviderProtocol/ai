@@ -1,6 +1,8 @@
 import type { BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { LLMHandler } from '../../types/provider.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType, objectDelta } from '../../types/stream.ts';
+import { parsePartialJson } from '../../utils/partial-json.ts';
 import type { LLMProvider } from '../../types/provider.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
@@ -245,7 +247,13 @@ export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
 
                   const uppEvents = transformStreamEvent(event, state);
                   for (const uppEvent of uppEvents) {
-                    yield uppEvent;
+                    if (request.structure && uppEvent.type === StreamEventType.TextDelta) {
+                      const accumulatedText = state.textByIndex.get(uppEvent.index) ?? '';
+                      const parseResult = parsePartialJson(accumulatedText);
+                      yield objectDelta(uppEvent.delta.text ?? '', parseResult.value, uppEvent.index);
+                    } else {
+                      yield uppEvent;
+                    }
                   }
                 }
               }

@@ -23,6 +23,7 @@ import {
 } from '../../types/messages.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
+import { parsePartialJson } from '../../utils/partial-json.ts';
 import type {
   AnthropicLLMParams,
   AnthropicRequest,
@@ -753,6 +754,8 @@ export function transformStreamEvent(
           state.content[event.index]!.input =
             (state.content[event.index]!.input ?? '') + delta.partial_json;
         }
+        const accumulatedInput = state.content[event.index]?.input ?? '';
+        const parseResult = parsePartialJson(accumulatedInput);
         events.push({
           type: StreamEventType.ToolCallDelta,
           index: event.index,
@@ -760,6 +763,7 @@ export function transformStreamEvent(
             argumentsJson: delta.partial_json,
             toolCallId: state.content[event.index]?.id,
             toolName: state.content[event.index]?.name,
+            parsed: parseResult.value,
           },
         });
         break;

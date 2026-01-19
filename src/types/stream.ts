@@ -38,6 +38,8 @@ export const StreamEventType = {
   VideoDelta: 'video_delta',
   /** Incremental tool call data (arguments being streamed) */
   ToolCallDelta: 'tool_call_delta',
+  /** Incremental structured object data (for structured output responses) */
+  ObjectDelta: 'object_delta',
   /** Tool execution has started (may be emitted after completion in some implementations) */
   ToolExecutionStart: 'tool_execution_start',
   /** Tool execution has completed */
@@ -81,6 +83,9 @@ export interface EventDelta {
 
   /** Incremental JSON arguments string (for tool_call_delta) */
   argumentsJson?: string;
+
+  /** Partially parsed JSON object (for tool_call_delta, object_delta) */
+  parsed?: unknown;
 
   /** Tool execution result (for tool_execution_end) */
   result?: unknown;
@@ -236,18 +241,36 @@ export function textDelta(text: string, index = 0): StreamEvent {
  * @param toolName - Name of the tool being called
  * @param argumentsJson - Incremental JSON arguments string
  * @param index - Content block index (default: 0)
+ * @param parsed - Optional partially parsed JSON arguments object
  * @returns A tool_call_delta StreamEvent
  */
 export function toolCallDelta(
   toolCallId: string,
   toolName: string,
   argumentsJson: string,
-  index = 0
+  index = 0,
+  parsed?: unknown
 ): StreamEvent {
   return {
     type: StreamEventType.ToolCallDelta,
     index,
-    delta: { toolCallId, toolName, argumentsJson },
+    delta: { toolCallId, toolName, argumentsJson, parsed },
+  };
+}
+
+/**
+ * Creates an object delta stream event for structured output responses.
+ *
+ * @param text - The incremental text content
+ * @param parsed - The partially parsed object
+ * @param index - Content block index (default: 0)
+ * @returns An object_delta StreamEvent
+ */
+export function objectDelta(text: string, parsed: unknown, index = 0): StreamEvent {
+  return {
+    type: StreamEventType.ObjectDelta,
+    index,
+    delta: { text, parsed },
   };
 }
 

@@ -3,6 +3,7 @@ import {
   StreamEventType,
   textDelta,
   toolCallDelta,
+  objectDelta,
   messageStart,
   messageStop,
   contentBlockStart,
@@ -39,6 +40,51 @@ describe('Stream event creators', () => {
     test('accepts custom index', () => {
       const event = toolCallDelta('call_456', 'calculate', '{}', 3);
       expect(event.index).toBe(3);
+    });
+
+    test('accepts parsed parameter', () => {
+      const parsed = { city: 'Tokyo' };
+      const event = toolCallDelta('call_123', 'getWeather', '{"city":"Tokyo"}', 0, parsed);
+      expect(event.delta.parsed).toEqual(parsed);
+    });
+
+    test('parsed is undefined when not provided', () => {
+      const event = toolCallDelta('call_123', 'getWeather', '{"city":"Tokyo"}');
+      expect(event.delta.parsed).toBeUndefined();
+    });
+  });
+
+  describe('objectDelta', () => {
+    test('creates object delta event', () => {
+      const parsed = { name: 'John' };
+      const event = objectDelta('{"name":', parsed);
+      expect(event.type).toBe(StreamEventType.ObjectDelta);
+      expect(event.index).toBe(0);
+      expect(event.delta.text).toBe('{"name":');
+      expect(event.delta.parsed).toEqual(parsed);
+    });
+
+    test('accepts custom index', () => {
+      const event = objectDelta('hello', { greeting: 'hello' }, 2);
+      expect(event.index).toBe(2);
+    });
+
+    test('handles undefined parsed value', () => {
+      const event = objectDelta('invalid', undefined);
+      expect(event.delta.text).toBe('invalid');
+      expect(event.delta.parsed).toBeUndefined();
+    });
+
+    test('handles complex nested objects', () => {
+      const parsed = { user: { firstName: 'Jo', profile: { age: 30 } } };
+      const event = objectDelta('{"user":{"firstName":"Jo","profile":{"age":30}}}', parsed);
+      expect(event.delta.parsed).toEqual(parsed);
+    });
+
+    test('handles array values', () => {
+      const parsed = [1, 2, 3];
+      const event = objectDelta('[1,2,3]', parsed);
+      expect(event.delta.parsed).toEqual(parsed);
     });
   });
 

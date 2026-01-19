@@ -13,6 +13,7 @@ import {
 } from '../../types/messages.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { generateId } from '../../utils/id.ts';
+import { parsePartialJson } from '../../utils/partial-json.ts';
 import type {
   XAIMessagesParams,
   XAIMessagesRequest,
@@ -455,6 +456,8 @@ export function transformStreamEvent(
         }
         state.content[index]!.input =
           (state.content[index]!.input ?? '') + delta.partial_json;
+        const accumulatedInput = state.content[index]?.input ?? '';
+        const parseResult = parsePartialJson(accumulatedInput);
         return {
           type: StreamEventType.ToolCallDelta,
           index: index,
@@ -462,6 +465,7 @@ export function transformStreamEvent(
             argumentsJson: delta.partial_json,
             toolCallId: state.content[index]?.id,
             toolName: state.content[index]?.name,
+            parsed: parseResult.value,
           },
         };
       }

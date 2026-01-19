@@ -14,6 +14,8 @@
 import type { BoundLLMModel, LLMRequest, LLMResponse, LLMStreamResult, LLMCapabilities } from '../../types/llm.ts';
 import type { LLMHandler } from '../../types/provider.ts';
 import type { StreamEvent } from '../../types/stream.ts';
+import { StreamEventType, objectDelta } from '../../types/stream.ts';
+import { parsePartialJson } from '../../utils/partial-json.ts';
 import type { LLMProvider } from '../../types/provider.ts';
 import { UPPError, ErrorCode, ModalityType } from '../../types/errors.ts';
 import { resolveApiKey } from '../../http/keys.ts';
@@ -250,7 +252,12 @@ export function createCompletionsLLMHandler(): LLMHandler<OpenAICompletionsParam
 
                   const uppEvents = transformStreamEvent(chunk, state);
                   for (const event of uppEvents) {
-                    yield event;
+                    if (request.structure && event.type === StreamEventType.TextDelta) {
+                      const parseResult = parsePartialJson(state.text);
+                      yield objectDelta(event.delta.text ?? '', parseResult.value, event.index);
+                    } else {
+                      yield event;
+                    }
                   }
                 }
               }
