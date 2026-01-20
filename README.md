@@ -26,9 +26,12 @@ console.log(turn.response.text);
 | Google | `@providerprotocol/ai/google` | ✓ | ✓ | ✓ |
 | xAI | `@providerprotocol/ai/xai` | ✓ | | ✓ |
 | Ollama | `@providerprotocol/ai/ollama` | ✓ | ✓ | |
-| OpenRouter | `@providerprotocol/ai/openrouter` | ✓ | ✓ | |
+| OpenRouter | `@providerprotocol/ai/openrouter` | ✓ | ✓ | ✓ |
+| Groq | `@providerprotocol/ai/groq` | ✓ | | |
+| Cerebras | `@providerprotocol/ai/cerebras` | ✓ | | |
+| OpenResponses | `@providerprotocol/ai/responses` | ✓ | | |
 
-API keys are loaded automatically from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, etc.).
+API keys are loaded automatically from environment variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GROQ_API_KEY`, `CEREBRAS_API_KEY`, etc.).
 
 ## LLM
 
@@ -63,6 +66,7 @@ for await (const event of stream) {
 |-------|-------------|
 | `text_delta` | Incremental text output |
 | `reasoning_delta` | Incremental reasoning/thinking output |
+| `object_delta` | Incremental structured output JSON |
 | `tool_call_delta` | Tool call arguments being streamed |
 | `tool_execution_start` | Tool execution has started |
 | `tool_execution_end` | Tool execution has completed |
@@ -123,11 +127,35 @@ console.log(turn.data); // { name: 'John', age: 30 }
 ### Multimodal Input
 
 ```typescript
-import { Image } from '@providerprotocol/ai';
+import { Image, Document, Audio, Video } from '@providerprotocol/ai';
 
+// Images
 const img = await Image.fromPath('./photo.png');
 const turn = await claude.generate([img, 'What is in this image?']);
+
+// Documents (PDF, text)
+const doc = await Document.fromPath('./report.pdf', 'Annual Report');
+const docTurn = await claude.generate([doc.toBlock(), 'Summarize this document']);
+
+// Audio (Google, OpenRouter)
+const audio = await Audio.fromPath('./recording.mp3');
+const audioTurn = await gemini.generate([audio.toBlock(), 'Transcribe this audio']);
+
+// Video (Google, OpenRouter)
+const video = await Video.fromPath('./clip.mp4');
+const videoTurn = await gemini.generate([video.toBlock(), 'Describe this video']);
 ```
+
+**Multimodal Support by Provider:**
+
+| Provider | Image | Document | Audio | Video |
+|----------|:-----:|:--------:|:-----:|:-----:|
+| Anthropic | ✓ | PDF, Text | | |
+| OpenAI | ✓ | PDF, Text | | |
+| Google | ✓ | PDF, Text | ✓ | ✓ |
+| OpenRouter | ✓ | PDF, Text | ✓ | ✓ |
+| xAI | ✓ | | | |
+| Groq | ✓ | | | |
 
 ## Anthropic Beta Features
 
@@ -182,6 +210,94 @@ const thinker = llm({
 | `pdfs` | PDF document support |
 | `messageBatches` | Async batch processing at 50% cost |
 | `skills` | Agent Skills (PowerPoint, Excel, Word, PDF) |
+
+## Reasoning / Extended Thinking
+
+Access model reasoning and extended thinking across providers with a unified API.
+
+### Anthropic
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { anthropic } from '@providerprotocol/ai/anthropic';
+
+const claude = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  params: {
+    max_tokens: 16000,
+    thinking: {
+      type: 'enabled',
+      budget_tokens: 5000,
+    },
+  },
+});
+
+const turn = await claude.generate('Solve this complex problem...');
+console.log(turn.response.reasoning); // Reasoning blocks
+```
+
+### OpenAI
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { openai } from '@providerprotocol/ai/openai';
+
+const gpt = llm({
+  model: openai('o3-mini'),
+  params: {
+    max_output_tokens: 4000,
+    reasoning: {
+      effort: 'medium',
+      summary: 'detailed',
+    },
+  },
+});
+```
+
+### Google Gemini
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { google } from '@providerprotocol/ai/google';
+
+const gemini = llm({
+  model: google('gemini-2.5-flash'),
+  params: {
+    maxOutputTokens: 4000,
+    thinkingConfig: {
+      thinkingBudget: -1, // Dynamic
+      includeThoughts: true,
+    },
+  },
+});
+```
+
+### Cerebras
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { cerebras } from '@providerprotocol/ai/cerebras';
+
+const model = llm({
+  model: cerebras('gpt-oss-120b'),
+  params: {
+    reasoning_effort: 'high',
+    reasoning_format: 'parsed',
+  },
+});
+```
+
+### Streaming Reasoning
+
+All providers emit `ReasoningDelta` events during streaming:
+
+```typescript
+for await (const event of stream) {
+  if (event.type === 'reasoning_delta') {
+    process.stdout.write(event.delta.text);
+  }
+}
+```
 
 ## Embeddings
 
@@ -414,6 +530,72 @@ localStorage.setItem('conversation', JSON.stringify(json));
 const restored = Thread.fromJSON(JSON.parse(localStorage.getItem('conversation')));
 ```
 
+## Middleware
+
+Compose request/response/stream transformations with the middleware system.
+
+### Parsed Object Middleware
+
+Automatically parse streaming JSON from structured output and tool call events:
+
+```typescript
+import { llm, parsedObjectMiddleware } from '@providerprotocol/ai';
+import { anthropic } from '@providerprotocol/ai/anthropic';
+
+const model = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  structure: {
+    type: 'object',
+    properties: {
+      city: { type: 'string' },
+      country: { type: 'string' },
+      population: { type: 'number' },
+    },
+    required: ['city', 'country', 'population'],
+  },
+  middleware: [parsedObjectMiddleware()],
+});
+
+for await (const event of model.stream('What is the capital of France?')) {
+  if (event.type === 'object_delta') {
+    // Access incrementally parsed structured data
+    console.log(event.delta.parsed);
+    // { city: "Par" } -> { city: "Paris" } -> { city: "Paris", country: "Fr" } -> ...
+  }
+}
+```
+
+### Logging Middleware
+
+Add visibility into request lifecycle:
+
+```typescript
+import { llm, loggingMiddleware } from '@providerprotocol/ai';
+import { anthropic } from '@providerprotocol/ai/anthropic';
+
+const model = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  middleware: [loggingMiddleware({ level: 'debug' })],
+});
+
+// Logs: [PP] [anthropic] Starting llm request (streaming)
+// Logs: [PP] [anthropic] Completed in 1234ms
+const result = await model.generate('Hello');
+```
+
+### Combining Middleware
+
+```typescript
+const model = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  structure: mySchema,
+  middleware: [
+    loggingMiddleware({ level: 'info' }),
+    parsedObjectMiddleware(),
+  ],
+});
+```
+
 ## Error Handling
 
 All errors are normalized to `UPPError` with consistent error codes:
@@ -578,6 +760,93 @@ xai('grok-3-fast', { api: 'responses' })
 xai('grok-3-fast', { api: 'messages' })
 ```
 
+## Groq
+
+Fast inference with Llama, Gemma, and Mixtral models:
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { groq } from '@providerprotocol/ai/groq';
+
+const model = llm({
+  model: groq('llama-3.3-70b-versatile'),
+  params: { max_tokens: 1000 },
+});
+
+const turn = await model.generate('Hello!');
+```
+
+**Capabilities:** Streaming, tool calling, structured output, image input (Llama 4 preview).
+
+**Environment:** `GROQ_API_KEY`
+
+## Cerebras
+
+Ultra-fast inference with Llama, Qwen, and GPT-OSS models:
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { cerebras } from '@providerprotocol/ai/cerebras';
+
+const model = llm({
+  model: cerebras('llama-3.3-70b'),
+  params: { max_completion_tokens: 1000 },
+});
+
+const turn = await model.generate('Hello!');
+```
+
+**With reasoning (GPT-OSS):**
+
+```typescript
+const model = llm({
+  model: cerebras('gpt-oss-120b'),
+  params: {
+    reasoning_effort: 'high',
+    reasoning_format: 'parsed',
+  },
+});
+```
+
+**Capabilities:** Streaming, tool calling, structured output, reasoning parameters.
+
+**Environment:** `CEREBRAS_API_KEY`
+
+## OpenResponses Provider
+
+Connect to any server implementing the [OpenResponses specification](https://www.openresponses.org):
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { responses } from '@providerprotocol/ai/responses';
+
+// Using with OpenAI
+const model = llm({
+  model: responses('gpt-5.2', {
+    host: 'https://api.openai.com/v1',
+    apiKeyEnv: 'OPENAI_API_KEY',
+  }),
+  params: { max_output_tokens: 1000 },
+});
+
+// Using with OpenRouter
+const routerModel = llm({
+  model: responses('openai/gpt-4o', {
+    host: 'https://openrouter.ai/api/v1',
+    apiKeyEnv: 'OPENROUTER_API_KEY',
+  }),
+});
+
+// Using with self-hosted server
+const localModel = llm({
+  model: responses('llama-3.3-70b', {
+    host: 'http://localhost:8080/v1',
+  }),
+});
+```
+
+**Capabilities:** Full multimodal support, streaming, tool calling, structured output, reasoning summaries.
+
 ## Alternative Import Style
 
 Use the `ai` namespace for a grouped import style:
@@ -607,6 +876,14 @@ import type {
   StreamEvent,
   StreamResult,
 
+  // Content blocks
+  TextBlock,
+  ImageBlock,
+  ReasoningBlock,
+  DocumentBlock,
+  AudioBlock,
+  VideoBlock,
+
   // Modality results
   EmbeddingResult,
   ImageResult,
@@ -620,7 +897,29 @@ import type {
   KeyStrategy,
   RetryStrategy,
   LLMCapabilities,
+
+  // Middleware
+  Middleware,
+  MiddlewareContext,
+  StreamContext,
 } from '@providerprotocol/ai';
+```
+
+**Type-Safe Enums:**
+
+```typescript
+import {
+  StreamEventType,
+  ErrorCode,
+  ContentBlockType,
+  MessageRole,
+  ModalityType,
+} from '@providerprotocol/ai';
+
+// Use instead of magic strings
+if (event.type === StreamEventType.TextDelta) { ... }
+if (error.code === ErrorCode.RateLimited) { ... }
+if (block.type === ContentBlockType.Text) { ... }
 ```
 
 ### Custom Providers
