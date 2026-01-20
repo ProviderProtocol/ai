@@ -1,6 +1,6 @@
 {
   "name": "@providerprotocol/ai",
-  "version": "0.0.33",
+  "version": "0.0.34",
   "description": "UPP: Unified Provider Protocol for AI inference",
   "license": "MIT",
   "homepage": "https://providerprotocol.org",
@@ -46,6 +46,16 @@
       "types": "./dist/xai/index.d.ts",
       "import": "./dist/xai/index.js",
       "default": "./dist/xai/index.js"
+    },
+    "./groq": {
+      "types": "./dist/groq/index.d.ts",
+      "import": "./dist/groq/index.js",
+      "default": "./dist/groq/index.js"
+    },
+    "./cerebras": {
+      "types": "./dist/cerebras/index.d.ts",
+      "import": "./dist/cerebras/index.js",
+      "default": "./dist/cerebras/index.js"
     },
     "./http": {
       "types": "./dist/http/index.d.ts",
@@ -105,6 +115,8 @@
     "openrouter",
     "xai",
     "grok",
+    "groq",
+    "cerebras",
     "vertex",
     "deepseek",
     "mistral",
