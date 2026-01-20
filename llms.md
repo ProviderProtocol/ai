@@ -893,7 +893,9 @@ const instance = llm({
   ],
 });
 
-// Parsed object middleware - emits partial JSON during streaming
+// Parsed object middleware - parses partial JSON during streaming
+// Without middleware: object_delta events have delta.text (raw JSON string)
+// With middleware: object_delta events also have delta.parsed (parsed partial object)
 const structuredInstance = llm({
   model: anthropic('claude-sonnet-4-20250514'),
   structure: { type: 'object', properties: { items: { type: 'array' } } },
@@ -903,8 +905,9 @@ const structuredInstance = llm({
 const stream = structuredInstance.stream('List 5 items');
 for await (const event of stream) {
   if (event.type === StreamEventType.ObjectDelta) {
-    // Receive partial parsed object as it streams (requires parsedObjectMiddleware)
-    console.log('Partial:', event.delta.object);
+    // delta.text is always available (raw JSON chunk)
+    // delta.parsed is available when using parsedObjectMiddleware
+    console.log('Partial:', event.delta.parsed);
   }
 }
 ```
@@ -1161,8 +1164,8 @@ const instance = llm({
 const stream = instance.stream('List 5 fruits');
 
 for await (const event of stream) {
-  if (event.type === 'object_delta') {
-    console.log('Partial object:', event.delta.object);
+  if (event.type === StreamEventType.ObjectDelta) {
+    console.log('Partial:', event.delta.parsed);
   }
 }
 
