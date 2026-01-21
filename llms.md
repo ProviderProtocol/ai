@@ -16,6 +16,7 @@ Provider Protocol (UPP - Unified Provider Protocol) is a TypeScript SDK that pro
 - Structured output (JSON schema validation)
 - Multimodal input (text, images, documents, audio, video)
 - Middleware system for request/response transformation
+- Stream resumption for reconnecting clients (pub/sub)
 - Retry strategies and API key rotation
 
 ---
@@ -113,6 +114,14 @@ The package uses subpath exports to keep bundles small. Import only what you nee
 | `@providerprotocol/ai/proxy` | Proxy provider + server adapters |
 | `@providerprotocol/ai/responses` | OpenAI Responses API provider |
 | `@providerprotocol/ai/http` | HTTP utilities: retry/key strategies |
+| `@providerprotocol/ai/middleware/logging` | Logging middleware |
+| `@providerprotocol/ai/middleware/parsed-object` | Partial JSON parsing middleware |
+| `@providerprotocol/ai/middleware/pubsub` | Stream resumption middleware + adapters |
+| `@providerprotocol/ai/middleware/pubsub/server` | Server adapters for all frameworks |
+| `@providerprotocol/ai/middleware/pubsub/server/webapi` | Web API adapter (Bun, Deno, Next.js) |
+| `@providerprotocol/ai/middleware/pubsub/server/express` | Express adapter |
+| `@providerprotocol/ai/middleware/pubsub/server/fastify` | Fastify adapter |
+| `@providerprotocol/ai/middleware/pubsub/server/h3` | H3/Nuxt adapter |
 
 ### Example: Minimal Import
 
@@ -874,12 +883,13 @@ const instance = llm({
 
 ## Middleware
 
-### Built-in Middleware
+Middleware is imported from dedicated subpath exports, not the main entry point.
+
+### Logging Middleware
 
 ```typescript
-import { loggingMiddleware, parsedObjectMiddleware } from '@providerprotocol/ai';
+import { loggingMiddleware } from '@providerprotocol/ai/middleware/logging';
 
-// Logging middleware - logs requests, responses, and timing
 const instance = llm({
   model: anthropic('claude-sonnet-4-20250514'),
   middleware: [
@@ -892,8 +902,15 @@ const instance = llm({
     }),
   ],
 });
+```
 
-// Parsed object middleware - parses partial JSON during streaming
+### Parsed Object Middleware
+
+Parses partial JSON during streaming for structured output.
+
+```typescript
+import { parsedObjectMiddleware } from '@providerprotocol/ai/middleware/parsed-object';
+
 // Without middleware: object_delta events have delta.text (raw JSON string)
 // With middleware: object_delta events also have delta.parsed (parsed partial object)
 const structuredInstance = llm({
@@ -910,6 +927,129 @@ for await (const event of stream) {
     console.log('Partial:', event.delta.parsed);
   }
 }
+```
+
+### Pub/Sub Middleware (Stream Resumption)
+
+Enables clients to reconnect and catch up on missed events during active generation.
+
+```typescript
+import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
+
+// Create a shared adapter instance (singleton per process)
+const adapter = memoryAdapter({ maxStreams: 500 });
+
+const instance = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  middleware: [
+    pubsubMiddleware({
+      adapter,
+      streamId: 'unique-stream-id',  // Client-provided ID for reconnection
+      ttl: 600_000,  // 10 minutes (default)
+    }),
+  ],
+});
+```
+
+#### Server-Side: Handling Reconnections
+
+The middleware buffers events and the server routes handle reconnection logic.
+
+**Web API (Bun, Deno, Next.js App Router, Cloudflare Workers):**
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { anthropic } from '@providerprotocol/ai/anthropic';
+import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
+import { createSubscriberStream } from '@providerprotocol/ai/middleware/pubsub/server/webapi';
+
+const adapter = memoryAdapter();
+
+Bun.serve({
+  port: 3000,
+  async fetch(req: Request) {
+    if (req.method !== 'POST') return new Response('Not found', { status: 404 });
+
+    const { messages, streamId } = await req.json();
+    const exists = await adapter.exists(streamId);
+
+    if (!exists) {
+      // Start background generation (fire and forget)
+      const model = llm({
+        model: anthropic('claude-sonnet-4-20250514'),
+        middleware: [pubsubMiddleware({ adapter, streamId })],
+      });
+      // Consume stream in background - don't await
+      (async () => {
+        for await (const _ of model.stream(messages)) { /* events buffered by middleware */ }
+      })();
+    }
+
+    // Both new requests and reconnects: subscribe to buffered + live events
+    return new Response(createSubscriberStream(streamId, adapter), {
+      headers: {
+        'Content-Type': 'text/event-stream',
+        'Cache-Control': 'no-cache',
+        'Connection': 'keep-alive',
+      },
+    });
+  },
+});
+```
+
+**Express:**
+
+```typescript
+import { express } from '@providerprotocol/ai/middleware/pubsub/server/express';
+
+app.post('/api/ai', async (req, res) => {
+  const { streamId } = req.body;
+  express.streamSubscriber(streamId, adapter, res);
+});
+```
+
+**Fastify:**
+
+```typescript
+import { fastify } from '@providerprotocol/ai/middleware/pubsub/server/fastify';
+
+app.post('/api/ai', (request, reply) => {
+  const { streamId } = request.body;
+  return fastify.streamSubscriber(streamId, adapter, reply);
+});
+```
+
+**H3/Nuxt:**
+
+```typescript
+import { h3 } from '@providerprotocol/ai/middleware/pubsub/server/h3';
+
+export default defineEventHandler(async (event) => {
+  const { streamId } = await readBody(event);
+  return h3.streamSubscriber(streamId, adapter, event);
+});
+```
+
+#### Custom Storage Adapters
+
+Implement `PubSubAdapter` for custom backends (Redis, etc.):
+
+```typescript
+import type { PubSubAdapter } from '@providerprotocol/ai/middleware/pubsub';
+
+const redisAdapter: PubSubAdapter = {
+  async exists(streamId) { /* check Redis */ },
+  async create(streamId, metadata) { /* store in Redis */ },
+  async append(streamId, event) { /* append event */ },
+  async markCompleted(streamId) { /* mark done */ },
+  async isCompleted(streamId) { /* check completion */ },
+  async getEvents(streamId) { /* fetch all events */ },
+  async getStream(streamId) { /* get metadata */ },
+  subscribe(streamId, callback) { /* Redis pub/sub */ },
+  publish(streamId, event) { /* broadcast event */ },
+  async remove(streamId) { /* cleanup */ },
+  async cleanup(maxAge) { /* remove old streams */ },
+};
 ```
 
 ### Custom Middleware
@@ -1153,7 +1293,7 @@ for (const exec of turn.toolExecutions) {
 ### Streaming with Structured Output
 
 ```typescript
-import { parsedObjectMiddleware } from '@providerprotocol/ai';
+import { parsedObjectMiddleware } from '@providerprotocol/ai/middleware/parsed-object';
 
 const instance = llm({
   model: anthropic('claude-sonnet-4-20250514'),

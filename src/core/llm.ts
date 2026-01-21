@@ -11,7 +11,6 @@ import type {
   LLMOptions,
   LLMInstance,
   LLMRequest,
-  LLMResponse,
   InferenceInput,
   BoundLLMModel,
   LLMCapabilities,
@@ -47,10 +46,11 @@ import {
   toolExecutionStart,
   toolExecutionEnd,
 } from '../types/stream.ts';
-import { toError } from '../utils/error.ts';
+import { toError, isCancelledError } from '../utils/error.ts';
 import {
   runHook,
   runErrorHook,
+  runAbortHook,
   runToolHook,
   runStreamEndHook,
   createStreamTransformer,
@@ -403,7 +403,7 @@ async function executeGenerate<TParams>(
   );
 
   try {
-    // Run middleware start hooks
+    // Run middleware start and request hooks
     await runHook(middleware, 'onStart', ctx);
     await runHook(middleware, 'onRequest', ctx);
 
@@ -601,7 +601,7 @@ function executeStream<TParams>(
       // Check if already aborted before starting
       ensureNotAborted();
 
-      // Run middleware start hooks
+      // Run middleware start and request hooks
       await runHook(middleware, 'onStart', ctx);
       await runHook(middleware, 'onRequest', ctx);
 
@@ -699,7 +699,11 @@ function executeStream<TParams>(
     } catch (error) {
       const err = toError(error);
       generatorError = err;
-      await runErrorHook(middleware, err, ctx);
+      if (isCancelledError(err)) {
+        await runAbortHook(middleware, err, ctx);
+      } else {
+        await runErrorHook(middleware, err, ctx);
+      }
       rejectGenerator(err);
       throw err;
     } finally {
@@ -710,6 +714,7 @@ function executeStream<TParams>(
         if (!abortController.signal.aborted) {
           abortController.abort();
         }
+        await runAbortHook(middleware, error, ctx);
         rejectGenerator(error);
       }
     }

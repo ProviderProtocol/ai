@@ -70,7 +70,8 @@ const LOG_LEVELS: Record<LogLevel, number> = {
  *
  * @example
  * ```typescript
- * import { llm, loggingMiddleware } from '@providerprotocol/ai';
+ * import { llm } from '@providerprotocol/ai';
+ * import { loggingMiddleware } from '@providerprotocol/ai/middleware/logging';
  * import { anthropic } from '@providerprotocol/ai/anthropic';
  *
  * const model = llm({
@@ -130,6 +131,11 @@ export function loggingMiddleware(options: LoggingOptions = {}): Middleware {
     onError(error: Error, ctx: MiddlewareContext): void {
       const duration = Date.now() - ctx.startTime;
       log('error', `[${ctx.provider}] Error after ${duration}ms: ${error.message}`);
+    },
+
+    onAbort(error: Error, ctx: MiddlewareContext): void {
+      const duration = Date.now() - ctx.startTime;
+      log('warn', `[${ctx.provider}] Aborted after ${duration}ms: ${error.message}`);
     },
 
     onStreamEvent(event: StreamEvent, ctx: StreamContext): StreamEvent {

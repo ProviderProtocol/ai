@@ -1,19 +1,21 @@
 /**
- * @fileoverview Middleware exports for the Universal Provider Protocol.
+ * @fileoverview Internal middleware utilities.
+ *
+ * This module is for internal use only. Middleware should be imported from
+ * their dedicated entry points:
+ * - @providerprotocol/ai/middleware/logging
+ * - @providerprotocol/ai/middleware/parsed-object
+ * - @providerprotocol/ai/middleware/pubsub
+ * - @providerprotocol/ai/middleware/pubsub/server
  *
  * @module middleware
+ * @internal
  */
 
 export {
-  parsedObjectMiddleware,
-  type ParsedObjectOptions,
-  type ParsedEventDelta,
-  type ParsedStreamEvent,
-} from './parsed-object.ts';
-export { loggingMiddleware, type LoggingOptions, type LogLevel } from './logging.ts';
-export {
   runHook,
   runErrorHook,
+  runAbortHook,
   runToolHook,
   runStreamEndHook,
   createStreamTransformer,

@@ -7,7 +7,11 @@
  * @module middleware/runner
  */
 
-import type { Middleware, MiddlewareContext, StreamContext } from '../types/middleware.ts';
+import type {
+  Middleware,
+  MiddlewareContext,
+  StreamContext,
+} from '../types/middleware.ts';
 import type { StreamEvent } from '../types/stream.ts';
 import type { Tool } from '../types/tool.ts';
 
@@ -66,6 +70,33 @@ export async function runErrorHook(
       } catch (hookError) {
         // Log but don't throw - error hooks should not cause additional failures
         console.error(`[${mw.name}] Error in onError hook:`, hookError);
+      }
+    }
+  }
+}
+
+/**
+ * Runs the onAbort hook for all middleware that have it.
+ *
+ * Abort hooks are run for all middleware when a request is cancelled.
+ * Errors from abort hooks are logged but not re-thrown.
+ *
+ * @param middlewares - Array of middleware to process
+ * @param error - The cancellation error
+ * @param ctx - The middleware context
+ */
+export async function runAbortHook(
+  middlewares: Middleware[],
+  error: Error,
+  ctx: MiddlewareContext
+): Promise<void> {
+  for (const mw of middlewares) {
+    if (mw.onAbort) {
+      try {
+        await mw.onAbort(error, ctx);
+      } catch (hookError) {
+        // Log but don't throw - abort hooks should not cause additional failures
+        console.error(`[${mw.name}] Error in onAbort hook:`, hookError);
       }
     }
   }

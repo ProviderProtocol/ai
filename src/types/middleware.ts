@@ -1,7 +1,7 @@
 /**
  * @fileoverview Middleware types for the Universal Provider Protocol.
  *
- * Defines the interfaces for composable middleware that can intercept and
+ * Defines the interfaces for composable middleware that can
  * transform requests, responses, and stream events across all modalities.
  *
  * @module types/middleware
@@ -164,6 +164,16 @@ export interface Middleware {
    * @param ctx - The middleware context
    */
   onError?(error: Error, ctx: MiddlewareContext): void | Promise<void>;
+
+  /**
+   * Called when a request is cancelled (for example, when a stream is aborted
+   * or a client disconnects).
+   * Called for all middleware that have this hook, regardless of order.
+   *
+   * @param error - The cancellation error
+   * @param ctx - The middleware context
+   */
+  onAbort?(error: Error, ctx: MiddlewareContext): void | Promise<void>;
 
   // === Request/Response Hooks ===
 

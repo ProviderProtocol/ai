@@ -1,6 +1,7 @@
 import { test, expect, describe, beforeAll, afterAll } from 'bun:test';
 import type { Server } from 'bun';
-import { llm, parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/index.ts';
+import { llm } from '../../src/index.ts';
+import { parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/middleware/parsed-object.ts';
 import { StreamEventType, type StreamEvent } from '../../src/types/stream.ts';
 
 /** Helper to access parsed field from middleware-enhanced events */

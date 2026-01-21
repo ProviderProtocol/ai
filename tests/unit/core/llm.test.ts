@@ -17,6 +17,7 @@ import type { StreamEvent } from '../../../src/types/stream.ts';
 import { StreamEventType, textDelta } from '../../../src/types/stream.ts';
 import type { LLMProvider } from '../../../src/types/provider.ts';
 import type { ImageBlock, DocumentBlock } from '../../../src/types/content.ts';
+import type { Middleware } from '../../../src/types/middleware.ts';
 
 type MockParams = { temperature?: number };
 
@@ -683,6 +684,90 @@ describe('LLM stream execution', () => {
     }
 
     await expect(stream.turn).rejects.toBeInstanceOf(UPPError);
+  });
+
+  test('invokes onAbort once when stream is aborted', async () => {
+    let providerRef: LLMProvider<MockParams> | null = null;
+    let capturedError: Error | null = null;
+    let onAbortCalls = 0;
+    let onErrorCalls = 0;
+
+    const middleware: Middleware = {
+      name: 'abort-observer',
+      onAbort(error) {
+        onAbortCalls += 1;
+        capturedError = error;
+      },
+      onError() {
+        onErrorCalls += 1;
+      },
+    };
+
+    const handler: LLMHandler<MockParams> = {
+      _setProvider(provider) {
+        providerRef = provider;
+      },
+      bind(modelId: string) {
+        return {
+          modelId,
+          capabilities: {
+            streaming: true,
+            tools: false,
+            structuredOutput: false,
+            imageInput: false,
+            documentInput: false,
+            videoInput: false,
+            audioInput: false,
+          },
+          get provider() {
+            return providerRef!;
+          },
+          async complete() {
+            return createResponse(new AssistantMessage('done'), defaultUsage(1, 1));
+          },
+          stream() {
+            return {
+              async *[Symbol.asyncIterator]() {
+                yield textDelta('first');
+                yield textDelta('second');
+              },
+              response: Promise.resolve(
+                createResponse(new AssistantMessage('done'), defaultUsage(1, 1))
+              ),
+            };
+          },
+        };
+      },
+    };
+
+    const provider = createProvider<MockParams>({
+      name: 'mock-llm',
+      version: '1.0.0',
+      handlers: { llm: handler },
+    });
+
+    const instance = llm<MockParams>({
+      model: provider('mock-model'),
+      middleware: [middleware],
+    });
+
+    const stream = instance.stream('Hello');
+    const iterator = stream[Symbol.asyncIterator]();
+
+    const first = await iterator.next();
+    expect(first.done).toBe(false);
+
+    stream.abort();
+
+    await expect(iterator.next()).rejects.toBeInstanceOf(UPPError);
+    await expect(stream.turn).rejects.toBeInstanceOf(UPPError);
+
+    expect(onAbortCalls).toBe(1);
+    expect(onErrorCalls).toBe(0);
+    expect(capturedError).toBeInstanceOf(UPPError);
+    if (capturedError instanceof UPPError) {
+      expect(capturedError.code).toBe(ErrorCode.Cancelled);
+    }
   });
 
   test('early termination rejects turn and aborts request', async () => {

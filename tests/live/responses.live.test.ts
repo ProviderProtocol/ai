@@ -1,5 +1,6 @@
 import { test, expect, describe } from 'bun:test';
-import { llm, parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/index.ts';
+import { llm } from '../../src/index.ts';
+import { parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/middleware/parsed-object.ts';
 import { responses } from '../../src/responses/index.ts';
 import type { ResponsesParams } from '../../src/responses/index.ts';
 import { UserMessage } from '../../src/types/messages.ts';

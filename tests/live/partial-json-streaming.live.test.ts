@@ -1,5 +1,6 @@
 import { test, expect, describe } from 'bun:test';
-import { llm, parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/index.ts';
+import { llm } from '../../src/index.ts';
+import { parsedObjectMiddleware, type ParsedStreamEvent } from '../../src/middleware/parsed-object.ts';
 import { openai } from '../../src/openai/index.ts';
 import { anthropic } from '../../src/anthropic/index.ts';
 import { xai } from '../../src/xai/index.ts';

@@ -1,6 +1,6 @@
 {
   "name": "@providerprotocol/ai",
-  "version": "0.0.34",
+  "version": "0.0.35",
   "description": "UPP: Unified Provider Protocol for AI inference",
   "license": "MIT",
   "homepage": "https://providerprotocol.org",
@@ -71,6 +71,46 @@
       "types": "./dist/responses/index.d.ts",
       "import": "./dist/responses/index.js",
       "default": "./dist/responses/index.js"
+    },
+    "./middleware/logging": {
+      "types": "./dist/middleware/logging/index.d.ts",
+      "import": "./dist/middleware/logging/index.js",
+      "default": "./dist/middleware/logging/index.js"
+    },
+    "./middleware/parsed-object": {
+      "types": "./dist/middleware/parsed-object/index.d.ts",
+      "import": "./dist/middleware/parsed-object/index.js",
+      "default": "./dist/middleware/parsed-object/index.js"
+    },
+    "./middleware/pubsub": {
+      "types": "./dist/middleware/pubsub/index.d.ts",
+      "import": "./dist/middleware/pubsub/index.js",
+      "default": "./dist/middleware/pubsub/index.js"
+    },
+    "./middleware/pubsub/server": {
+      "types": "./dist/middleware/pubsub/server/index.d.ts",
+      "import": "./dist/middleware/pubsub/server/index.js",
+      "default": "./dist/middleware/pubsub/server/index.js"
+    },
+    "./middleware/pubsub/server/webapi": {
+      "types": "./dist/middleware/pubsub/server/webapi/index.d.ts",
+      "import": "./dist/middleware/pubsub/server/webapi/index.js",
+      "default": "./dist/middleware/pubsub/server/webapi/index.js"
+    },
+    "./middleware/pubsub/server/express": {
+      "types": "./dist/middleware/pubsub/server/express/index.d.ts",
+      "import": "./dist/middleware/pubsub/server/express/index.js",
+      "default": "./dist/middleware/pubsub/server/express/index.js"
+    },
+    "./middleware/pubsub/server/h3": {
+      "types": "./dist/middleware/pubsub/server/h3/index.d.ts",
+      "import": "./dist/middleware/pubsub/server/h3/index.js",
+      "default": "./dist/middleware/pubsub/server/h3/index.js"
+    },
+    "./middleware/pubsub/server/fastify": {
+      "types": "./dist/middleware/pubsub/server/fastify/index.d.ts",
+      "import": "./dist/middleware/pubsub/server/fastify/index.js",
+      "default": "./dist/middleware/pubsub/server/fastify/index.js"
     }
   },
   "files": [
@@ -81,6 +121,7 @@
     "build": "tsup",
     "prepublishOnly": "bun run build",
     "test": "bun test",
+    "lint": "bunx eslint . --max-warnings 0",
     "test:unit": "bun test tests/unit",
     "test:live": "bun test tests/live",
     "typecheck": "tsc --noEmit",
@@ -93,13 +134,20 @@
     "access": "public"
   },
   "devDependencies": {
-    "@types/bun": "latest",
+    "@types/bun": "^1.3.6",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "eslint": "^9.39.2",
+    "eslint-config-airbnb-base": "^15.0.0",
+    "eslint-config-airbnb-typescript": "^18.0.0",
+    "eslint-import-resolver-typescript": "^4.4.4",
+    "eslint-plugin-import": "^2.32.0",
     "tsup": "^8.5.1",
-    "typedoc": "^0.28.15",
+    "typedoc": "^0.28.16",
     "typedoc-plugin-markdown": "^4.9.0"
   },
   "peerDependencies": {
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "keywords": [
     "ai",

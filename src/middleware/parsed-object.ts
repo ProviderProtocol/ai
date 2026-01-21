@@ -59,7 +59,8 @@ export interface ParsedObjectOptions {
  *
  * @example
  * ```typescript
- * import { llm, parsedObjectMiddleware } from '@providerprotocol/ai';
+ * import { llm } from '@providerprotocol/ai';
+ * import { parsedObjectMiddleware } from '@providerprotocol/ai/middleware/parsed-object';
  * import { anthropic } from '@providerprotocol/ai/anthropic';
  *
  * const model = llm({

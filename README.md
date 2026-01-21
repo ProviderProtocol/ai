@@ -532,15 +532,16 @@ const restored = Thread.fromJSON(JSON.parse(localStorage.getItem('conversation')
 
 ## Middleware
 
-Compose request/response/stream transformations with the middleware system.
+Compose request/response/stream transformations with the middleware system. Middleware is imported from dedicated entry points.
 
 ### Parsed Object Middleware
 
 Automatically parse streaming JSON from structured output and tool call events:
 
 ```typescript
-import { llm, parsedObjectMiddleware } from '@providerprotocol/ai';
+import { llm } from '@providerprotocol/ai';
 import { anthropic } from '@providerprotocol/ai/anthropic';
+import { parsedObjectMiddleware } from '@providerprotocol/ai/middleware/parsed-object';
 
 const model = llm({
   model: anthropic('claude-sonnet-4-20250514'),
@@ -570,8 +571,9 @@ for await (const event of model.stream('What is the capital of France?')) {
 Add visibility into request lifecycle:
 
 ```typescript
-import { llm, loggingMiddleware } from '@providerprotocol/ai';
+import { llm } from '@providerprotocol/ai';
 import { anthropic } from '@providerprotocol/ai/anthropic';
+import { loggingMiddleware } from '@providerprotocol/ai/middleware/logging';
 
 const model = llm({
   model: anthropic('claude-sonnet-4-20250514'),
@@ -583,9 +585,98 @@ const model = llm({
 const result = await model.generate('Hello');
 ```
 
+### Pub-Sub Middleware (Stream Resumption)
+
+Enable reconnecting clients to catch up on missed events during active generation. The middleware buffers events and publishes them to subscribers.
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { anthropic } from '@providerprotocol/ai/anthropic';
+import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
+import { webapi } from '@providerprotocol/ai/middleware/pubsub/server';
+
+// Create a shared adapter instance
+const adapter = memoryAdapter({ maxStreams: 1000 });
+
+// Server route handling both new requests and reconnections
+Bun.serve({
+  port: 3000,
+  async fetch(req) {
+    const { messages, streamId } = await req.json();
+    const exists = await adapter.exists(streamId);
+
+    if (!exists) {
+      // Start background generation (fire and forget)
+      const model = llm({
+        model: anthropic('claude-sonnet-4-20250514'),
+        middleware: [pubsubMiddleware({ adapter, streamId })],
+      });
+      consumeInBackground(model.stream(messages));
+    }
+
+    // Both new and reconnect: subscribe to events
+    return new Response(webapi.createSubscriberStream(streamId, adapter), {
+      headers: { 'Content-Type': 'text/event-stream' },
+    });
+  },
+});
+```
+
+**Framework Adapters:**
+
+```typescript
+// Express
+import { express } from '@providerprotocol/ai/middleware/pubsub/server';
+app.post('/api/ai/reconnect', (req, res) => {
+  const { streamId } = req.body;
+  express.streamSubscriber(streamId, adapter, res);
+});
+
+// Fastify
+import { fastify } from '@providerprotocol/ai/middleware/pubsub/server';
+app.post('/api/ai/reconnect', (request, reply) => {
+  const { streamId } = request.body;
+  return fastify.streamSubscriber(streamId, adapter, reply);
+});
+
+// H3/Nuxt
+import { h3 } from '@providerprotocol/ai/middleware/pubsub/server';
+export default defineEventHandler(async (event) => {
+  const { streamId } = await readBody(event);
+  return h3.streamSubscriber(streamId, adapter, event);
+});
+```
+
+**Custom Adapters:**
+
+Implement `PubSubAdapter` for custom backends (Redis, etc.):
+
+```typescript
+import type { PubSubAdapter } from '@providerprotocol/ai/middleware/pubsub';
+
+const redisAdapter: PubSubAdapter = {
+  async exists(streamId) { /* ... */ },
+  async create(streamId, metadata) { /* ... */ },
+  async append(streamId, event) { /* ... */ },
+  async markCompleted(streamId) { /* ... */ },
+  async isCompleted(streamId) { /* ... */ },
+  async getEvents(streamId) { /* ... */ },
+  async getStream(streamId) { /* ... */ },
+  subscribe(streamId, callback) { /* ... */ },
+  publish(streamId, event) { /* ... */ },
+  async remove(streamId) { /* ... */ },
+  async cleanup(maxAge) { /* ... */ },
+};
+```
+
 ### Combining Middleware
 
 ```typescript
+import { llm } from '@providerprotocol/ai';
+import { anthropic } from '@providerprotocol/ai/anthropic';
+import { loggingMiddleware } from '@providerprotocol/ai/middleware/logging';
+import { parsedObjectMiddleware } from '@providerprotocol/ai/middleware/parsed-object';
+
 const model = llm({
   model: anthropic('claude-sonnet-4-20250514'),
   structure: mySchema,
