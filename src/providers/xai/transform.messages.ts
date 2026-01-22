@@ -67,58 +67,6 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms a UPP LLM request to the xAI Messages API format (Anthropic-compatible).
- *
- * All params are spread directly to enable pass-through of xAI API fields
- * not explicitly defined in our types.
- *
- * @param request - The unified provider protocol request
- * @param modelId - The xAI model identifier
- * @returns The transformed xAI Messages API request body
- */
-export function transformRequest(
-  request: LLMRequest<XAIMessagesParams>,
-  modelId: string
-): XAIMessagesRequest {
-  const params = request.params ?? ({} as XAIMessagesParams);
-  const normalizedSystem = normalizeSystem(request.system);
-
-  const xaiRequest: XAIMessagesRequest = {
-    ...params,
-    model: modelId,
-    messages: request.messages.map(transformMessage),
-  };
-
-  if (normalizedSystem) {
-    xaiRequest.system = normalizedSystem;
-  }
-
-  if (request.tools && request.tools.length > 0) {
-    xaiRequest.tools = request.tools.map(transformTool);
-    if (!xaiRequest.tool_choice) {
-      xaiRequest.tool_choice = { type: 'auto' };
-    }
-  }
-
-  if (request.structure) {
-    const structuredTool: XAIMessagesTool = {
-      name: 'json_response',
-      description: 'Return the response in the specified JSON format. You MUST use this tool to provide your response.',
-      input_schema: {
-        type: 'object',
-        properties: request.structure.properties,
-        required: request.structure.required,
-      },
-    };
-
-    xaiRequest.tools = [...(xaiRequest.tools ?? []), structuredTool];
-    xaiRequest.tool_choice = { type: 'tool', name: 'json_response' };
-  }
-
-  return xaiRequest;
-}
-
-/**
  * Filters content blocks to only those with a valid type property.
  *
  * @param content - Array of content blocks
@@ -126,6 +74,58 @@ export function transformRequest(
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transforms a UPP content block to xAI Messages API format.
+ *
+ * @param block - The content block to transform
+ * @returns The xAI-formatted content block
+ * @throws Error if the content type is unsupported
+ */
+function transformContentBlock(block: ContentBlock): XAIMessagesContent {
+  switch (block.type) {
+    case 'text':
+      return { type: 'text', text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      if (imageBlock.source.type === 'base64') {
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: imageBlock.mimeType,
+            data: imageBlock.source.data,
+          },
+        };
+      }
+      if (imageBlock.source.type === 'url') {
+        return {
+          type: 'image',
+          source: {
+            type: 'url',
+            url: imageBlock.source.url,
+          },
+        };
+      }
+      if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: imageBlock.mimeType,
+            data: base64,
+          },
+        };
+      }
+      throw new Error(`Unknown image source type`);
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
 }
 
 /**
@@ -206,58 +206,6 @@ function transformMessage(message: Message): XAIMessagesMessage {
 }
 
 /**
- * Transforms a UPP content block to xAI Messages API format.
- *
- * @param block - The content block to transform
- * @returns The xAI-formatted content block
- * @throws Error if the content type is unsupported
- */
-function transformContentBlock(block: ContentBlock): XAIMessagesContent {
-  switch (block.type) {
-    case 'text':
-      return { type: 'text', text: block.text };
-
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      if (imageBlock.source.type === 'base64') {
-        return {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: imageBlock.mimeType,
-            data: imageBlock.source.data,
-          },
-        };
-      }
-      if (imageBlock.source.type === 'url') {
-        return {
-          type: 'image',
-          source: {
-            type: 'url',
-            url: imageBlock.source.url,
-          },
-        };
-      }
-      if (imageBlock.source.type === 'bytes') {
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        return {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: imageBlock.mimeType,
-            data: base64,
-          },
-        };
-      }
-      throw new Error(`Unknown image source type`);
-    }
-
-    default:
-      throw new Error(`Unsupported content type: ${block.type}`);
-  }
-}
-
-/**
  * Transforms a UPP tool definition to xAI Messages API format.
  *
  * @param tool - The UPP tool definition
@@ -273,6 +221,58 @@ function transformTool(tool: Tool): XAIMessagesTool {
       required: tool.parameters.required,
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request to the xAI Messages API format (Anthropic-compatible).
+ *
+ * All params are spread directly to enable pass-through of xAI API fields
+ * not explicitly defined in our types.
+ *
+ * @param request - The unified provider protocol request
+ * @param modelId - The xAI model identifier
+ * @returns The transformed xAI Messages API request body
+ */
+export function transformRequest(
+  request: LLMRequest<XAIMessagesParams>,
+  modelId: string
+): XAIMessagesRequest {
+  const params = request.params ?? ({} as XAIMessagesParams);
+  const normalizedSystem = normalizeSystem(request.system);
+
+  const xaiRequest: XAIMessagesRequest = {
+    ...params,
+    model: modelId,
+    messages: request.messages.map(transformMessage),
+  };
+
+  if (normalizedSystem) {
+    xaiRequest.system = normalizedSystem;
+  }
+
+  if (request.tools && request.tools.length > 0) {
+    xaiRequest.tools = request.tools.map(transformTool);
+    if (!xaiRequest.tool_choice) {
+      xaiRequest.tool_choice = { type: 'auto' };
+    }
+  }
+
+  if (request.structure) {
+    const structuredTool: XAIMessagesTool = {
+      name: 'json_response',
+      description: 'Return the response in the specified JSON format. You MUST use this tool to provide your response.',
+      input_schema: {
+        type: 'object',
+        properties: request.structure.properties,
+        required: request.structure.required,
+      },
+    };
+
+    xaiRequest.tools = [...(xaiRequest.tools ?? []), structuredTool];
+    xaiRequest.tool_choice = { type: 'tool', name: 'json_response' };
+  }
+
+  return xaiRequest;
 }
 
 /**

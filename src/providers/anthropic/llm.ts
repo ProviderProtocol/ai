@@ -264,11 +264,14 @@ export function createLLMHandler(): LLMHandler<AnthropicLLMParams> {
 
                   const uppEvents = transformStreamEvent(event, state);
                   for (const uppEvent of uppEvents) {
+                    yield uppEvent;
+                    // Also emit ObjectDelta for structured output - gives developers explicit hook
                     if (request.structure && uppEvent.type === StreamEventType.TextDelta) {
-                      // Emit ObjectDelta without parsing - middleware handles parsing
                       yield objectDelta(uppEvent.delta.text ?? '', uppEvent.index);
-                    } else {
-                      yield uppEvent;
+                    }
+                    // Anthropic uses tool calls for structured output - also emit ObjectDelta
+                    if (request.structure && uppEvent.type === StreamEventType.ToolCallDelta && uppEvent.delta.argumentsJson) {
+                      yield objectDelta(uppEvent.delta.argumentsJson, uppEvent.index);
                     }
                   }
                 }

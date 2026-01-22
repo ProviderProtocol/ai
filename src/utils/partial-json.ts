@@ -21,58 +21,87 @@ export interface PartialParseResult<T = unknown> {
 }
 
 /**
- * Parses potentially incomplete JSON, returning as much as can be extracted.
- *
- * Handles common incomplete states during streaming:
- * - Incomplete strings: `{"name":"Jo` → `{name: "Jo"}`
- * - Incomplete objects: `{"a":1,"b":` → `{a: 1}`
- * - Incomplete arrays: `[1,2,` → `[1, 2]`
- * - Incomplete numbers, booleans, null literals
- * - Nested structures with partial completion
- * - Unicode escape sequences
- *
- * @typeParam T - The expected type of the parsed value
- * @param json - The potentially incomplete JSON string
- * @returns A PartialParseResult with the parsed value and completion status
- *
- * @example
- * ```typescript
- * // Complete JSON
- * parsePartialJson('{"name":"John"}');
- * // => { value: { name: "John" }, isComplete: true }
- *
- * // Incomplete object
- * parsePartialJson('{"user":{"firstName":"Jo');
- * // => { value: { user: { firstName: "Jo" } }, isComplete: false }
- *
- * // Incomplete array
- * parsePartialJson('[1, 2, 3');
- * // => { value: [1, 2, 3], isComplete: false }
- * ```
+ * Cleans up trailing incomplete elements from JSON.
+ * Iteratively handles chained incomplete elements (e.g., trailing colon followed by comma).
  */
-export function parsePartialJson<T = unknown>(json: string): PartialParseResult<T> {
-  const trimmed = json.trim();
+function cleanupTrailingIncomplete(json: string): string {
+  let result = json.trim();
+  let changed = true;
 
-  if (trimmed === '') {
-    return { value: undefined, isComplete: false };
+  // Keep cleaning until no more changes
+  while (changed) {
+    changed = false;
+    const trimmed = result.trim();
+
+    // Handle trailing comma - remove it
+    if (trimmed.endsWith(',')) {
+      result = trimmed.slice(0, -1);
+      changed = true;
+      continue;
+    }
+
+    // Handle trailing colon - remove the incomplete key-value pair
+    if (trimmed.endsWith(':')) {
+      // Find the start of the key (the opening quote before the colon)
+      const colonIndex = trimmed.length - 1;
+      let keyStart = colonIndex - 1;
+      while (keyStart >= 0 && /\s/.test(trimmed[keyStart]!)) {
+        keyStart--;
+      }
+      // Should now be at closing quote of key
+      if (keyStart >= 0 && trimmed[keyStart] === '"') {
+        // Find opening quote of key
+        keyStart--;
+        while (keyStart >= 0 && trimmed[keyStart] !== '"') {
+          keyStart--;
+        }
+        // Now find what's before the key (comma or opening brace)
+        keyStart--;
+        while (keyStart >= 0 && /\s/.test(trimmed[keyStart]!)) {
+          keyStart--;
+        }
+        if (keyStart >= 0 && trimmed[keyStart] === ',') {
+          result = trimmed.slice(0, keyStart);
+        } else {
+          result = trimmed.slice(0, keyStart + 1);
+        }
+        changed = true;
+        continue;
+      }
+    }
+
+    // Handle incomplete literals (true, false, null)
+    const literalMatch = trimmed.match(/(,?\s*)(t(?:r(?:ue?)?)?|f(?:a(?:l(?:se?)?)?)?|n(?:u(?:ll?)?)?)$/i);
+    if (literalMatch && literalMatch[2]) {
+      const partial = literalMatch[2].toLowerCase();
+      const literals = ['true', 'false', 'null'];
+      const match = literals.find((lit) => lit.startsWith(partial) && partial !== lit);
+      if (match) {
+        result = trimmed.slice(0, -literalMatch[2].length) + match;
+        changed = true;
+        continue;
+      }
+    }
+
+    // Handle incomplete numbers at end (e.g., "123." or "1e" or "1e+" or "-")
+    const numberMatch = trimmed.match(/(,?\s*)(-?(?:\d+\.|\d*\.?\d+[eE][+-]?|\d+[eE]|-))$/);
+    if (numberMatch && numberMatch[2]) {
+      const partial = numberMatch[2];
+      if (/[.eE+-]$/.test(partial)) {
+        if (partial === '-') {
+          // Just a minus sign - remove it and any preceding whitespace/comma
+          result = trimmed.slice(0, -(numberMatch[0]?.length ?? 0)).trimEnd();
+          // If we now end with a colon, the loop will clean that up next iteration
+        } else {
+          result = trimmed.slice(0, -1);
+        }
+        changed = true;
+        continue;
+      }
+    }
   }
 
-  // Try parsing as complete JSON first
-  try {
-    const value = JSON.parse(trimmed) as T;
-    return { value, isComplete: true };
-  } catch {
-    // Continue with partial parsing
-  }
-
-  // Attempt to repair and parse the incomplete JSON
-  try {
-    const repaired = repairJson(trimmed);
-    const value = JSON.parse(repaired) as T;
-    return { value, isComplete: false };
-  } catch {
-    return { value: undefined, isComplete: false };
-  }
+  return result;
 }
 
 /**
@@ -156,85 +185,56 @@ function repairJson(json: string): string {
 }
 
 /**
- * Cleans up trailing incomplete elements from JSON.
- * Iteratively handles chained incomplete elements (e.g., trailing colon followed by comma).
+ * Parses potentially incomplete JSON, returning as much as can be extracted.
+ *
+ * Handles common incomplete states during streaming:
+ * - Incomplete strings: `{"name":"Jo` → `{name: "Jo"}`
+ * - Incomplete objects: `{"a":1,"b":` → `{a: 1}`
+ * - Incomplete arrays: `[1,2,` → `[1, 2]`
+ * - Incomplete numbers, booleans, null literals
+ * - Nested structures with partial completion
+ * - Unicode escape sequences
+ *
+ * @typeParam T - The expected type of the parsed value
+ * @param json - The potentially incomplete JSON string
+ * @returns A PartialParseResult with the parsed value and completion status
+ *
+ * @example
+ * ```typescript
+ * // Complete JSON
+ * parsePartialJson('{"name":"John"}');
+ * // => { value: { name: "John" }, isComplete: true }
+ *
+ * // Incomplete object
+ * parsePartialJson('{"user":{"firstName":"Jo');
+ * // => { value: { user: { firstName: "Jo" } }, isComplete: false }
+ *
+ * // Incomplete array
+ * parsePartialJson('[1, 2, 3');
+ * // => { value: [1, 2, 3], isComplete: false }
+ * ```
  */
-function cleanupTrailingIncomplete(json: string): string {
-  let result = json.trim();
-  let changed = true;
+export function parsePartialJson<T = unknown>(json: string): PartialParseResult<T> {
+  const trimmed = json.trim();
 
-  // Keep cleaning until no more changes
-  while (changed) {
-    changed = false;
-    const trimmed = result.trim();
-
-    // Handle trailing comma - remove it
-    if (trimmed.endsWith(',')) {
-      result = trimmed.slice(0, -1);
-      changed = true;
-      continue;
-    }
-
-    // Handle trailing colon - remove the incomplete key-value pair
-    if (trimmed.endsWith(':')) {
-      // Find the start of the key (the opening quote before the colon)
-      const colonIndex = trimmed.length - 1;
-      let keyStart = colonIndex - 1;
-      while (keyStart >= 0 && /\s/.test(trimmed[keyStart]!)) {
-        keyStart--;
-      }
-      // Should now be at closing quote of key
-      if (keyStart >= 0 && trimmed[keyStart] === '"') {
-        // Find opening quote of key
-        keyStart--;
-        while (keyStart >= 0 && trimmed[keyStart] !== '"') {
-          keyStart--;
-        }
-        // Now find what's before the key (comma or opening brace)
-        keyStart--;
-        while (keyStart >= 0 && /\s/.test(trimmed[keyStart]!)) {
-          keyStart--;
-        }
-        if (keyStart >= 0 && trimmed[keyStart] === ',') {
-          result = trimmed.slice(0, keyStart);
-        } else {
-          result = trimmed.slice(0, keyStart + 1);
-        }
-        changed = true;
-        continue;
-      }
-    }
-
-    // Handle incomplete literals (true, false, null)
-    const literalMatch = trimmed.match(/(,?\s*)(t(?:r(?:ue?)?)?|f(?:a(?:l(?:se?)?)?)?|n(?:u(?:ll?)?)?)$/i);
-    if (literalMatch && literalMatch[2]) {
-      const partial = literalMatch[2].toLowerCase();
-      const literals = ['true', 'false', 'null'];
-      const match = literals.find((lit) => lit.startsWith(partial) && partial !== lit);
-      if (match) {
-        result = trimmed.slice(0, -literalMatch[2].length) + match;
-        changed = true;
-        continue;
-      }
-    }
-
-    // Handle incomplete numbers at end (e.g., "123." or "1e" or "1e+" or "-")
-    const numberMatch = trimmed.match(/(,?\s*)(-?(?:\d+\.|\d*\.?\d+[eE][+-]?|\d+[eE]|-))$/);
-    if (numberMatch && numberMatch[2]) {
-      const partial = numberMatch[2];
-      if (/[.eE+-]$/.test(partial)) {
-        if (partial === '-') {
-          // Just a minus sign - remove it and any preceding whitespace/comma
-          result = trimmed.slice(0, -(numberMatch[0]?.length ?? 0)).trimEnd();
-          // If we now end with a colon, the loop will clean that up next iteration
-        } else {
-          result = trimmed.slice(0, -1);
-        }
-        changed = true;
-        continue;
-      }
-    }
+  if (trimmed === '') {
+    return { value: undefined, isComplete: false };
   }
 
-  return result;
+  // Try parsing as complete JSON first
+  try {
+    const value = JSON.parse(trimmed) as T;
+    return { value, isComplete: true };
+  } catch {
+    // Continue with partial parsing
+  }
+
+  // Attempt to repair and parse the incomplete JSON
+  try {
+    const repaired = repairJson(trimmed);
+    const value = JSON.parse(repaired) as T;
+    return { value, isComplete: false };
+  } catch {
+    return { value: undefined, isComplete: false };
+  }
 }

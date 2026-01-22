@@ -244,11 +244,10 @@ export function createLLMHandler(): LLMHandler<CerebrasLLMParams> {
 
                   const uppEvents = transformStreamEvent(chunk, state);
                   for (const event of uppEvents) {
+                    yield event;
+                    // Also emit ObjectDelta for structured output - gives developers explicit hook
                     if (request.structure && event.type === StreamEventType.TextDelta) {
-                      // Emit ObjectDelta without parsing - middleware handles parsing
                       yield objectDelta(event.delta.text ?? '', event.index);
-                    } else {
-                      yield event;
                     }
                   }
                 }

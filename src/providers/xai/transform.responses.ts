@@ -27,70 +27,6 @@ import type {
 } from './types.ts';
 
 /**
- * Transforms a UPP LLM request to the xAI Responses API format.
- *
- * All params are spread directly to enable pass-through of xAI API fields
- * not explicitly defined in our types. This allows developers to use new
- * API features without waiting for library updates.
- *
- * @param request - The unified provider protocol request
- * @param modelId - The xAI model identifier
- * @returns The transformed xAI Responses API request body
- */
-export function transformRequest(
-  request: LLMRequest<XAIResponsesParams>,
-  modelId: string
-): XAIResponsesRequest {
-  const params = request.params ?? ({} as XAIResponsesParams);
-
-  // Extract tools before spreading params to avoid including it in the request
-  const { tools: builtInTools, ...restParams } = params;
-
-  const xaiRequest: XAIResponsesRequest = {
-    ...restParams,
-    model: modelId,
-    input: transformInputItems(request.messages, request.system),
-  };
-
-  // Build tools array: function tools from request.tools + built-in agentic tools from params
-  const functionTools: XAIResponsesTool[] = request.tools?.map(transformTool) ?? [];
-  const allTools: Array<XAIResponsesTool | XAIBuiltInTool> = [
-    ...functionTools,
-    ...(builtInTools ?? []),
-  ];
-
-  if (allTools.length > 0) {
-    xaiRequest.tools = allTools;
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    xaiRequest.text = {
-      format: {
-        type: 'json_schema',
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return xaiRequest;
-}
-
-/**
  * Normalizes system prompt to string.
  * Converts array format to concatenated string for providers that only support strings.
  */
@@ -134,43 +70,6 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms UPP messages to Responses API input items.
- *
- * @param messages - The array of UPP messages
- * @param system - Optional system prompt (string or array, normalized to string)
- * @returns Array of input items or a simple string for single user messages
- */
-function transformInputItems(
-  messages: Message[],
-  system?: string | unknown[]
-): XAIResponsesInputItem[] | string {
-  const result: XAIResponsesInputItem[] = [];
-  const normalizedSystem = normalizeSystem(system);
-
-  if (normalizedSystem) {
-    result.push({
-      type: 'message',
-      role: 'system',
-      content: normalizedSystem,
-    });
-  }
-
-  for (const message of messages) {
-    const items = transformMessage(message);
-    result.push(...items);
-  }
-
-  if (result.length === 1 && result[0]?.type === 'message') {
-    const item = result[0] as { role?: string; content?: string | unknown[] };
-    if (item.role === 'user' && typeof item.content === 'string') {
-      return item.content;
-    }
-  }
-
-  return result;
-}
-
-/**
  * Filters content blocks to only those with a valid type property.
  *
  * @param content - Array of content blocks
@@ -178,6 +77,50 @@ function transformInputItems(
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transforms a UPP content block to Responses API content part format.
+ *
+ * @param block - The content block to transform
+ * @returns The xAI-formatted content part
+ * @throws Error if the content type is unsupported
+ */
+function transformContentPart(block: ContentBlock): XAIResponsesContentPart {
+  switch (block.type) {
+    case 'text':
+      return { type: 'input_text', text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      if (imageBlock.source.type === 'base64') {
+        return {
+          type: 'input_image',
+          image_url: `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`,
+        };
+      }
+
+      if (imageBlock.source.type === 'url') {
+        return {
+          type: 'input_image',
+          image_url: imageBlock.source.url,
+        };
+      }
+
+      if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        return {
+          type: 'input_image',
+          image_url: `data:${imageBlock.mimeType};base64,${base64}`,
+        };
+      }
+
+      throw new Error('Unknown image source type');
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
 }
 
 /**
@@ -299,47 +242,40 @@ function transformMessage(message: Message): XAIResponsesInputItem[] {
 }
 
 /**
- * Transforms a UPP content block to Responses API content part format.
+ * Transforms UPP messages to Responses API input items.
  *
- * @param block - The content block to transform
- * @returns The xAI-formatted content part
- * @throws Error if the content type is unsupported
+ * @param messages - The array of UPP messages
+ * @param system - Optional system prompt (string or array, normalized to string)
+ * @returns Array of input items or a simple string for single user messages
  */
-function transformContentPart(block: ContentBlock): XAIResponsesContentPart {
-  switch (block.type) {
-    case 'text':
-      return { type: 'input_text', text: block.text };
+function transformInputItems(
+  messages: Message[],
+  system?: string | unknown[]
+): XAIResponsesInputItem[] | string {
+  const result: XAIResponsesInputItem[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      if (imageBlock.source.type === 'base64') {
-        return {
-          type: 'input_image',
-          image_url: `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`,
-        };
-      }
-
-      if (imageBlock.source.type === 'url') {
-        return {
-          type: 'input_image',
-          image_url: imageBlock.source.url,
-        };
-      }
-
-      if (imageBlock.source.type === 'bytes') {
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        return {
-          type: 'input_image',
-          image_url: `data:${imageBlock.mimeType};base64,${base64}`,
-        };
-      }
-
-      throw new Error('Unknown image source type');
-    }
-
-    default:
-      throw new Error(`Unsupported content type: ${block.type}`);
+  if (normalizedSystem) {
+    result.push({
+      type: 'message',
+      role: 'system',
+      content: normalizedSystem,
+    });
   }
+
+  for (const message of messages) {
+    const items = transformMessage(message);
+    result.push(...items);
+  }
+
+  if (result.length === 1 && result[0]?.type === 'message') {
+    const item = result[0] as { role?: string; content?: string | unknown[] };
+    if (item.role === 'user' && typeof item.content === 'string') {
+      return item.content;
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -362,6 +298,70 @@ function transformTool(tool: Tool): XAIResponsesTool {
         : {}),
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request to the xAI Responses API format.
+ *
+ * All params are spread directly to enable pass-through of xAI API fields
+ * not explicitly defined in our types. This allows developers to use new
+ * API features without waiting for library updates.
+ *
+ * @param request - The unified provider protocol request
+ * @param modelId - The xAI model identifier
+ * @returns The transformed xAI Responses API request body
+ */
+export function transformRequest(
+  request: LLMRequest<XAIResponsesParams>,
+  modelId: string
+): XAIResponsesRequest {
+  const params = request.params ?? ({} as XAIResponsesParams);
+
+  // Extract tools before spreading params to avoid including it in the request
+  const { tools: builtInTools, ...restParams } = params;
+
+  const xaiRequest: XAIResponsesRequest = {
+    ...restParams,
+    model: modelId,
+    input: transformInputItems(request.messages, request.system),
+  };
+
+  // Build tools array: function tools from request.tools + built-in agentic tools from params
+  const functionTools: XAIResponsesTool[] = request.tools?.map(transformTool) ?? [];
+  const allTools: Array<XAIResponsesTool | XAIBuiltInTool> = [
+    ...functionTools,
+    ...(builtInTools ?? []),
+  ];
+
+  if (allTools.length > 0) {
+    xaiRequest.tools = allTools;
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    xaiRequest.text = {
+      format: {
+        type: 'json_schema',
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return xaiRequest;
 }
 
 /**

@@ -72,6 +72,26 @@ const RESPONSES_CAPABILITIES: LLMCapabilities = {
 };
 
 /**
+ * Extracts the handler context from the request config.
+ * The context is stored in providerConfig when creating the model reference.
+ */
+function extractContext(request: LLMRequest<ResponsesParams>): ResponsesHandlerContext {
+  const config = request.config;
+  const responsesConfig = (config as { _responsesContext?: ResponsesHandlerContext })._responsesContext;
+
+  if (!responsesConfig) {
+    throw new UPPError(
+      'OpenResponses provider requires host configuration. Use responses(modelId, { host: "..." })',
+      ErrorCode.InvalidRequest,
+      'responses',
+      ModalityType.LLM
+    );
+  }
+
+  return responsesConfig;
+}
+
+/**
  * Creates an LLM handler for OpenResponses-compatible servers.
  *
  * This factory function creates a handler that communicates with any
@@ -255,11 +275,9 @@ export function createLLMHandler(): LLMHandler<ResponsesParams> {
 
                   const uppEvents = transformStreamEvent(event, state);
                   for (const uppEvent of uppEvents) {
+                    yield uppEvent;
                     if (request.structure && uppEvent.type === StreamEventType.TextDelta) {
-                      // Emit ObjectDelta without parsing - middleware handles parsing
                       yield objectDelta(uppEvent.delta.text ?? '', uppEvent.index);
-                    } else {
-                      yield uppEvent;
                     }
                   }
                 }
@@ -285,24 +303,4 @@ export function createLLMHandler(): LLMHandler<ResponsesParams> {
       return model;
     },
   };
-}
-
-/**
- * Extracts the handler context from the request config.
- * The context is stored in providerConfig when creating the model reference.
- */
-function extractContext(request: LLMRequest<ResponsesParams>): ResponsesHandlerContext {
-  const config = request.config;
-  const responsesConfig = (config as { _responsesContext?: ResponsesHandlerContext })._responsesContext;
-
-  if (!responsesConfig) {
-    throw new UPPError(
-      'OpenResponses provider requires host configuration. Use responses(modelId, { host: "..." })',
-      ErrorCode.InvalidRequest,
-      'responses',
-      ModalityType.LLM
-    );
-  }
-
-  return responsesConfig;
 }

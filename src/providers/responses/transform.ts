@@ -52,63 +52,6 @@ import type {
 } from './types.ts';
 
 /**
- * Transforms a UPP LLM request into OpenResponses API format.
- *
- * @param request - The UPP LLM request
- * @param modelId - The model identifier
- * @returns An OpenResponses API request body
- */
-export function transformRequest(
-  request: LLMRequest<ResponsesParams>,
-  modelId: string
-): ResponsesRequest {
-  const params = request.params ?? ({} as ResponsesParams);
-  const { tools: builtInTools, ...restParams } = params;
-
-  const responsesRequest: ResponsesRequest = {
-    ...restParams,
-    model: modelId,
-    input: transformInputItems(request.messages, request.system),
-  };
-
-  const functionTools: ResponsesToolUnion[] = request.tools?.map(transformTool) ?? [];
-  const allTools: ResponsesToolUnion[] = [
-    ...functionTools,
-    ...(builtInTools ?? []),
-  ];
-
-  if (allTools.length > 0) {
-    responsesRequest.tools = allTools;
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    responsesRequest.text = {
-      format: {
-        type: 'json_schema',
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return responsesRequest;
-}
-
-/**
  * Normalizes system prompt to string.
  */
 function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
@@ -151,43 +94,115 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms UPP messages to OpenResponses input items.
- */
-function transformInputItems(
-  messages: Message[],
-  system?: string | unknown[]
-): ResponsesInputItem[] | string {
-  const result: ResponsesInputItem[] = [];
-  const normalizedSystem = normalizeSystem(system);
-
-  if (normalizedSystem) {
-    result.push({
-      type: 'message',
-      role: 'system',
-      content: normalizedSystem,
-    });
-  }
-
-  for (const message of messages) {
-    const items = transformMessage(message);
-    result.push(...items);
-  }
-
-  if (result.length === 1 && result[0]?.type === 'message') {
-    const item = result[0] as { role?: string; content?: string | unknown[] };
-    if (item.role === 'user' && typeof item.content === 'string') {
-      return item.content;
-    }
-  }
-
-  return result;
-}
-
-/**
  * Filters content blocks to only include those with a valid type property.
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transforms a UPP content block to OpenResponses content part format.
+ * Supports text, image, document, video, and audio content types.
+ */
+function transformContentPart(block: ContentBlock): ResponsesContentPart {
+  switch (block.type) {
+    case 'text':
+      return { type: 'input_text', text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      if (imageBlock.source.type === 'base64') {
+        return {
+          type: 'input_image',
+          image_url: `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`,
+        };
+      }
+
+      if (imageBlock.source.type === 'url') {
+        return {
+          type: 'input_image',
+          image_url: imageBlock.source.url,
+        };
+      }
+
+      if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        return {
+          type: 'input_image',
+          image_url: `data:${imageBlock.mimeType};base64,${base64}`,
+        };
+      }
+
+      throw new UPPError(
+        'Unknown image source type',
+        ErrorCode.InvalidRequest,
+        'responses',
+        ModalityType.LLM
+      );
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      if (documentBlock.source.type === 'base64') {
+        return {
+          type: 'input_file',
+          filename: documentBlock.title ?? 'document',
+          file_data: `data:${documentBlock.mimeType};base64,${documentBlock.source.data}`,
+        };
+      }
+
+      if (documentBlock.source.type === 'url') {
+        return {
+          type: 'input_file',
+          file_url: documentBlock.source.url,
+        };
+      }
+
+      if (documentBlock.source.type === 'text') {
+        const base64 = Buffer.from(documentBlock.source.data).toString('base64');
+        return {
+          type: 'input_file',
+          filename: documentBlock.title ?? 'document.txt',
+          file_data: `data:text/plain;base64,${base64}`,
+        };
+      }
+
+      throw new UPPError(
+        'Unknown document source type',
+        ErrorCode.InvalidRequest,
+        'responses',
+        ModalityType.LLM
+      );
+    }
+
+    case 'video': {
+      const videoBlock = block as VideoBlock;
+      const base64 = Buffer.from(videoBlock.data).toString('base64');
+      return {
+        type: 'input_video' as ResponsesContentPart['type'],
+        video: `data:${videoBlock.mimeType};base64,${base64}`,
+      } as ResponsesContentPart;
+    }
+
+    case 'audio': {
+      const audioBlock = block as AudioBlock;
+      const base64 = Buffer.from(audioBlock.data).toString('base64');
+      return {
+        type: 'input_file',
+        filename: 'audio',
+        file_data: `data:${audioBlock.mimeType};base64,${base64}`,
+      };
+    }
+
+    default:
+      throw new UPPError(
+        `Unsupported content type: ${block.type}`,
+        ErrorCode.InvalidRequest,
+        'responses',
+        ModalityType.LLM
+      );
+  }
 }
 
 /**
@@ -299,108 +314,36 @@ function transformMessage(message: Message): ResponsesInputItem[] {
 }
 
 /**
- * Transforms a UPP content block to OpenResponses content part format.
- * Supports text, image, document, video, and audio content types.
+ * Transforms UPP messages to OpenResponses input items.
  */
-function transformContentPart(block: ContentBlock): ResponsesContentPart {
-  switch (block.type) {
-    case 'text':
-      return { type: 'input_text', text: block.text };
+function transformInputItems(
+  messages: Message[],
+  system?: string | unknown[]
+): ResponsesInputItem[] | string {
+  const result: ResponsesInputItem[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      if (imageBlock.source.type === 'base64') {
-        return {
-          type: 'input_image',
-          image_url: `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`,
-        };
-      }
-
-      if (imageBlock.source.type === 'url') {
-        return {
-          type: 'input_image',
-          image_url: imageBlock.source.url,
-        };
-      }
-
-      if (imageBlock.source.type === 'bytes') {
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        return {
-          type: 'input_image',
-          image_url: `data:${imageBlock.mimeType};base64,${base64}`,
-        };
-      }
-
-      throw new UPPError(
-        'Unknown image source type',
-        ErrorCode.InvalidRequest,
-        'responses',
-        ModalityType.LLM
-      );
-    }
-
-    case 'document': {
-      const documentBlock = block as DocumentBlock;
-
-      if (documentBlock.source.type === 'base64') {
-        return {
-          type: 'input_file',
-          filename: documentBlock.title ?? 'document',
-          file_data: `data:${documentBlock.mimeType};base64,${documentBlock.source.data}`,
-        };
-      }
-
-      if (documentBlock.source.type === 'url') {
-        return {
-          type: 'input_file',
-          file_url: documentBlock.source.url,
-        };
-      }
-
-      if (documentBlock.source.type === 'text') {
-        const base64 = Buffer.from(documentBlock.source.data).toString('base64');
-        return {
-          type: 'input_file',
-          filename: documentBlock.title ?? 'document.txt',
-          file_data: `data:text/plain;base64,${base64}`,
-        };
-      }
-
-      throw new UPPError(
-        'Unknown document source type',
-        ErrorCode.InvalidRequest,
-        'responses',
-        ModalityType.LLM
-      );
-    }
-
-    case 'video': {
-      const videoBlock = block as VideoBlock;
-      const base64 = Buffer.from(videoBlock.data).toString('base64');
-      return {
-        type: 'input_video' as ResponsesContentPart['type'],
-        video: `data:${videoBlock.mimeType};base64,${base64}`,
-      } as ResponsesContentPart;
-    }
-
-    case 'audio': {
-      const audioBlock = block as AudioBlock;
-      const base64 = Buffer.from(audioBlock.data).toString('base64');
-      return {
-        type: 'input_file',
-        filename: 'audio',
-        file_data: `data:${audioBlock.mimeType};base64,${base64}`,
-      };
-    }
-
-    default:
-      throw new UPPError(
-        `Unsupported content type: ${block.type}`,
-        ErrorCode.InvalidRequest,
-        'responses',
-        ModalityType.LLM
-      );
+  if (normalizedSystem) {
+    result.push({
+      type: 'message',
+      role: 'system',
+      content: normalizedSystem,
+    });
   }
+
+  for (const message of messages) {
+    const items = transformMessage(message);
+    result.push(...items);
+  }
+
+  if (result.length === 1 && result[0]?.type === 'message') {
+    const item = result[0] as { role?: string; content?: string | unknown[] };
+    if (item.role === 'user' && typeof item.content === 'string') {
+      return item.content;
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -431,6 +374,63 @@ function transformTool(tool: Tool): ResponsesFunctionTool {
     },
     ...(strict !== undefined ? { strict } : {}),
   };
+}
+
+/**
+ * Transforms a UPP LLM request into OpenResponses API format.
+ *
+ * @param request - The UPP LLM request
+ * @param modelId - The model identifier
+ * @returns An OpenResponses API request body
+ */
+export function transformRequest(
+  request: LLMRequest<ResponsesParams>,
+  modelId: string
+): ResponsesRequest {
+  const params = request.params ?? ({} as ResponsesParams);
+  const { tools: builtInTools, ...restParams } = params;
+
+  const responsesRequest: ResponsesRequest = {
+    ...restParams,
+    model: modelId,
+    input: transformInputItems(request.messages, request.system),
+  };
+
+  const functionTools: ResponsesToolUnion[] = request.tools?.map(transformTool) ?? [];
+  const allTools: ResponsesToolUnion[] = [
+    ...functionTools,
+    ...(builtInTools ?? []),
+  ];
+
+  if (allTools.length > 0) {
+    responsesRequest.tools = allTools;
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    responsesRequest.text = {
+      format: {
+        type: 'json_schema',
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return responsesRequest;
 }
 
 /**

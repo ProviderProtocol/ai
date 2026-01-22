@@ -11,6 +11,31 @@
 import type { DocumentSource, DocumentBlock } from '../../types/content.ts';
 
 /**
+ * Detects the MIME type of a document based on its file extension.
+ *
+ * Supports PDF and common text file formats.
+ * Returns 'application/octet-stream' for unknown extensions.
+ *
+ * @param path - File path or filename with extension
+ * @returns The detected MIME type string
+ */
+function detectMimeType(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase();
+
+  switch (ext) {
+    case 'pdf':
+      return 'application/pdf';
+    case 'txt':
+    case 'text':
+    case 'md':
+    case 'markdown':
+      return 'text/plain';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+/**
  * Represents a document that can be used in UPP messages.
  *
  * Documents can be created from various sources (files, URLs, text, base64) and
@@ -265,30 +290,5 @@ export class Document {
       block.mimeType,
       block.title
     );
-  }
-}
-
-/**
- * Detects the MIME type of a document based on its file extension.
- *
- * Supports PDF and common text file formats.
- * Returns 'application/octet-stream' for unknown extensions.
- *
- * @param path - File path or filename with extension
- * @returns The detected MIME type string
- */
-function detectMimeType(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase();
-
-  switch (ext) {
-    case 'pdf':
-      return 'application/pdf';
-    case 'txt':
-    case 'text':
-    case 'md':
-    case 'markdown':
-      return 'text/plain';
-    default:
-      return 'application/octet-stream';
   }
 }

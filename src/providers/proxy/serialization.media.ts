@@ -51,6 +51,108 @@ export type SerializedEmbeddingInput =
   | { type: 'text'; text: string }
   | { type: 'image'; source: SerializedImageSource; mimeType: string };
 
+function bytesToBase64(bytes: Uint8Array): string {
+  const binary = Array.from(bytes)
+    .map((b) => String.fromCharCode(b))
+    .join('');
+  return btoa(binary);
+}
+
+function base64ToBytes(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  return Uint8Array.from(binaryString, (c) => c.charCodeAt(0));
+}
+
+function coerceBytes(data: number[] | string): Uint8Array {
+  if (typeof data === 'string') {
+    return base64ToBytes(data);
+  }
+  return Uint8Array.from(data);
+}
+
+function isImageSource(value: unknown): value is ImageSource {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+
+  const source = value as Record<string, unknown>;
+  if (source.type === 'base64') {
+    return typeof source.data === 'string';
+  }
+  if (source.type === 'url') {
+    return typeof source.url === 'string';
+  }
+  if (source.type === 'bytes') {
+    return source.data instanceof Uint8Array || Array.isArray(source.data) || typeof source.data === 'string';
+  }
+  return false;
+}
+
+type ImageSourceLike = ImageSource | SerializedImageSource;
+
+function serializeImageSource(source: ImageSourceLike): SerializedImageSource {
+  if (source.type === 'base64') {
+    return { type: 'base64', data: source.data };
+  }
+  if (source.type === 'url') {
+    return { type: 'url', url: source.url };
+  }
+  if (typeof source.data === 'string') {
+    return { type: 'base64', data: source.data };
+  }
+  if (source.data instanceof Uint8Array) {
+    return { type: 'base64', data: bytesToBase64(source.data) };
+  }
+  return { type: 'base64', data: bytesToBase64(Uint8Array.from(source.data)) };
+}
+
+function deserializeImageSource(source: SerializedImageSource): ImageSource {
+  if (source.type === 'base64') {
+    return { type: 'base64', data: source.data };
+  }
+  if (source.type === 'url') {
+    return { type: 'url', url: source.url };
+  }
+  return { type: 'bytes', data: coerceBytes(source.data) };
+}
+
+/**
+ * Serialize an Image for JSON transport.
+ */
+export function serializeImage(image: Image): SerializedImage {
+  const block = image.toBlock();
+  return {
+    source: serializeImageSource(block.source),
+    mimeType: block.mimeType,
+    width: block.width,
+    height: block.height,
+  };
+}
+
+function serializeUnknownImageSource(
+  source: unknown,
+  mimeType: string
+): SerializedImageSource {
+  if (source instanceof Image) {
+    return serializeImage(source).source;
+  }
+
+  if (isImageSource(source)) {
+    return serializeImageSource(source);
+  }
+
+  if (typeof source === 'string') {
+    return { type: 'base64', data: source };
+  }
+
+  throw new UPPError(
+    `Unsupported image source for ${mimeType}`,
+    ErrorCode.InvalidRequest,
+    'proxy',
+    ModalityType.Embedding
+  );
+}
+
 /**
  * Serialize an EmbeddingInput for JSON transport.
  */
@@ -102,19 +204,6 @@ export function deserializeEmbeddingInput(input: SerializedEmbeddingInput): Embe
     'proxy',
     ModalityType.Embedding
   );
-}
-
-/**
- * Serialize an Image for JSON transport.
- */
-export function serializeImage(image: Image): SerializedImage {
-  const block = image.toBlock();
-  return {
-    source: serializeImageSource(block.source),
-    mimeType: block.mimeType,
-    width: block.width,
-    height: block.height,
-  };
 }
 
 /**
@@ -228,93 +317,4 @@ export function deserializeImageStreamEvent(
     index: event.index,
     image: deserializeGeneratedImage(event.image),
   };
-}
-
-type ImageSourceLike = ImageSource | SerializedImageSource;
-
-function serializeImageSource(source: ImageSourceLike): SerializedImageSource {
-  if (source.type === 'base64') {
-    return { type: 'base64', data: source.data };
-  }
-  if (source.type === 'url') {
-    return { type: 'url', url: source.url };
-  }
-  if (typeof source.data === 'string') {
-    return { type: 'base64', data: source.data };
-  }
-  if (source.data instanceof Uint8Array) {
-    return { type: 'base64', data: bytesToBase64(source.data) };
-  }
-  return { type: 'base64', data: bytesToBase64(Uint8Array.from(source.data)) };
-}
-
-function serializeUnknownImageSource(
-  source: unknown,
-  mimeType: string
-): SerializedImageSource {
-  if (source instanceof Image) {
-    return serializeImage(source).source;
-  }
-
-  if (isImageSource(source)) {
-    return serializeImageSource(source);
-  }
-
-  if (typeof source === 'string') {
-    return { type: 'base64', data: source };
-  }
-
-  throw new UPPError(
-    `Unsupported image source for ${mimeType}`,
-    ErrorCode.InvalidRequest,
-    'proxy',
-    ModalityType.Embedding
-  );
-}
-
-function deserializeImageSource(source: SerializedImageSource): ImageSource {
-  if (source.type === 'base64') {
-    return { type: 'base64', data: source.data };
-  }
-  if (source.type === 'url') {
-    return { type: 'url', url: source.url };
-  }
-  return { type: 'bytes', data: coerceBytes(source.data) };
-}
-
-function isImageSource(value: unknown): value is ImageSource {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-
-  const source = value as Record<string, unknown>;
-  if (source.type === 'base64') {
-    return typeof source.data === 'string';
-  }
-  if (source.type === 'url') {
-    return typeof source.url === 'string';
-  }
-  if (source.type === 'bytes') {
-    return source.data instanceof Uint8Array || Array.isArray(source.data) || typeof source.data === 'string';
-  }
-  return false;
-}
-
-function coerceBytes(data: number[] | string): Uint8Array {
-  if (typeof data === 'string') {
-    return base64ToBytes(data);
-  }
-  return Uint8Array.from(data);
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  const binary = Array.from(bytes)
-    .map((b) => String.fromCharCode(b))
-    .join('');
-  return btoa(binary);
-}
-
-function base64ToBytes(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  return Uint8Array.from(binaryString, (c) => c.charCodeAt(0));
 }

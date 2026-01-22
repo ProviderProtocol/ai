@@ -46,70 +46,6 @@ interface ProxyImageRequestBody {
   mask?: ReturnType<typeof serializeImage>;
 }
 
-/**
- * Creates a proxy image handler.
- *
- * Supports full ProviderConfig options including retry strategies, timeouts,
- * custom headers, and custom fetch implementations. This allows client-side
- * retry logic for network failures to the proxy server.
- *
- * @param options - Proxy configuration options
- * @returns An image handler that transports requests over HTTP
- */
-export function createImageHandler(
-  options: ProxyProviderOptions
-): ImageHandler<ProxyImageParams> {
-  const { endpoint, headers: defaultHeaders = {} } = options;
-
-  let providerRef: ImageProvider<ProxyImageParams> | null = null;
-
-  return {
-    _setProvider(provider: ImageProvider<ProxyImageParams>) {
-      providerRef = provider;
-    },
-
-    bind(modelId: string): BoundImageModel<ProxyImageParams> {
-      const provider = providerRef;
-      if (!provider) {
-        throw new UPPError(
-          'Provider reference not set. Handler must be used with createProvider().',
-          ErrorCode.InvalidRequest,
-          'proxy',
-          ModalityType.Image
-        );
-      }
-
-      const model: BoundImageModel<ProxyImageParams> = {
-        modelId,
-        capabilities: PROXY_IMAGE_CAPABILITIES,
-
-        get provider(): ImageProvider<ProxyImageParams> {
-          return provider;
-        },
-
-        async generate(request: ImageRequest<ProxyImageParams>): Promise<ImageResponse> {
-          const body = buildImageRequestBody(modelId, request);
-          return executeImageRequest(endpoint, body, request, defaultHeaders);
-        },
-
-        async edit(request: ImageEditRequest<ProxyImageParams>): Promise<ImageResponse> {
-          const body = buildImageEditRequestBody(modelId, request);
-          return executeImageRequest(endpoint, body, request, defaultHeaders);
-        },
-      };
-
-      model.stream = function stream(
-        request: ImageRequest<ProxyImageParams>
-      ): ImageProviderStreamResult {
-        const body = buildImageRequestBody(modelId, request);
-        return executeImageStream(endpoint, body, request, defaultHeaders);
-      };
-
-      return model;
-    },
-  };
-}
-
 function buildImageRequestBody(
   modelId: string,
   request: ImageRequest<ProxyImageParams>
@@ -132,6 +68,15 @@ function buildImageEditRequestBody(
     image: serializeImage(request.image),
     mask: request.mask ? serializeImage(request.mask) : undefined,
   };
+}
+
+function isImageResponsePayload(
+  payload: SerializedImageStreamEvent | SerializedImageResponse
+): payload is SerializedImageResponse {
+  return !!payload
+    && typeof payload === 'object'
+    && 'images' in payload
+    && Array.isArray((payload as SerializedImageResponse).images);
 }
 
 async function executeImageRequest(
@@ -309,11 +254,66 @@ function executeImageStream(
   };
 }
 
-function isImageResponsePayload(
-  payload: SerializedImageStreamEvent | SerializedImageResponse
-): payload is SerializedImageResponse {
-  return !!payload
-    && typeof payload === 'object'
-    && 'images' in payload
-    && Array.isArray((payload as SerializedImageResponse).images);
+/**
+ * Creates a proxy image handler.
+ *
+ * Supports full ProviderConfig options including retry strategies, timeouts,
+ * custom headers, and custom fetch implementations. This allows client-side
+ * retry logic for network failures to the proxy server.
+ *
+ * @param options - Proxy configuration options
+ * @returns An image handler that transports requests over HTTP
+ */
+export function createImageHandler(
+  options: ProxyProviderOptions
+): ImageHandler<ProxyImageParams> {
+  const { endpoint, headers: defaultHeaders = {} } = options;
+
+  let providerRef: ImageProvider<ProxyImageParams> | null = null;
+
+  return {
+    _setProvider(provider: ImageProvider<ProxyImageParams>) {
+      providerRef = provider;
+    },
+
+    bind(modelId: string): BoundImageModel<ProxyImageParams> {
+      const provider = providerRef;
+      if (!provider) {
+        throw new UPPError(
+          'Provider reference not set. Handler must be used with createProvider().',
+          ErrorCode.InvalidRequest,
+          'proxy',
+          ModalityType.Image
+        );
+      }
+
+      const model: BoundImageModel<ProxyImageParams> = {
+        modelId,
+        capabilities: PROXY_IMAGE_CAPABILITIES,
+
+        get provider(): ImageProvider<ProxyImageParams> {
+          return provider;
+        },
+
+        async generate(request: ImageRequest<ProxyImageParams>): Promise<ImageResponse> {
+          const body = buildImageRequestBody(modelId, request);
+          return executeImageRequest(endpoint, body, request, defaultHeaders);
+        },
+
+        async edit(request: ImageEditRequest<ProxyImageParams>): Promise<ImageResponse> {
+          const body = buildImageEditRequestBody(modelId, request);
+          return executeImageRequest(endpoint, body, request, defaultHeaders);
+        },
+      };
+
+      model.stream = function stream(
+        request: ImageRequest<ProxyImageParams>
+      ): ImageProviderStreamResult {
+        const body = buildImageRequestBody(modelId, request);
+        return executeImageStream(endpoint, body, request, defaultHeaders);
+      };
+
+      return model;
+    },
+  };
 }

@@ -15,8 +15,6 @@ import type {
   ImageResult,
   ImageStreamResult,
   ImageStreamEvent,
-  ImageCapabilities,
-  BoundImageModel,
   ImageGenerateOptions,
   ImageRequest,
 } from '../types/image.ts';
@@ -26,6 +24,19 @@ import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveImageHandler } from './provider-handlers.ts';
 import { toError } from '../utils/error.ts';
 import { runHook, runErrorHook, createMiddlewareContext } from '../middleware/runner.ts';
+
+/**
+ * Normalizes ImageInput to a prompt string.
+ *
+ * @param input - Either a string prompt or object with prompt field
+ * @returns The prompt string
+ */
+function normalizeInput(input: ImageInput): string {
+  if (typeof input === 'string') {
+    return input;
+  }
+  return input.prompt;
+}
 
 /**
  * Creates an image generation instance configured with the specified options.
@@ -95,14 +106,14 @@ export function image<TParams = unknown>(
     params,
     capabilities,
 
-    async generate(input: ImageInput, options?: ImageGenerateOptions): Promise<ImageResult> {
+    async generate(input: ImageInput, generateOptions?: ImageGenerateOptions): Promise<ImageResult> {
       const prompt = normalizeInput(input);
 
       const request: ImageRequest<TParams> = {
         prompt,
         params,
         config,
-        signal: options?.signal,
+        signal: generateOptions?.signal,
       };
 
       const ctx = createMiddlewareContext(
@@ -231,19 +242,6 @@ export function image<TParams = unknown>(
   }
 
   return instance;
-}
-
-/**
- * Normalizes ImageInput to a prompt string.
- *
- * @param input - Either a string prompt or object with prompt field
- * @returns The prompt string
- */
-function normalizeInput(input: ImageInput): string {
-  if (typeof input === 'string') {
-    return input;
-  }
-  return input.prompt;
 }
 
 /**

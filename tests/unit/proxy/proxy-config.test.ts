@@ -120,7 +120,7 @@ describe('Proxy Config Integration Tests', () => {
       const turn = await instance.generate('Hello');
 
       expect(turn.response.text).toBe('Hi there!');
-      expect(requestHeaders['authorization']).toBe('Bearer my-platform-token');
+      expect(requestHeaders.authorization).toBe('Bearer my-platform-token');
     });
 
     test('passes custom headers to server', async () => {
@@ -237,11 +237,11 @@ describe('Proxy Config Integration Tests', () => {
         });
 
         const stream = instance.stream('Hello');
-        for await (const _ of stream) {
-          // Consume stream
+        for await (const event of stream) {
+          void event;
         }
 
-        expect(requestHeaders['authorization']).toBe('Bearer stream-token');
+        expect(requestHeaders.authorization).toBe('Bearer stream-token');
       } finally {
         sseServer.stop();
       }

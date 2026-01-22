@@ -71,56 +71,35 @@ function getCapabilities(): ImageCapabilities {
 }
 
 /**
- * Creates an image handler for Google's Imagen API.
- *
- * @returns An image handler configured for Google Imagen
- *
- * @example
- * ```typescript
- * const handler = createImageHandler();
- * const model = handler.bind('imagen-4.0-generate-001');
- *
- * const response = await model.generate({
- *   prompt: 'A sunset over mountains',
- *   config: { apiKey: '...' },
- *   params: { aspectRatio: '16:9', sampleCount: 4 }
- * });
- * ```
+ * Build parameters object for the API.
  */
-export function createImageHandler(): ImageHandler<GoogleImagenParams> {
-  let providerRef: ImageProvider<GoogleImagenParams> | null = null;
+function buildParameters(params?: GoogleImagenParams): Record<string, unknown> {
+  return params ? { ...params } : {};
+}
+
+/**
+ * Transform Google response to ImageResponse.
+ */
+function transformResponse(data: GoogleImagenResponse): ImageResponse {
+  if (!data.predictions || data.predictions.length === 0) {
+    throw new UPPError(
+      'No images in response',
+      ErrorCode.ProviderError,
+      'google',
+      ModalityType.Image
+    );
+  }
+
+  const images: GeneratedImage[] = data.predictions.map((prediction) => {
+    const mimeType = prediction.mimeType ?? 'image/png';
+    const image = Image.fromBase64(prediction.bytesBase64Encoded, mimeType);
+    return { image };
+  });
 
   return {
-    _setProvider(provider: ImageProvider<GoogleImagenParams>) {
-      providerRef = provider;
-    },
-
-    bind(modelId: string): BoundImageModel<GoogleImagenParams> {
-      if (!providerRef) {
-        throw new UPPError(
-          'Provider reference not set. Handler must be used with createProvider().',
-          ErrorCode.InvalidRequest,
-          'google',
-          ModalityType.Image
-        );
-      }
-
-      const capabilities = getCapabilities();
-
-      const model: BoundImageModel<GoogleImagenParams> = {
-        modelId,
-        capabilities,
-
-        get provider(): ImageProvider<GoogleImagenParams> {
-          return providerRef!;
-        },
-
-        async generate(request: ImageRequest<GoogleImagenParams>): Promise<ImageResponse> {
-          return executeGenerate(modelId, request);
-        },
-      };
-
-      return model;
+    images,
+    usage: {
+      imagesGenerated: images.length,
     },
   };
 }
@@ -175,35 +154,56 @@ async function executeGenerate(
 }
 
 /**
- * Build parameters object for the API.
+ * Creates an image handler for Google's Imagen API.
+ *
+ * @returns An image handler configured for Google Imagen
+ *
+ * @example
+ * ```typescript
+ * const handler = createImageHandler();
+ * const model = handler.bind('imagen-4.0-generate-001');
+ *
+ * const response = await model.generate({
+ *   prompt: 'A sunset over mountains',
+ *   config: { apiKey: '...' },
+ *   params: { aspectRatio: '16:9', sampleCount: 4 }
+ * });
+ * ```
  */
-function buildParameters(params?: GoogleImagenParams): Record<string, unknown> {
-  return params ? { ...params } : {};
-}
-
-/**
- * Transform Google response to ImageResponse.
- */
-function transformResponse(data: GoogleImagenResponse): ImageResponse {
-  if (!data.predictions || data.predictions.length === 0) {
-    throw new UPPError(
-      'No images in response',
-      ErrorCode.ProviderError,
-      'google',
-      ModalityType.Image
-    );
-  }
-
-  const images: GeneratedImage[] = data.predictions.map((prediction) => {
-    const mimeType = prediction.mimeType ?? 'image/png';
-    const image = Image.fromBase64(prediction.bytesBase64Encoded, mimeType);
-    return { image };
-  });
+export function createImageHandler(): ImageHandler<GoogleImagenParams> {
+  let providerRef: ImageProvider<GoogleImagenParams> | null = null;
 
   return {
-    images,
-    usage: {
-      imagesGenerated: images.length,
+    _setProvider(provider: ImageProvider<GoogleImagenParams>) {
+      providerRef = provider;
+    },
+
+    bind(modelId: string): BoundImageModel<GoogleImagenParams> {
+      if (!providerRef) {
+        throw new UPPError(
+          'Provider reference not set. Handler must be used with createProvider().',
+          ErrorCode.InvalidRequest,
+          'google',
+          ModalityType.Image
+        );
+      }
+
+      const capabilities = getCapabilities();
+
+      const model: BoundImageModel<GoogleImagenParams> = {
+        modelId,
+        capabilities,
+
+        get provider(): ImageProvider<GoogleImagenParams> {
+          return providerRef!;
+        },
+
+        async generate(request: ImageRequest<GoogleImagenParams>): Promise<ImageResponse> {
+          return executeGenerate(modelId, request);
+        },
+      };
+
+      return model;
     },
   };
 }

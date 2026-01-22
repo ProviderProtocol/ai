@@ -430,8 +430,8 @@ describe('embed() - chunked streaming', () => {
     const stream = embedder.embed(inputs, { chunked: true });
 
     // Consume stream
-    for await (const _ of stream) {
-      // Just iterate
+    for await (const progress of stream) {
+      void progress;
     }
 
     const result = await stream.result;

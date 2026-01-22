@@ -25,60 +25,6 @@ import type {
 } from './types.ts';
 
 /**
- * Transforms a UPP LLM request to the xAI Chat Completions API format.
- *
- * All params are spread directly to enable pass-through of xAI API fields
- * not explicitly defined in our types. This allows developers to use new
- * API features without waiting for library updates.
- *
- * @param request - The unified provider protocol request
- * @param modelId - The xAI model identifier
- * @returns The transformed xAI Chat Completions request body
- */
-export function transformRequest(
-  request: LLMRequest<XAICompletionsParams>,
-  modelId: string
-): XAICompletionsRequest {
-  const params = request.params ?? ({} as XAICompletionsParams);
-
-  const xaiRequest: XAICompletionsRequest = {
-    ...params,
-    model: modelId,
-    messages: transformMessages(request.messages, request.system),
-  };
-
-  if (request.tools && request.tools.length > 0) {
-    xaiRequest.tools = request.tools.map(transformTool);
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    xaiRequest.response_format = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return xaiRequest;
-}
-
-/**
  * Normalizes system prompt to string.
  * Converts array format to concatenated string for providers that only support strings.
  */
@@ -122,42 +68,6 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms UPP messages to xAI Chat Completions message format.
- *
- * @param messages - The array of UPP messages
- * @param system - Optional system prompt (string or array, normalized to string)
- * @returns Array of xAI-formatted messages
- */
-function transformMessages(
-  messages: Message[],
-  system?: string | unknown[]
-): XAICompletionsMessage[] {
-  const result: XAICompletionsMessage[] = [];
-  const normalizedSystem = normalizeSystem(system);
-
-  if (normalizedSystem) {
-    result.push({
-      role: 'system',
-      content: normalizedSystem,
-    });
-  }
-
-  for (const message of messages) {
-    if (isToolResultMessage(message)) {
-      const toolMessages = transformToolResults(message);
-      result.push(...toolMessages);
-    } else {
-      const transformed = transformMessage(message);
-      if (transformed) {
-        result.push(transformed);
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
  * Filters content blocks to only those with a valid type property.
  *
  * @param content - Array of content blocks
@@ -165,6 +75,44 @@ function transformMessages(
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transforms a UPP content block to xAI user content format.
+ *
+ * @param block - The content block to transform
+ * @returns The xAI-formatted user content
+ * @throws Error if the content type is unsupported
+ */
+function transformContentBlock(block: ContentBlock): XAIUserContent {
+  switch (block.type) {
+    case 'text':
+      return { type: 'text', text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      let url: string;
+
+      if (imageBlock.source.type === 'base64') {
+        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
+      } else if (imageBlock.source.type === 'url') {
+        url = imageBlock.source.url;
+      } else if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        url = `data:${imageBlock.mimeType};base64,${base64}`;
+      } else {
+        throw new Error('Unknown image source type');
+      }
+
+      return {
+        type: 'image_url',
+        image_url: { url },
+      };
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
 }
 
 /**
@@ -260,41 +208,39 @@ export function transformToolResults(
 }
 
 /**
- * Transforms a UPP content block to xAI user content format.
+ * Transforms UPP messages to xAI Chat Completions message format.
  *
- * @param block - The content block to transform
- * @returns The xAI-formatted user content
- * @throws Error if the content type is unsupported
+ * @param messages - The array of UPP messages
+ * @param system - Optional system prompt (string or array, normalized to string)
+ * @returns Array of xAI-formatted messages
  */
-function transformContentBlock(block: ContentBlock): XAIUserContent {
-  switch (block.type) {
-    case 'text':
-      return { type: 'text', text: block.text };
+function transformMessages(
+  messages: Message[],
+  system?: string | unknown[]
+): XAICompletionsMessage[] {
+  const result: XAICompletionsMessage[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      let url: string;
-
-      if (imageBlock.source.type === 'base64') {
-        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
-      } else if (imageBlock.source.type === 'url') {
-        url = imageBlock.source.url;
-      } else if (imageBlock.source.type === 'bytes') {
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        url = `data:${imageBlock.mimeType};base64,${base64}`;
-      } else {
-        throw new Error('Unknown image source type');
-      }
-
-      return {
-        type: 'image_url',
-        image_url: { url },
-      };
-    }
-
-    default:
-      throw new Error(`Unsupported content type: ${block.type}`);
+  if (normalizedSystem) {
+    result.push({
+      role: 'system',
+      content: normalizedSystem,
+    });
   }
+
+  for (const message of messages) {
+    if (isToolResultMessage(message)) {
+      const toolMessages = transformToolResults(message);
+      result.push(...toolMessages);
+    } else {
+      const transformed = transformMessage(message);
+      if (transformed) {
+        result.push(transformed);
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -319,6 +265,60 @@ function transformTool(tool: Tool): XAICompletionsTool {
       },
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request to the xAI Chat Completions API format.
+ *
+ * All params are spread directly to enable pass-through of xAI API fields
+ * not explicitly defined in our types. This allows developers to use new
+ * API features without waiting for library updates.
+ *
+ * @param request - The unified provider protocol request
+ * @param modelId - The xAI model identifier
+ * @returns The transformed xAI Chat Completions request body
+ */
+export function transformRequest(
+  request: LLMRequest<XAICompletionsParams>,
+  modelId: string
+): XAICompletionsRequest {
+  const params = request.params ?? ({} as XAICompletionsParams);
+
+  const xaiRequest: XAICompletionsRequest = {
+    ...params,
+    model: modelId,
+    messages: transformMessages(request.messages, request.system),
+  };
+
+  if (request.tools && request.tools.length > 0) {
+    xaiRequest.tools = request.tools.map(transformTool);
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    xaiRequest.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return xaiRequest;
 }
 
 /**

@@ -11,6 +11,57 @@
 import type { ImageSource, ImageBlock } from '../../types/content.ts';
 
 /**
+ * Detects the MIME type of an image based on its file extension.
+ *
+ * Supports common web image formats: JPEG, PNG, GIF, WebP, SVG, BMP, ICO.
+ * Returns 'application/octet-stream' for unknown extensions.
+ *
+ * @param path - File path or filename with extension
+ * @returns The detected MIME type string
+ */
+function detectMimeType(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase();
+
+  switch (ext) {
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'png':
+      return 'image/png';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'svg':
+      return 'image/svg+xml';
+    case 'bmp':
+      return 'image/bmp';
+    case 'ico':
+      return 'image/x-icon';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+/**
+ * Detects the MIME type of an image from its URL.
+ *
+ * Extracts the pathname from the URL and delegates to `detectMimeType`.
+ * Returns 'application/octet-stream' if the URL cannot be parsed.
+ *
+ * @param url - Full URL pointing to an image
+ * @returns The detected MIME type string
+ */
+function detectMimeTypeFromUrl(url: string): string {
+  try {
+    const pathname = new URL(url).pathname;
+    return detectMimeType(pathname);
+  } catch {
+    return 'application/octet-stream';
+  }
+}
+
+/**
  * Represents an image that can be used in UPP messages.
  *
  * Images can be created from various sources (files, URLs, bytes, base64) and
@@ -244,56 +295,5 @@ export class Image {
       block.width,
       block.height
     );
-  }
-}
-
-/**
- * Detects the MIME type of an image based on its file extension.
- *
- * Supports common web image formats: JPEG, PNG, GIF, WebP, SVG, BMP, ICO.
- * Returns 'application/octet-stream' for unknown extensions.
- *
- * @param path - File path or filename with extension
- * @returns The detected MIME type string
- */
-function detectMimeType(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase();
-
-  switch (ext) {
-    case 'jpg':
-    case 'jpeg':
-      return 'image/jpeg';
-    case 'png':
-      return 'image/png';
-    case 'gif':
-      return 'image/gif';
-    case 'webp':
-      return 'image/webp';
-    case 'svg':
-      return 'image/svg+xml';
-    case 'bmp':
-      return 'image/bmp';
-    case 'ico':
-      return 'image/x-icon';
-    default:
-      return 'application/octet-stream';
-  }
-}
-
-/**
- * Detects the MIME type of an image from its URL.
- *
- * Extracts the pathname from the URL and delegates to `detectMimeType`.
- * Returns 'application/octet-stream' if the URL cannot be parsed.
- *
- * @param url - Full URL pointing to an image
- * @returns The detected MIME type string
- */
-function detectMimeTypeFromUrl(url: string): string {
-  try {
-    const pathname = new URL(url).pathname;
-    return detectMimeType(pathname);
-  } catch {
-    return 'application/octet-stream';
   }
 }

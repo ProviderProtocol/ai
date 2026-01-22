@@ -190,7 +190,7 @@ describe('pubsubMiddleware', () => {
     });
 
     test('waits for pending appends before completion', async () => {
-      let resolveAppend: (() => void) | null = null;
+      let resolveAppend: () => void;
       let appendResolvedAt: number | null = null;
       let markCompletedAt: number | null = null;
 
@@ -226,7 +226,7 @@ describe('pubsubMiddleware', () => {
       const endPromise = mw.onStreamEnd!(streamCtx);
       expect(markCompletedAt).toBeNull();
 
-      resolveAppend?.();
+      resolveAppend!();
       await endPromise;
 
       expect(markCompletedAt).not.toBeNull();

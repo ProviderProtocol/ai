@@ -41,6 +41,60 @@ interface ProxyEmbeddingResponsePayload {
   metadata?: Record<string, unknown>;
 }
 
+function normalizeEmbeddingResponse(
+  data: ProxyEmbeddingResponsePayload
+): EmbeddingResponse {
+  if (!data || typeof data !== 'object' || !Array.isArray(data.embeddings)) {
+    throw new UPPError(
+      'Invalid embedding response',
+      ErrorCode.InvalidResponse,
+      'proxy',
+      ModalityType.Embedding
+    );
+  }
+
+  const embeddings = data.embeddings.map((embedding, index) => {
+    if (!embedding || typeof embedding !== 'object') {
+      throw new UPPError(
+        'Invalid embedding entry',
+        ErrorCode.InvalidResponse,
+        'proxy',
+        ModalityType.Embedding
+      );
+    }
+
+    const vector = embedding.vector;
+    if (!Array.isArray(vector) && typeof vector !== 'string') {
+      throw new UPPError(
+        'Invalid embedding vector',
+        ErrorCode.InvalidResponse,
+        'proxy',
+        ModalityType.Embedding
+      );
+    }
+
+    const resolvedIndex = typeof embedding.index === 'number' ? embedding.index : index;
+    const tokens = typeof embedding.tokens === 'number' ? embedding.tokens : undefined;
+
+    return {
+      vector,
+      index: resolvedIndex,
+      tokens,
+      metadata: embedding.metadata,
+    };
+  });
+
+  const totalTokens = typeof data.usage?.totalTokens === 'number'
+    ? data.usage.totalTokens
+    : 0;
+
+  return {
+    embeddings,
+    usage: { totalTokens },
+    metadata: data.metadata,
+  };
+}
+
 /**
  * Creates a proxy embedding handler.
  *
@@ -126,59 +180,5 @@ export function createEmbeddingHandler(
 
       return model;
     },
-  };
-}
-
-function normalizeEmbeddingResponse(
-  data: ProxyEmbeddingResponsePayload
-): EmbeddingResponse {
-  if (!data || typeof data !== 'object' || !Array.isArray(data.embeddings)) {
-    throw new UPPError(
-      'Invalid embedding response',
-      ErrorCode.InvalidResponse,
-      'proxy',
-      ModalityType.Embedding
-    );
-  }
-
-  const embeddings = data.embeddings.map((embedding, index) => {
-    if (!embedding || typeof embedding !== 'object') {
-      throw new UPPError(
-        'Invalid embedding entry',
-        ErrorCode.InvalidResponse,
-        'proxy',
-        ModalityType.Embedding
-      );
-    }
-
-    const vector = embedding.vector;
-    if (!Array.isArray(vector) && typeof vector !== 'string') {
-      throw new UPPError(
-        'Invalid embedding vector',
-        ErrorCode.InvalidResponse,
-        'proxy',
-        ModalityType.Embedding
-      );
-    }
-
-    const resolvedIndex = typeof embedding.index === 'number' ? embedding.index : index;
-    const tokens = typeof embedding.tokens === 'number' ? embedding.tokens : undefined;
-
-    return {
-      vector,
-      index: resolvedIndex,
-      tokens,
-      metadata: embedding.metadata,
-    };
-  });
-
-  const totalTokens = typeof data.usage?.totalTokens === 'number'
-    ? data.usage.totalTokens
-    : 0;
-
-  return {
-    embeddings,
-    usage: { totalTokens },
-    metadata: data.metadata,
   };
 }

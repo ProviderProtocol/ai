@@ -45,97 +45,6 @@ import type {
   GoogleFunctionCallPart,
 } from './types.ts';
 
-/**
- * Transforms a UPP LLM request into Google Gemini API format.
- *
- * Converts the UPP message structure, system prompt, tools, and generation
- * parameters into Google's expected request body format. Provider-specific
- * parameters are passed through to `generationConfig` to support new API
- * features without library updates.
- *
- * @typeParam TParams - Type extending GoogleLLMParams for provider-specific options
- * @param request - The UPP-formatted LLM request
- * @param modelId - The target Gemini model identifier
- * @returns Google API request body ready for submission
- *
- * @example
- * ```typescript
- * const googleRequest = transformRequest({
- *   messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
- *   system: 'You are a helpful assistant',
- *   params: { temperature: 0.7 },
- *   config: { apiKey: '...' },
- * }, 'gemini-1.5-pro');
- * ```
- */
-export function transformRequest<TParams extends GoogleLLMParams>(
-  request: LLMRequest<TParams>,
-  modelId: string
-): GoogleRequest {
-  const params = (request.params ?? {}) as GoogleLLMParams;
-  const { cachedContent, tools: builtInTools, toolConfig, ...generationParams } = params;
-
-  const googleRequest: GoogleRequest = {
-    contents: transformMessages(request.messages),
-  };
-
-  const normalizedSystem = normalizeSystem(request.system);
-  if (normalizedSystem !== undefined) {
-    if (typeof normalizedSystem === 'string') {
-      googleRequest.systemInstruction = {
-        parts: [{ text: normalizedSystem }],
-      };
-    } else if (normalizedSystem.length > 0) {
-      googleRequest.systemInstruction = {
-        parts: normalizedSystem,
-      };
-    }
-  }
-
-  const generationConfig: NonNullable<GoogleRequest['generationConfig']> = {
-    ...generationParams,
-  };
-
-  if (request.structure) {
-    generationConfig.responseMimeType = 'application/json';
-    generationConfig.responseSchema = request.structure as unknown as Record<string, unknown>;
-  }
-
-  if (Object.keys(generationConfig).length > 0) {
-    googleRequest.generationConfig = generationConfig;
-  }
-
-  // Collect all tools: function declarations + built-in tools
-  const requestTools: NonNullable<GoogleRequest['tools']> = [];
-
-  if (request.tools && request.tools.length > 0) {
-    requestTools.push({
-      functionDeclarations: request.tools.map(transformTool),
-    });
-  }
-
-  // Add built-in tools (googleSearch, codeExecution, urlContext, etc.)
-  // These are added as separate tool objects, not as function declarations
-  if (builtInTools && builtInTools.length > 0) {
-    requestTools.push(...builtInTools);
-  }
-
-  if (requestTools.length > 0) {
-    googleRequest.tools = requestTools;
-  }
-
-  // Add tool config if provided (e.g., for retrievalConfig with Google Maps)
-  if (toolConfig) {
-    googleRequest.toolConfig = toolConfig;
-  }
-
-  if (cachedContent) {
-    googleRequest.cachedContent = cachedContent;
-  }
-
-  return googleRequest;
-}
-
 function normalizeSystem(system: string | unknown[] | undefined): string | GooglePart[] | undefined {
   if (system === undefined || system === null) return undefined;
   if (typeof system === 'string') return system;
@@ -201,6 +110,96 @@ function extractGoogleToolName(toolCallId: string): string {
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Converts a Uint8Array to a base64 string.
+ *
+ * @param bytes - The byte array to encode
+ * @returns Base64-encoded string
+ */
+function uint8ArrayToBase64(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString('base64');
+}
+
+/**
+ * Transforms a UPP content block to a Google part.
+ *
+ * Supports text, image, document, audio, and video content types.
+ * Binary data (images, audio, video, PDFs) is sent as base64-encoded inlineData.
+ * URL sources are not supported by Google's API directly.
+ *
+ * @param block - The UPP content block to transform
+ * @returns Google-formatted part object
+ * @throws Error if the content type is unsupported or uses URL source
+ */
+function transformContentBlock(block: ContentBlock): GooglePart {
+  switch (block.type) {
+    case 'text':
+      return { text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      let data: string;
+
+      if (imageBlock.source.type === 'base64') {
+        data = imageBlock.source.data;
+      } else if (imageBlock.source.type === 'bytes') {
+        data = uint8ArrayToBase64(imageBlock.source.data);
+      } else {
+        throw new Error('Google API does not support URL image sources directly');
+      }
+
+      return {
+        inlineData: {
+          mimeType: imageBlock.mimeType,
+          data,
+        },
+      };
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      if (documentBlock.source.type === 'base64') {
+        return {
+          inlineData: {
+            mimeType: documentBlock.mimeType,
+            data: documentBlock.source.data,
+          },
+        };
+      }
+
+      if (documentBlock.source.type === 'text') {
+        return { text: documentBlock.source.data };
+      }
+
+      throw new Error('Google API does not support URL document sources directly');
+    }
+
+    case 'audio': {
+      const audioBlock = block as AudioBlock;
+      return {
+        inlineData: {
+          mimeType: audioBlock.mimeType,
+          data: uint8ArrayToBase64(audioBlock.data),
+        },
+      };
+    }
+
+    case 'video': {
+      const videoBlock = block as VideoBlock;
+      return {
+        inlineData: {
+          mimeType: videoBlock.mimeType,
+          data: uint8ArrayToBase64(videoBlock.data),
+        },
+      };
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
 }
 
 /**
@@ -309,96 +308,6 @@ function transformMessages(messages: Message[]): GoogleContent[] {
 }
 
 /**
- * Converts a Uint8Array to a base64 string.
- *
- * @param bytes - The byte array to encode
- * @returns Base64-encoded string
- */
-function uint8ArrayToBase64(bytes: Uint8Array): string {
-  return Buffer.from(bytes).toString('base64');
-}
-
-/**
- * Transforms a UPP content block to a Google part.
- *
- * Supports text, image, document, audio, and video content types.
- * Binary data (images, audio, video, PDFs) is sent as base64-encoded inlineData.
- * URL sources are not supported by Google's API directly.
- *
- * @param block - The UPP content block to transform
- * @returns Google-formatted part object
- * @throws Error if the content type is unsupported or uses URL source
- */
-function transformContentBlock(block: ContentBlock): GooglePart {
-  switch (block.type) {
-    case 'text':
-      return { text: block.text };
-
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      let data: string;
-
-      if (imageBlock.source.type === 'base64') {
-        data = imageBlock.source.data;
-      } else if (imageBlock.source.type === 'bytes') {
-        data = uint8ArrayToBase64(imageBlock.source.data);
-      } else {
-        throw new Error('Google API does not support URL image sources directly');
-      }
-
-      return {
-        inlineData: {
-          mimeType: imageBlock.mimeType,
-          data,
-        },
-      };
-    }
-
-    case 'document': {
-      const documentBlock = block as DocumentBlock;
-
-      if (documentBlock.source.type === 'base64') {
-        return {
-          inlineData: {
-            mimeType: documentBlock.mimeType,
-            data: documentBlock.source.data,
-          },
-        };
-      }
-
-      if (documentBlock.source.type === 'text') {
-        return { text: documentBlock.source.data };
-      }
-
-      throw new Error('Google API does not support URL document sources directly');
-    }
-
-    case 'audio': {
-      const audioBlock = block as AudioBlock;
-      return {
-        inlineData: {
-          mimeType: audioBlock.mimeType,
-          data: uint8ArrayToBase64(audioBlock.data),
-        },
-      };
-    }
-
-    case 'video': {
-      const videoBlock = block as VideoBlock;
-      return {
-        inlineData: {
-          mimeType: videoBlock.mimeType,
-          data: uint8ArrayToBase64(videoBlock.data),
-        },
-      };
-    }
-
-    default:
-      throw new Error(`Unsupported content type: ${block.type}`);
-  }
-}
-
-/**
  * Transforms a UPP tool definition to Google's function declaration format.
  *
  * @param tool - The UPP tool definition with name, description, and parameters
@@ -414,6 +323,115 @@ function transformTool(tool: Tool): GoogleTool['functionDeclarations'][0] {
       required: tool.parameters.required,
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request into Google Gemini API format.
+ *
+ * Converts the UPP message structure, system prompt, tools, and generation
+ * parameters into Google's expected request body format. Provider-specific
+ * parameters are passed through to `generationConfig` to support new API
+ * features without library updates.
+ *
+ * @typeParam TParams - Type extending GoogleLLMParams for provider-specific options
+ * @param request - The UPP-formatted LLM request
+ * @param modelId - The target Gemini model identifier
+ * @returns Google API request body ready for submission
+ *
+ * @example
+ * ```typescript
+ * const googleRequest = transformRequest({
+ *   messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+ *   system: 'You are a helpful assistant',
+ *   params: { temperature: 0.7 },
+ *   config: { apiKey: '...' },
+ * }, 'gemini-1.5-pro');
+ * ```
+ */
+export function transformRequest<TParams extends GoogleLLMParams>(
+  request: LLMRequest<TParams>,
+  modelId: string
+): GoogleRequest {
+  const params = (request.params ?? {}) as GoogleLLMParams;
+  const { cachedContent, tools: builtInTools, toolConfig, ...generationParams } = params;
+
+  const googleRequest: GoogleRequest = {
+    contents: transformMessages(request.messages),
+  };
+
+  const normalizedSystem = normalizeSystem(request.system);
+  if (normalizedSystem !== undefined) {
+    if (typeof normalizedSystem === 'string') {
+      googleRequest.systemInstruction = {
+        parts: [{ text: normalizedSystem }],
+      };
+    } else if (normalizedSystem.length > 0) {
+      googleRequest.systemInstruction = {
+        parts: normalizedSystem,
+      };
+    }
+  }
+
+  const generationConfig: NonNullable<GoogleRequest['generationConfig']> = {
+    ...generationParams,
+  };
+
+  if (request.structure) {
+    generationConfig.responseMimeType = 'application/json';
+    generationConfig.responseSchema = request.structure as unknown as Record<string, unknown>;
+  }
+
+  if (Object.keys(generationConfig).length > 0) {
+    googleRequest.generationConfig = generationConfig;
+  }
+
+  // Collect all tools: function declarations + built-in tools
+  const requestTools: NonNullable<GoogleRequest['tools']> = [];
+
+  if (request.tools && request.tools.length > 0) {
+    requestTools.push({
+      functionDeclarations: request.tools.map(transformTool),
+    });
+  }
+
+  // Add built-in tools (googleSearch, codeExecution, urlContext, etc.)
+  // These are added as separate tool objects, not as function declarations
+  if (builtInTools && builtInTools.length > 0) {
+    requestTools.push(...builtInTools);
+  }
+
+  if (requestTools.length > 0) {
+    googleRequest.tools = requestTools;
+  }
+
+  // Add tool config if provided (e.g., for retrievalConfig with Google Maps)
+  if (toolConfig) {
+    googleRequest.toolConfig = toolConfig;
+  }
+
+  if (cachedContent) {
+    googleRequest.cachedContent = cachedContent;
+  }
+
+  return googleRequest;
+}
+
+function normalizeStopReason(reason: string | null | undefined): string {
+  switch (reason) {
+    case 'STOP':
+      return 'end_turn';
+    case 'MAX_TOKENS':
+      return 'max_tokens';
+    case 'SAFETY':
+    case 'RECITATION':
+      return 'content_filter';
+    case 'TOOL_USE':
+      return 'tool_use';
+    case 'OTHER':
+      return 'end_turn';
+    default:
+      return 'end_turn';
+  }
 }
 
 /**
@@ -585,6 +603,15 @@ export function createStreamState(): StreamState {
     cacheReadTokens: 0,
     isFirstChunk: true,
   };
+}
+
+function decodeBase64(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i += 1) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
 }
 
 /**
@@ -782,31 +809,4 @@ export function buildResponseFromState(state: StreamState): LLMResponse {
     stopReason: normalizeStopReason(state.finishReason),
     data: structuredData,
   };
-}
-
-function normalizeStopReason(reason: string | null | undefined): string {
-  switch (reason) {
-    case 'STOP':
-      return 'end_turn';
-    case 'MAX_TOKENS':
-      return 'max_tokens';
-    case 'SAFETY':
-    case 'RECITATION':
-      return 'content_filter';
-    case 'TOOL_USE':
-      return 'tool_use';
-    case 'OTHER':
-      return 'end_turn';
-    default:
-      return 'end_turn';
-  }
-}
-
-function decodeBase64(base64: string): Uint8Array {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i += 1) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes;
 }

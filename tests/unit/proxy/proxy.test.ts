@@ -447,7 +447,7 @@ describe('Proxy LLM Handler', () => {
       });
       expect(config.timeout).toBe(5000);
       expect(config.retryStrategy).toBe(retryStrategy);
-      expect(config.headers?.['Authorization']).toBe('Bearer test-token');
+      expect(config.headers?.Authorization).toBe('Bearer test-token');
 
       doFetchSpy.mockRestore();
     });

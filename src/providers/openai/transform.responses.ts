@@ -22,7 +22,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ReasoningBlock, ImageBlock, DocumentBlock, AssistantContent } from '../../types/content.ts';
+import type { ContentBlock, TextBlock, ImageBlock, DocumentBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -42,80 +42,6 @@ import type {
   OpenAIResponsesStreamEvent,
   OpenAIReasoningOutput,
 } from './types.ts';
-
-/**
- * Transforms a UPP LLM request into OpenAI Responses API format.
- *
- * This function converts the universal request format to OpenAI's Responses API
- * structure. It merges UPP function tools with any built-in tools specified in
- * params, and handles structured output configuration.
- *
- * @param request - The UPP LLM request containing messages, tools, and configuration
- * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o')
- * @returns An OpenAI Responses API request body
- *
- * @example
- * ```typescript
- * const openaiRequest = transformRequest({
- *   messages: [userMessage('Search for recent news')],
- *   params: {
- *     max_output_tokens: 1000,
- *     tools: [tools.webSearch()]
- *   },
- *   config: { apiKey: 'sk-...' }
- * }, 'gpt-4o');
- * ```
- */
-export function transformRequest(
-  request: LLMRequest<OpenAIResponsesParams>,
-  modelId: string
-): OpenAIResponsesRequest {
-  const params = request.params ?? ({} as OpenAIResponsesParams);
-
-  const { tools: builtInTools, ...restParams } = params;
-
-  const openaiRequest: OpenAIResponsesRequest = {
-    ...restParams,
-    model: modelId,
-    input: transformInputItems(request.messages, request.system),
-  };
-
-  const functionTools: OpenAIResponsesToolUnion[] = request.tools?.map(transformTool) ?? [];
-  const allTools: OpenAIResponsesToolUnion[] = [
-    ...functionTools,
-    ...(builtInTools ?? []),
-  ];
-
-  if (allTools.length > 0) {
-    openaiRequest.tools = allTools;
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    openaiRequest.text = {
-      format: {
-        type: 'json_schema',
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return openaiRequest;
-}
 
 /**
  * Normalizes system prompt to string.
@@ -161,47 +87,6 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms UPP messages to Responses API input items.
- *
- * The Responses API accepts either a string (for simple prompts) or an array
- * of input items. This function optimizes by returning a string when the
- * input is a single user message with text content.
- *
- * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt (string or array, normalized to string)
- * @returns Either a string (for simple inputs) or array of input items
- */
-function transformInputItems(
-  messages: Message[],
-  system?: string | unknown[]
-): OpenAIResponsesInputItem[] | string {
-  const result: OpenAIResponsesInputItem[] = [];
-  const normalizedSystem = normalizeSystem(system);
-
-  if (normalizedSystem) {
-    result.push({
-      type: 'message',
-      role: 'system',
-      content: normalizedSystem,
-    });
-  }
-
-  for (const message of messages) {
-    const items = transformMessage(message);
-    result.push(...items);
-  }
-
-  if (result.length === 1 && result[0]?.type === 'message') {
-    const item = result[0] as { role?: string; content?: string | unknown[] };
-    if (item.role === 'user' && typeof item.content === 'string') {
-      return item.content;
-    }
-  }
-
-  return result;
-}
-
-/**
  * Filters content blocks to only include those with a valid type property.
  *
  * @param content - Array of content blocks to filter
@@ -209,123 +94,6 @@ function transformInputItems(
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
-}
-
-/**
- * Transforms a single UPP message to Responses API input items.
- *
- * Unlike Chat Completions, the Responses API separates function calls from
- * messages. An assistant message with tool calls becomes multiple input items:
- * a message item for text content plus separate function_call items.
- *
- * @param message - The UPP message to transform
- * @returns Array of Responses API input items (may be multiple per message)
- */
-function transformMessage(message: Message): OpenAIResponsesInputItem[] {
-  if (isUserMessage(message)) {
-    const validContent = filterValidContent(message.content);
-    if (validContent.length === 1 && validContent[0]?.type === 'text') {
-      return [
-        {
-          type: 'message',
-          role: 'user',
-          content: (validContent[0] as TextBlock).text,
-        },
-      ];
-    }
-    return [
-      {
-        type: 'message',
-        role: 'user',
-        content: validContent.map(transformContentPart),
-      },
-    ];
-  }
-
-  if (isAssistantMessage(message)) {
-    const validContent = filterValidContent(message.content);
-    const items: OpenAIResponsesInputItem[] = [];
-
-    const contentParts: OpenAIResponsesContentPart[] = validContent
-      .filter((c): c is TextBlock => c.type === 'text')
-      .map((c): OpenAIResponsesContentPart => ({
-        type: 'output_text',
-        text: c.text,
-      }));
-
-    if (contentParts.length > 0) {
-      items.push({
-        type: 'message',
-        role: 'assistant',
-        content: contentParts,
-      });
-    }
-
-    const openaiMeta = message.metadata?.openai as
-      | {
-          functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }>;
-          // Encrypted reasoning content for multi-turn context (stateless mode)
-          reasoningEncryptedContent?: string;
-        }
-      | undefined;
-    const functionCallItems = openaiMeta?.functionCallItems;
-
-    // Add reasoning item for multi-turn context preservation (must be passed back as-is)
-    if (openaiMeta?.reasoningEncryptedContent) {
-      try {
-        const reasoningData = JSON.parse(openaiMeta.reasoningEncryptedContent) as {
-          id: string;
-          summary: Array<{ type: 'summary_text'; text: string }>;
-          encrypted_content?: string;
-        };
-        items.push({
-          type: 'reasoning',
-          id: reasoningData.id,
-          summary: reasoningData.summary,
-          encrypted_content: reasoningData.encrypted_content,
-        });
-      } catch {
-        // Invalid JSON - skip reasoning item
-      }
-    }
-
-    if (functionCallItems && functionCallItems.length > 0) {
-      for (const fc of functionCallItems) {
-        items.push({
-          type: 'function_call',
-          id: fc.id,
-          call_id: fc.call_id,
-          name: fc.name,
-          arguments: fc.arguments,
-        });
-      }
-    } else if (message.toolCalls && message.toolCalls.length > 0) {
-      for (const call of message.toolCalls) {
-        items.push({
-          type: 'function_call',
-          id: `fc_${call.toolCallId}`,
-          call_id: call.toolCallId,
-          name: call.toolName,
-          arguments: JSON.stringify(call.arguments),
-        });
-      }
-    }
-
-    return items;
-  }
-
-  if (isToolResultMessage(message)) {
-    return message.results.map((result) => ({
-      type: 'function_call_output' as const,
-      call_id: result.toolCallId,
-      output:
-        typeof result.result === 'string'
-          ? result.result
-          : JSON.stringify(result.result),
-    }));
-  }
-
-  return [];
 }
 
 /**
@@ -412,6 +180,162 @@ function transformContentPart(block: ContentBlock): OpenAIResponsesContentPart {
 }
 
 /**
+ * Transforms a single UPP message to Responses API input items.
+ *
+ * Unlike Chat Completions, the Responses API separates function calls from
+ * messages. An assistant message with tool calls becomes multiple input items:
+ * a message item for text content plus separate function_call items.
+ *
+ * @param message - The UPP message to transform
+ * @returns Array of Responses API input items (may be multiple per message)
+ */
+function transformMessage(message: Message): OpenAIResponsesInputItem[] {
+  if (isUserMessage(message)) {
+    const validContent = filterValidContent(message.content);
+    if (validContent.length === 1 && validContent[0]?.type === 'text') {
+      return [
+        {
+          type: 'message',
+          role: 'user',
+          content: (validContent[0] as TextBlock).text,
+        },
+      ];
+    }
+    return [
+      {
+        type: 'message',
+        role: 'user',
+        content: validContent.map(transformContentPart),
+      },
+    ];
+  }
+
+  if (isAssistantMessage(message)) {
+    const validContent = filterValidContent(message.content);
+    const items: OpenAIResponsesInputItem[] = [];
+
+    const contentParts: OpenAIResponsesContentPart[] = validContent
+      .filter((c): c is TextBlock => c.type === 'text')
+      .map((c): OpenAIResponsesContentPart => ({
+        type: 'output_text',
+        text: c.text,
+      }));
+
+    if (contentParts.length > 0) {
+      items.push({
+        type: 'message',
+        role: 'assistant',
+        content: contentParts,
+      });
+    }
+
+    const openaiMeta = message.metadata?.openai as
+      | {
+          functionCallItems?: Array<{ id: string; call_id: string; name: string; arguments: string }>;
+          reasoningEncryptedContent?: string;
+        }
+      | undefined;
+    const functionCallItems = openaiMeta?.functionCallItems;
+
+    if (openaiMeta?.reasoningEncryptedContent) {
+      try {
+        const reasoningData = JSON.parse(openaiMeta.reasoningEncryptedContent) as {
+          id: string;
+          summary: Array<{ type: 'summary_text'; text: string }>;
+          encrypted_content?: string;
+        };
+        items.push({
+          type: 'reasoning',
+          id: reasoningData.id,
+          summary: reasoningData.summary,
+          encrypted_content: reasoningData.encrypted_content,
+        });
+      } catch {
+        // Invalid JSON - skip reasoning item
+      }
+    }
+
+    if (functionCallItems && functionCallItems.length > 0) {
+      for (const fc of functionCallItems) {
+        items.push({
+          type: 'function_call',
+          id: fc.id,
+          call_id: fc.call_id,
+          name: fc.name,
+          arguments: fc.arguments,
+        });
+      }
+    } else if (message.toolCalls && message.toolCalls.length > 0) {
+      for (const call of message.toolCalls) {
+        items.push({
+          type: 'function_call',
+          id: `fc_${call.toolCallId}`,
+          call_id: call.toolCallId,
+          name: call.toolName,
+          arguments: JSON.stringify(call.arguments),
+        });
+      }
+    }
+
+    return items;
+  }
+
+  if (isToolResultMessage(message)) {
+    return message.results.map((result) => ({
+      type: 'function_call_output' as const,
+      call_id: result.toolCallId,
+      output:
+        typeof result.result === 'string'
+          ? result.result
+          : JSON.stringify(result.result),
+    }));
+  }
+
+  return [];
+}
+
+/**
+ * Transforms UPP messages to Responses API input items.
+ *
+ * The Responses API accepts either a string (for simple prompts) or an array
+ * of input items. This function optimizes by returning a string when the
+ * input is a single user message with text content.
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt (string or array, normalized to string)
+ * @returns Either a string (for simple inputs) or array of input items
+ */
+function transformInputItems(
+  messages: Message[],
+  system?: string | unknown[]
+): OpenAIResponsesInputItem[] | string {
+  const result: OpenAIResponsesInputItem[] = [];
+  const normalizedSystem = normalizeSystem(system);
+
+  if (normalizedSystem) {
+    result.push({
+      type: 'message',
+      role: 'system',
+      content: normalizedSystem,
+    });
+  }
+
+  for (const message of messages) {
+    const items = transformMessage(message);
+    result.push(...items);
+  }
+
+  if (result.length === 1 && result[0]?.type === 'message') {
+    const item = result[0] as { role?: string; content?: string | unknown[] };
+    if (item.role === 'user' && typeof item.content === 'string') {
+      return item.content;
+    }
+  }
+
+  return result;
+}
+
+/**
  * Extracts OpenAI-specific options from tool metadata.
  *
  * @param tool - The tool to extract options from
@@ -461,6 +385,80 @@ function transformTool(tool: Tool): OpenAIResponsesTool {
     },
     ...(strict !== undefined ? { strict } : {}),
   };
+}
+
+/**
+ * Transforms a UPP LLM request into OpenAI Responses API format.
+ *
+ * This function converts the universal request format to OpenAI's Responses API
+ * structure. It merges UPP function tools with any built-in tools specified in
+ * params, and handles structured output configuration.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and configuration
+ * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o')
+ * @returns An OpenAI Responses API request body
+ *
+ * @example
+ * ```typescript
+ * const openaiRequest = transformRequest({
+ *   messages: [userMessage('Search for recent news')],
+ *   params: {
+ *     max_output_tokens: 1000,
+ *     tools: [tools.webSearch()]
+ *   },
+ *   config: { apiKey: 'sk-...' }
+ * }, 'gpt-4o');
+ * ```
+ */
+export function transformRequest(
+  request: LLMRequest<OpenAIResponsesParams>,
+  modelId: string
+): OpenAIResponsesRequest {
+  const params = request.params ?? ({} as OpenAIResponsesParams);
+
+  const { tools: builtInTools, ...restParams } = params;
+
+  const openaiRequest: OpenAIResponsesRequest = {
+    ...restParams,
+    model: modelId,
+    input: transformInputItems(request.messages, request.system),
+  };
+
+  const functionTools: OpenAIResponsesToolUnion[] = request.tools?.map(transformTool) ?? [];
+  const allTools: OpenAIResponsesToolUnion[] = [
+    ...functionTools,
+    ...(builtInTools ?? []),
+  ];
+
+  if (allTools.length > 0) {
+    openaiRequest.tools = allTools;
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    openaiRequest.text = {
+      format: {
+        type: 'json_schema',
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return openaiRequest;
 }
 
 /**
@@ -542,7 +540,6 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
       if (reasoningText) {
         content.push({ type: 'reasoning', text: reasoningText });
       }
-      // Capture full reasoning item for multi-turn context preservation (must be passed back as-is)
       reasoningEncryptedContent = JSON.stringify({
         id: reasoningItem.id,
         summary: reasoningItem.summary,
@@ -564,7 +561,6 @@ export function transformResponse(data: OpenAIResponsesResponse): LLMResponse {
           response_id: responseId,
           functionCallItems:
             functionCallItems.length > 0 ? functionCallItems : undefined,
-          // Store encrypted reasoning content for multi-turn context (stateless mode)
           reasoningEncryptedContent,
         },
       },
@@ -758,7 +754,6 @@ export function transformStreamEvent(
           });
         }
       } else if (event.item.type === 'reasoning') {
-        // Capture full reasoning item for multi-turn context preservation (must be passed back as-is)
         const reasoningItem = event.item as OpenAIReasoningOutput;
         state.reasoningEncryptedContent = JSON.stringify({
           id: reasoningItem.id,

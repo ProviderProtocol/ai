@@ -15,7 +15,7 @@ import type {
   BoundLLMModel,
   LLMCapabilities,
 } from '../types/llm.ts';
-import type { UserMessage, AssistantMessage } from '../types/messages.ts';
+import type { AssistantMessage } from '../types/messages.ts';
 import type { ContentBlock } from '../types/content.ts';
 import {
   isTextBlock,
@@ -30,7 +30,7 @@ import type { Turn, TokenUsage } from '../types/turn.ts';
 import type { StreamResult, StreamEvent } from '../types/stream.ts';
 import type { Thread } from '../types/thread.ts';
 import type { ProviderConfig, LLMHandler } from '../types/provider.ts';
-import type { Middleware, MiddlewareContext, StreamContext } from '../types/middleware.ts';
+import type { Middleware, MiddlewareContext } from '../types/middleware.ts';
 import { UPPError, ErrorCode, ModalityType } from '../types/errors.ts';
 import { resolveLLMHandler } from './provider-handlers.ts';
 import {
@@ -38,9 +38,8 @@ import {
   UserMessage as UserMessageClass,
   ToolResultMessage,
   isUserMessage,
-  isAssistantMessage,
 } from '../types/messages.ts';
-import { createTurn, aggregateUsage, emptyUsage } from '../types/turn.ts';
+import { createTurn, aggregateUsage } from '../types/turn.ts';
 import {
   createStreamResult,
   toolExecutionStart,
@@ -62,158 +61,59 @@ import {
 const DEFAULT_MAX_ITERATIONS = 10;
 
 /**
- * Creates an LLM instance configured with the specified options.
+ * Validates that message content is compatible with provider capabilities.
  *
- * This is the primary factory function for creating LLM instances. It validates
- * provider capabilities, binds the model, and returns an instance with `generate`
- * and `stream` methods for inference.
+ * Checks user messages for media types (image, document, video, audio) and throws
+ * if the provider does not support the required input modality.
  *
- * @typeParam TParams - Provider-specific parameter type for model configuration
- * @param options - Configuration options for the LLM instance
- * @returns A configured LLM instance ready for inference
- * @throws {UPPError} When the provider does not support the LLM modality
- * @throws {UPPError} When structured output is requested but not supported
- * @throws {UPPError} When tools are provided but not supported
- *
- * @example
- * ```typescript
- * import { llm } from 'upp';
- * import { anthropic } from 'upp/providers/anthropic';
- *
- * const assistant = llm({
- *   model: anthropic('claude-sonnet-4-20250514'),
- *   system: 'You are a helpful assistant.',
- *   tools: [myTool],
- * });
- *
- * const turn = await assistant.generate('Hello, world!');
- * console.log(turn.text);
- * ```
+ * @param messages - Messages to validate
+ * @param capabilities - Provider's declared capabilities
+ * @param providerName - Provider name for error messages
+ * @throws {UPPError} When a message contains unsupported media type
  */
-export function llm<TParams = unknown>(
-  options: LLMOptions<TParams>
-): LLMInstance<TParams> {
-  const {
-    model: modelRef,
-    config: explicitConfig = {},
-    params,
-    system,
-    tools,
-    toolStrategy,
-    structure,
-    middleware = [],
-  } = options;
+function validateMediaCapabilities(
+  messages: Message[],
+  capabilities: LLMCapabilities,
+  providerName: string
+): void {
+  for (const msg of messages) {
+    if (!isUserMessage(msg)) continue;
 
-  // Merge providerConfig from model reference with explicit config
-  // Explicit config takes precedence, with headers being deep-merged
-  const providerConfig = modelRef.providerConfig ?? {};
-  const config: ProviderConfig = {
-    ...providerConfig,
-    ...explicitConfig,
-    headers: {
-      ...providerConfig.headers,
-      ...explicitConfig.headers,
-    },
-  };
-
-  // Resolve the correct LLM handler based on model reference options
-  // This handles providers with multiple handlers (e.g., OpenAI responses/completions)
-  // Cast is safe: ModelInput uses structural typing with unknown for variance, but the
-  // actual provider at runtime is a proper Provider with LLMHandler
-  const provider = modelRef.provider;
-  const llmHandler = resolveLLMHandler(provider, modelRef.options) as LLMHandler<TParams> | undefined;
-
-  if (!llmHandler) {
-    throw new UPPError(
-      `Provider '${provider.name}' does not support LLM modality`,
-      ErrorCode.InvalidRequest,
-      provider.name,
-      ModalityType.LLM
-    );
-  }
-
-  // Bind the model
-  const boundModel = llmHandler.bind(modelRef.modelId);
-
-  // Validate capabilities at bind time
-  const capabilities = boundModel.capabilities;
-
-  // Check for structured output capability
-  if (structure && !capabilities.structuredOutput) {
-    throw new UPPError(
-      `Provider '${provider.name}' does not support structured output`,
-      ErrorCode.InvalidRequest,
-      provider.name,
-      ModalityType.LLM
-    );
-  }
-
-  // Check for tools capability
-  if (tools && tools.length > 0 && !capabilities.tools) {
-    throw new UPPError(
-      `Provider '${provider.name}' does not support tools`,
-      ErrorCode.InvalidRequest,
-      provider.name,
-      ModalityType.LLM
-    );
-  }
-
-  // Build the instance
-  const instance: LLMInstance<TParams> = {
-    model: boundModel,
-    system,
-    params,
-    capabilities,
-
-    async generate(
-      historyOrInput: Message[] | Thread | InferenceInput,
-      ...inputs: InferenceInput[]
-    ): Promise<Turn> {
-      const { history, messages } = parseInputs(historyOrInput, inputs);
-      return executeGenerate(
-        boundModel,
-        config,
-        system,
-        params,
-        tools,
-        toolStrategy,
-        structure,
-        history,
-        messages,
-        middleware
-      );
-    },
-
-    stream(
-      historyOrInput: Message[] | Thread | InferenceInput,
-      ...inputs: InferenceInput[]
-    ): StreamResult {
-      // Check streaming capability
-      if (!capabilities.streaming) {
+    for (const block of msg.content) {
+      if (block.type === 'image' && !capabilities.imageInput) {
         throw new UPPError(
-          `Provider '${provider.name}' does not support streaming`,
+          `Provider '${providerName}' does not support image input`,
           ErrorCode.InvalidRequest,
-          provider.name,
+          providerName,
           ModalityType.LLM
         );
       }
-      const { history, messages } = parseInputs(historyOrInput, inputs);
-      return executeStream(
-        boundModel,
-        config,
-        system,
-        params,
-        tools,
-        toolStrategy,
-        structure,
-        history,
-        messages,
-        middleware
-      );
-    },
-  };
-
-  return instance;
+      if (block.type === 'document' && !capabilities.documentInput) {
+        throw new UPPError(
+          `Provider '${providerName}' does not support document input`,
+          ErrorCode.InvalidRequest,
+          providerName,
+          ModalityType.LLM
+        );
+      }
+      if (block.type === 'video' && !capabilities.videoInput) {
+        throw new UPPError(
+          `Provider '${providerName}' does not support video input`,
+          ErrorCode.InvalidRequest,
+          providerName,
+          ModalityType.LLM
+        );
+      }
+      if (block.type === 'audio' && !capabilities.audioInput) {
+        throw new UPPError(
+          `Provider '${providerName}' does not support audio input`,
+          ErrorCode.InvalidRequest,
+          providerName,
+          ModalityType.LLM
+        );
+      }
+    }
+  }
 }
 
 /**
@@ -251,6 +151,46 @@ function isMessageInstance(value: unknown): value is Message {
     }
   }
   return false;
+}
+
+/**
+ * Converts an inference input to a Message instance.
+ *
+ * Handles string inputs, existing Message objects, and ContentBlocks,
+ * wrapping non-Message inputs in a UserMessage.
+ *
+ * @param input - The input to convert (string, Message, or ContentBlock)
+ * @returns A Message instance
+ */
+function inputToMessage(input: InferenceInput): Message {
+  if (typeof input === 'string') {
+    return new UserMessageClass(input);
+  }
+
+  if ('type' in input && 'id' in input && 'timestamp' in input) {
+    return input as Message;
+  }
+
+  if (typeof input !== 'object' || input === null || !('type' in input)) {
+    throw new Error('Invalid inference input');
+  }
+
+  const block = input as ContentBlock;
+  if (isTextBlock(block)) {
+    return new UserMessageClass(block.text);
+  }
+
+  if (
+    isImageBlock(block) ||
+    isDocumentBlock(block) ||
+    isAudioBlock(block) ||
+    isVideoBlock(block) ||
+    isBinaryBlock(block)
+  ) {
+    return new UserMessageClass([block]);
+  }
+
+  throw new Error('Invalid inference input');
 }
 
 /**
@@ -298,43 +238,204 @@ function parseInputs(
 }
 
 /**
- * Converts an inference input to a Message instance.
+ * Executes tool calls from an assistant message in parallel.
  *
- * Handles string inputs, existing Message objects, and ContentBlocks,
- * wrapping non-Message inputs in a UserMessage.
+ * Handles the complete tool execution flow including:
+ * - Tool lookup and validation
+ * - Strategy callbacks (onToolCall, onBeforeCall, onAfterCall, onError)
+ * - Approval handlers
+ * - Execution tracking and timing
+ * - Stream event emission for real-time updates
+ * - Middleware tool hooks
  *
- * @param input - The input to convert (string, Message, or ContentBlock)
- * @returns A Message instance
+ * @param assistantMessage - The assistant message containing tool calls
+ * @param tools - Available tools to execute
+ * @param toolStrategy - Strategy for controlling tool execution behavior
+ * @param executions - Array to collect execution records (mutated in place)
+ * @param onEvent - Optional callback for emitting stream events during execution
+ * @param middleware - Optional middleware array for tool hooks
+ * @param ctx - Optional middleware context
+ * @returns Array of tool results to send back to the model
  */
-function inputToMessage(input: InferenceInput): Message {
-  if (typeof input === 'string') {
-    return new UserMessageClass(input);
-  }
+async function executeTools(
+  assistantMessage: AssistantMessage,
+  tools: Tool[],
+  toolStrategy: LLMOptions<unknown>['toolStrategy'],
+  executions: ToolExecution[],
+  onEvent?: (event: StreamEvent) => void,
+  middleware: Middleware[] = [],
+  ctx?: MiddlewareContext
+): Promise<ToolResult[]> {
+  const toolCalls = assistantMessage.toolCalls ?? [];
+  const results: ToolResult[] = [];
 
-  if ('type' in input && 'id' in input && 'timestamp' in input) {
-    return input as Message;
-  }
+  const toolMap = new Map(tools.map((t) => [t.name, t]));
 
-  if (typeof input !== 'object' || input === null || !('type' in input)) {
-    throw new Error('Invalid inference input');
-  }
+  const promises = toolCalls.map(async (call, index) => {
+    const tool = toolMap.get(call.toolName);
+    const toolName = tool?.name ?? call.toolName;
+    const startTime = Date.now();
 
-  const block = input as ContentBlock;
-  if (isTextBlock(block)) {
-    return new UserMessageClass(block.text);
-  }
+    onEvent?.(toolExecutionStart(call.toolCallId, toolName, startTime, index));
 
-  if (
-    isImageBlock(block) ||
-    isDocumentBlock(block) ||
-    isAudioBlock(block) ||
-    isVideoBlock(block) ||
-    isBinaryBlock(block)
-  ) {
-    return new UserMessageClass([block]);
-  }
+    let effectiveParams = call.arguments;
 
-  throw new Error('Invalid inference input');
+    const endWithError = async (errorMessage: string, approved?: boolean): Promise<ToolResult> => {
+      const endTime = Date.now();
+      if (tool) {
+        await toolStrategy?.onError?.(tool, effectiveParams, new Error(errorMessage));
+      }
+      const execution: ToolExecution = {
+        toolName,
+        toolCallId: call.toolCallId,
+        arguments: effectiveParams,
+        result: errorMessage,
+        isError: true,
+        duration: endTime - startTime,
+        approved,
+      };
+      executions.push(execution);
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, errorMessage, true, endTime, index));
+      return {
+        toolCallId: call.toolCallId,
+        result: errorMessage,
+        isError: true,
+      };
+    };
+
+    if (!tool) {
+      return endWithError(`Tool '${call.toolName}' not found`);
+    }
+
+    try {
+      await toolStrategy?.onToolCall?.(tool, effectiveParams);
+      // Run middleware onToolCall hooks
+      if (ctx) {
+        await runToolHook(middleware, 'onToolCall', tool, effectiveParams, ctx);
+      }
+    } catch (error) {
+      return endWithError(toError(error).message);
+    }
+
+    if (toolStrategy?.onBeforeCall) {
+      let beforeResult: boolean | BeforeCallResult | undefined;
+      try {
+        beforeResult = await toolStrategy.onBeforeCall(tool, effectiveParams);
+      } catch (error) {
+        return endWithError(toError(error).message);
+      }
+
+      const isBeforeCallResult = (value: unknown): value is BeforeCallResult =>
+        typeof value === 'object' && value !== null && 'proceed' in value;
+
+      if (isBeforeCallResult(beforeResult)) {
+        if (!beforeResult.proceed) {
+          return endWithError('Tool execution skipped');
+        }
+        if (beforeResult.params !== undefined) {
+          effectiveParams = beforeResult.params as Record<string, unknown>;
+        }
+      } else if (!beforeResult) {
+        return endWithError('Tool execution skipped');
+      }
+    }
+
+    let approved = true;
+    if (tool.approval) {
+      try {
+        approved = await tool.approval(effectiveParams);
+      } catch (error) {
+        return endWithError(toError(error).message);
+      }
+    }
+
+    if (!approved) {
+      const endTime = Date.now();
+      const execution: ToolExecution = {
+        toolName,
+        toolCallId: call.toolCallId,
+        arguments: effectiveParams as Record<string, unknown>,
+        result: 'Tool execution denied',
+        isError: true,
+        duration: endTime - startTime,
+        approved: false,
+      };
+      executions.push(execution);
+
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, 'Tool execution denied by approval handler', true, endTime, index));
+
+      return {
+        toolCallId: call.toolCallId,
+        result: 'Tool execution denied by approval handler',
+        isError: true,
+      };
+    }
+
+    try {
+      let result = await tool.run(effectiveParams);
+      const endTime = Date.now();
+
+      if (toolStrategy?.onAfterCall) {
+        const afterResult = await toolStrategy.onAfterCall(tool, effectiveParams, result);
+        const isAfterCallResult = (value: unknown): value is AfterCallResult =>
+          typeof value === 'object' && value !== null && 'result' in value;
+
+        if (isAfterCallResult(afterResult)) {
+          result = afterResult.result;
+        }
+      }
+
+      // Run middleware onToolResult hooks
+      if (ctx) {
+        await runToolHook(middleware, 'onToolResult', tool, result, ctx);
+      }
+
+      const execution: ToolExecution = {
+        toolName,
+        toolCallId: call.toolCallId,
+        arguments: effectiveParams as Record<string, unknown>,
+        result,
+        isError: false,
+        duration: endTime - startTime,
+        approved,
+      };
+      executions.push(execution);
+
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, result, false, endTime, index));
+
+      return {
+        toolCallId: call.toolCallId,
+        result,
+        isError: false,
+      };
+    } catch (error) {
+      const endTime = Date.now();
+      const err = toError(error);
+      await toolStrategy?.onError?.(tool, effectiveParams, err);
+
+      const execution: ToolExecution = {
+        toolName,
+        toolCallId: call.toolCallId,
+        arguments: effectiveParams as Record<string, unknown>,
+        result: err.message,
+        isError: true,
+        duration: endTime - startTime,
+        approved,
+      };
+      executions.push(execution);
+
+      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, err.message, true, endTime, index));
+
+      return {
+        toolCallId: call.toolCallId,
+        result: err.message,
+        isError: true,
+      };
+    }
+  });
+
+  results.push(...(await Promise.all(promises)));
+  return results;
 }
 
 /**
@@ -755,258 +856,156 @@ function executeStream<TParams>(
 }
 
 /**
- * Executes tool calls from an assistant message in parallel.
+ * Creates an LLM instance configured with the specified options.
  *
- * Handles the complete tool execution flow including:
- * - Tool lookup and validation
- * - Strategy callbacks (onToolCall, onBeforeCall, onAfterCall, onError)
- * - Approval handlers
- * - Execution tracking and timing
- * - Stream event emission for real-time updates
- * - Middleware tool hooks
+ * This is the primary factory function for creating LLM instances. It validates
+ * provider capabilities, binds the model, and returns an instance with `generate`
+ * and `stream` methods for inference.
  *
- * @param message - The assistant message containing tool calls
- * @param tools - Available tools to execute
- * @param toolStrategy - Strategy for controlling tool execution behavior
- * @param executions - Array to collect execution records (mutated in place)
- * @param onEvent - Optional callback for emitting stream events during execution
- * @param middleware - Optional middleware array for tool hooks
- * @param ctx - Optional middleware context
- * @returns Array of tool results to send back to the model
+ * @typeParam TParams - Provider-specific parameter type for model configuration
+ * @param options - Configuration options for the LLM instance
+ * @returns A configured LLM instance ready for inference
+ * @throws {UPPError} When the provider does not support the LLM modality
+ * @throws {UPPError} When structured output is requested but not supported
+ * @throws {UPPError} When tools are provided but not supported
+ *
+ * @example
+ * ```typescript
+ * import { llm } from 'upp';
+ * import { anthropic } from 'upp/providers/anthropic';
+ *
+ * const assistant = llm({
+ *   model: anthropic('claude-sonnet-4-20250514'),
+ *   system: 'You are a helpful assistant.',
+ *   tools: [myTool],
+ * });
+ *
+ * const turn = await assistant.generate('Hello, world!');
+ * console.log(turn.text);
+ * ```
  */
-async function executeTools(
-  message: AssistantMessage,
-  tools: Tool[],
-  toolStrategy: LLMOptions<unknown>['toolStrategy'],
-  executions: ToolExecution[],
-  onEvent?: (event: StreamEvent) => void,
-  middleware: Middleware[] = [],
-  ctx?: MiddlewareContext
-): Promise<ToolResult[]> {
-  const toolCalls = message.toolCalls ?? [];
-  const results: ToolResult[] = [];
+export function llm<TParams = unknown>(
+  options: LLMOptions<TParams>
+): LLMInstance<TParams> {
+  const {
+    model: modelRef,
+    config: explicitConfig = {},
+    params,
+    system,
+    tools,
+    toolStrategy,
+    structure,
+    middleware = [],
+  } = options;
 
-  const toolMap = new Map(tools.map((t) => [t.name, t]));
+  // Merge providerConfig from model reference with explicit config
+  // Explicit config takes precedence, with headers being deep-merged
+  const providerConfig = modelRef.providerConfig ?? {};
+  const config: ProviderConfig = {
+    ...providerConfig,
+    ...explicitConfig,
+    headers: {
+      ...providerConfig.headers,
+      ...explicitConfig.headers,
+    },
+  };
 
-  const promises = toolCalls.map(async (call, index) => {
-    const tool = toolMap.get(call.toolName);
-    const toolName = tool?.name ?? call.toolName;
-    const startTime = Date.now();
+  // Resolve the correct LLM handler based on model reference options
+  // This handles providers with multiple handlers (e.g., OpenAI responses/completions)
+  // Cast is safe: ModelInput uses structural typing with unknown for variance, but the
+  // actual provider at runtime is a proper Provider with LLMHandler
+  const provider = modelRef.provider;
+  const llmHandler = resolveLLMHandler(provider, modelRef.options) as LLMHandler<TParams> | undefined;
 
-    onEvent?.(toolExecutionStart(call.toolCallId, toolName, startTime, index));
-
-    let effectiveParams = call.arguments;
-
-    const endWithError = async (message: string, approved?: boolean): Promise<ToolResult> => {
-      const endTime = Date.now();
-      if (tool) {
-        await toolStrategy?.onError?.(tool, effectiveParams, new Error(message));
-      }
-      const execution: ToolExecution = {
-        toolName,
-        toolCallId: call.toolCallId,
-        arguments: effectiveParams,
-        result: message,
-        isError: true,
-        duration: endTime - startTime,
-        approved,
-      };
-      executions.push(execution);
-      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, message, true, endTime, index));
-      return {
-        toolCallId: call.toolCallId,
-        result: message,
-        isError: true,
-      };
-    };
-
-    if (!tool) {
-      return endWithError(`Tool '${call.toolName}' not found`);
-    }
-
-    try {
-      await toolStrategy?.onToolCall?.(tool, effectiveParams);
-      // Run middleware onToolCall hooks
-      if (ctx) {
-        await runToolHook(middleware, 'onToolCall', tool, effectiveParams, ctx);
-      }
-    } catch (error) {
-      return endWithError(toError(error).message);
-    }
-
-    if (toolStrategy?.onBeforeCall) {
-      let beforeResult: boolean | BeforeCallResult | undefined;
-      try {
-        beforeResult = await toolStrategy.onBeforeCall(tool, effectiveParams);
-      } catch (error) {
-        return endWithError(toError(error).message);
-      }
-
-      const isBeforeCallResult = (value: unknown): value is BeforeCallResult =>
-        typeof value === 'object' && value !== null && 'proceed' in value;
-
-      if (isBeforeCallResult(beforeResult)) {
-        if (!beforeResult.proceed) {
-          return endWithError('Tool execution skipped');
-        }
-        if (beforeResult.params !== undefined) {
-          effectiveParams = beforeResult.params as Record<string, unknown>;
-        }
-      } else if (!beforeResult) {
-        return endWithError('Tool execution skipped');
-      }
-    }
-
-    let approved = true;
-    if (tool.approval) {
-      try {
-        approved = await tool.approval(effectiveParams);
-      } catch (error) {
-        return endWithError(toError(error).message);
-      }
-    }
-
-    if (!approved) {
-      const endTime = Date.now();
-      const execution: ToolExecution = {
-        toolName,
-        toolCallId: call.toolCallId,
-        arguments: effectiveParams as Record<string, unknown>,
-        result: 'Tool execution denied',
-        isError: true,
-        duration: endTime - startTime,
-        approved: false,
-      };
-      executions.push(execution);
-
-      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, 'Tool execution denied by approval handler', true, endTime, index));
-
-      return {
-        toolCallId: call.toolCallId,
-        result: 'Tool execution denied by approval handler',
-        isError: true,
-      };
-    }
-
-    try {
-      let result = await tool.run(effectiveParams);
-      const endTime = Date.now();
-
-      if (toolStrategy?.onAfterCall) {
-        const afterResult = await toolStrategy.onAfterCall(tool, effectiveParams, result);
-        const isAfterCallResult = (value: unknown): value is AfterCallResult =>
-          typeof value === 'object' && value !== null && 'result' in value;
-
-        if (isAfterCallResult(afterResult)) {
-          result = afterResult.result;
-        }
-      }
-
-      // Run middleware onToolResult hooks
-      if (ctx) {
-        await runToolHook(middleware, 'onToolResult', tool, result, ctx);
-      }
-
-      const execution: ToolExecution = {
-        toolName,
-        toolCallId: call.toolCallId,
-        arguments: effectiveParams as Record<string, unknown>,
-        result,
-        isError: false,
-        duration: endTime - startTime,
-        approved,
-      };
-      executions.push(execution);
-
-      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, result, false, endTime, index));
-
-      return {
-        toolCallId: call.toolCallId,
-        result,
-        isError: false,
-      };
-    } catch (error) {
-      const endTime = Date.now();
-      const err = toError(error);
-      await toolStrategy?.onError?.(tool, effectiveParams, err);
-
-      const execution: ToolExecution = {
-        toolName,
-        toolCallId: call.toolCallId,
-        arguments: effectiveParams as Record<string, unknown>,
-        result: err.message,
-        isError: true,
-        duration: endTime - startTime,
-        approved,
-      };
-      executions.push(execution);
-
-      onEvent?.(toolExecutionEnd(call.toolCallId, toolName, err.message, true, endTime, index));
-
-      return {
-        toolCallId: call.toolCallId,
-        result: err.message,
-        isError: true,
-      };
-    }
-  });
-
-  results.push(...(await Promise.all(promises)));
-  return results;
-}
-
-/**
- * Validates that message content is compatible with provider capabilities.
- *
- * Checks user messages for media types (image, document, video, audio) and throws
- * if the provider does not support the required input modality.
- *
- * @param messages - Messages to validate
- * @param capabilities - Provider's declared capabilities
- * @param providerName - Provider name for error messages
- * @throws {UPPError} When a message contains unsupported media type
- */
-function validateMediaCapabilities(
-  messages: Message[],
-  capabilities: LLMCapabilities,
-  providerName: string
-): void {
-  for (const msg of messages) {
-    if (!isUserMessage(msg)) continue;
-
-    for (const block of msg.content) {
-      if (block.type === 'image' && !capabilities.imageInput) {
-        throw new UPPError(
-          `Provider '${providerName}' does not support image input`,
-          ErrorCode.InvalidRequest,
-          providerName,
-          ModalityType.LLM
-        );
-      }
-      if (block.type === 'document' && !capabilities.documentInput) {
-        throw new UPPError(
-          `Provider '${providerName}' does not support document input`,
-          ErrorCode.InvalidRequest,
-          providerName,
-          ModalityType.LLM
-        );
-      }
-      if (block.type === 'video' && !capabilities.videoInput) {
-        throw new UPPError(
-          `Provider '${providerName}' does not support video input`,
-          ErrorCode.InvalidRequest,
-          providerName,
-          ModalityType.LLM
-        );
-      }
-      if (block.type === 'audio' && !capabilities.audioInput) {
-        throw new UPPError(
-          `Provider '${providerName}' does not support audio input`,
-          ErrorCode.InvalidRequest,
-          providerName,
-          ModalityType.LLM
-        );
-      }
-    }
+  if (!llmHandler) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support LLM modality`,
+      ErrorCode.InvalidRequest,
+      provider.name,
+      ModalityType.LLM
+    );
   }
+
+  // Bind the model
+  const boundModel = llmHandler.bind(modelRef.modelId);
+
+  // Validate capabilities at bind time
+  const capabilities = boundModel.capabilities;
+
+  // Check for structured output capability
+  if (structure && !capabilities.structuredOutput) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support structured output`,
+      ErrorCode.InvalidRequest,
+      provider.name,
+      ModalityType.LLM
+    );
+  }
+
+  // Check for tools capability
+  if (tools && tools.length > 0 && !capabilities.tools) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support tools`,
+      ErrorCode.InvalidRequest,
+      provider.name,
+      ModalityType.LLM
+    );
+  }
+
+  // Build the instance
+  const instance: LLMInstance<TParams> = {
+    model: boundModel,
+    system,
+    params,
+    capabilities,
+
+    async generate(
+      historyOrInput: Message[] | Thread | InferenceInput,
+      ...inputs: InferenceInput[]
+    ): Promise<Turn> {
+      const { history, messages } = parseInputs(historyOrInput, inputs);
+      return executeGenerate(
+        boundModel,
+        config,
+        system,
+        params,
+        tools,
+        toolStrategy,
+        structure,
+        history,
+        messages,
+        middleware
+      );
+    },
+
+    stream(
+      historyOrInput: Message[] | Thread | InferenceInput,
+      ...inputs: InferenceInput[]
+    ): StreamResult {
+      // Check streaming capability
+      if (!capabilities.streaming) {
+        throw new UPPError(
+          `Provider '${provider.name}' does not support streaming`,
+          ErrorCode.InvalidRequest,
+          provider.name,
+          ModalityType.LLM
+        );
+      }
+      const { history, messages } = parseInputs(historyOrInput, inputs);
+      return executeStream(
+        boundModel,
+        config,
+        system,
+        params,
+        tools,
+        toolStrategy,
+        structure,
+        history,
+        messages,
+        middleware
+      );
+    },
+  };
+
+  return instance;
 }

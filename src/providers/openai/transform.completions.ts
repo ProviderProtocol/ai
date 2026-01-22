@@ -43,69 +43,6 @@ import type {
 } from './types.ts';
 
 /**
- * Transforms a UPP LLM request into OpenAI Chat Completions API format.
- *
- * This function converts the universal request format to OpenAI's specific
- * structure. Parameters are spread directly to support pass-through of any
- * OpenAI API fields, enabling use of new API features without library updates.
- *
- * @param request - The UPP LLM request containing messages, tools, and configuration
- * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o', 'gpt-4-turbo')
- * @returns An OpenAI Chat Completions API request body
- *
- * @example
- * ```typescript
- * const openaiRequest = transformRequest({
- *   messages: [userMessage('Hello!')],
- *   params: { temperature: 0.7, max_tokens: 1000 },
- *   config: { apiKey: 'sk-...' }
- * }, 'gpt-4o');
- * ```
- */
-export function transformRequest(
-  request: LLMRequest<OpenAICompletionsParams>,
-  modelId: string
-): OpenAICompletionsRequest {
-  const params = request.params ?? ({} as OpenAICompletionsParams);
-
-  const openaiRequest: OpenAICompletionsRequest = {
-    ...params,
-    model: modelId,
-    messages: transformMessages(request.messages, request.system),
-  };
-
-  if (request.tools && request.tools.length > 0) {
-    openaiRequest.tools = request.tools.map(transformTool);
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    openaiRequest.response_format = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return openaiRequest;
-}
-
-/**
  * Normalizes system prompt to string.
  * Converts array format to concatenated string for providers that only support strings.
  */
@@ -149,46 +86,6 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms UPP messages to OpenAI Chat Completions message format.
- *
- * Handles system prompt injection as the first message and processes
- * all message types including tool result messages which may expand
- * into multiple OpenAI messages.
- *
- * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt (string or array, normalized to string)
- * @returns Array of OpenAI-formatted messages
- */
-function transformMessages(
-  messages: Message[],
-  system?: string | unknown[]
-): OpenAICompletionsMessage[] {
-  const result: OpenAICompletionsMessage[] = [];
-  const normalizedSystem = normalizeSystem(system);
-
-  if (normalizedSystem) {
-    result.push({
-      role: 'system',
-      content: normalizedSystem,
-    });
-  }
-
-  for (const message of messages) {
-    if (isToolResultMessage(message)) {
-      const toolMessages = transformToolResults(message);
-      result.push(...toolMessages);
-    } else {
-      const transformed = transformMessage(message);
-      if (transformed) {
-        result.push(transformed);
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
  * Filters content blocks to only include those with a valid type property.
  *
  * @param content - Array of content blocks to filter
@@ -196,6 +93,87 @@ function transformMessages(
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transforms a UPP content block to OpenAI user content format.
+ *
+ * Handles text, image, and document content blocks. Images are converted to
+ * data URLs for base64 and bytes sources, or passed through for URL sources.
+ * Documents (PDFs only) are converted to file content with base64 data URLs.
+ *
+ * @param block - The content block to transform
+ * @returns The transformed OpenAI content part
+ * @throws Error if the content type is unsupported or source type is unknown
+ */
+function transformContentBlock(block: ContentBlock): OpenAIUserContent {
+  switch (block.type) {
+    case 'text':
+      return { type: 'text', text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      let url: string;
+
+      if (imageBlock.source.type === 'base64') {
+        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
+      } else if (imageBlock.source.type === 'url') {
+        url = imageBlock.source.url;
+      } else if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        url = `data:${imageBlock.mimeType};base64,${base64}`;
+      } else {
+        throw new Error('Unknown image source type');
+      }
+
+      return {
+        type: 'image_url',
+        image_url: { url },
+      };
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      if (documentBlock.mimeType !== 'application/pdf') {
+        throw new UPPError(
+          'OpenAI Chat Completions API only supports PDF documents',
+          ErrorCode.InvalidRequest,
+          'openai',
+          ModalityType.LLM
+        );
+      }
+
+      if (documentBlock.source.type === 'base64') {
+        return {
+          type: 'file',
+          file: {
+            filename: documentBlock.title ?? 'document.pdf',
+            file_data: `data:application/pdf;base64,${documentBlock.source.data}`,
+          },
+        };
+      }
+
+      if (documentBlock.source.type === 'url') {
+        throw new UPPError(
+          'OpenAI Chat Completions API does not support URL document sources. Use the Responses API instead.',
+          ErrorCode.InvalidRequest,
+          'openai',
+          ModalityType.LLM
+        );
+      }
+
+      throw new UPPError(
+        'Unknown document source type',
+        ErrorCode.InvalidRequest,
+        'openai',
+        ModalityType.LLM
+      );
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
 }
 
 /**
@@ -295,84 +273,43 @@ export function transformToolResults(
 }
 
 /**
- * Transforms a UPP content block to OpenAI user content format.
+ * Transforms UPP messages to OpenAI Chat Completions message format.
  *
- * Handles text, image, and document content blocks. Images are converted to
- * data URLs for base64 and bytes sources, or passed through for URL sources.
- * Documents (PDFs only) are converted to file content with base64 data URLs.
+ * Handles system prompt injection as the first message and processes
+ * all message types including tool result messages which may expand
+ * into multiple OpenAI messages.
  *
- * @param block - The content block to transform
- * @returns The transformed OpenAI content part
- * @throws Error if the content type is unsupported or source type is unknown
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt (string or array, normalized to string)
+ * @returns Array of OpenAI-formatted messages
  */
-function transformContentBlock(block: ContentBlock): OpenAIUserContent {
-  switch (block.type) {
-    case 'text':
-      return { type: 'text', text: block.text };
+function transformMessages(
+  messages: Message[],
+  system?: string | unknown[]
+): OpenAICompletionsMessage[] {
+  const result: OpenAICompletionsMessage[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      let url: string;
-
-      if (imageBlock.source.type === 'base64') {
-        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
-      } else if (imageBlock.source.type === 'url') {
-        url = imageBlock.source.url;
-      } else if (imageBlock.source.type === 'bytes') {
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        url = `data:${imageBlock.mimeType};base64,${base64}`;
-      } else {
-        throw new Error('Unknown image source type');
-      }
-
-      return {
-        type: 'image_url',
-        image_url: { url },
-      };
-    }
-
-    case 'document': {
-      const documentBlock = block as DocumentBlock;
-
-      if (documentBlock.mimeType !== 'application/pdf') {
-        throw new UPPError(
-          'OpenAI Chat Completions API only supports PDF documents',
-          ErrorCode.InvalidRequest,
-          'openai',
-          ModalityType.LLM
-        );
-      }
-
-      if (documentBlock.source.type === 'base64') {
-        return {
-          type: 'file',
-          file: {
-            filename: documentBlock.title ?? 'document.pdf',
-            file_data: `data:application/pdf;base64,${documentBlock.source.data}`,
-          },
-        };
-      }
-
-      if (documentBlock.source.type === 'url') {
-        throw new UPPError(
-          'OpenAI Chat Completions API does not support URL document sources. Use the Responses API instead.',
-          ErrorCode.InvalidRequest,
-          'openai',
-          ModalityType.LLM
-        );
-      }
-
-      throw new UPPError(
-        'Unknown document source type',
-        ErrorCode.InvalidRequest,
-        'openai',
-        ModalityType.LLM
-      );
-    }
-
-    default:
-      throw new Error(`Unsupported content type: ${block.type}`);
+  if (normalizedSystem) {
+    result.push({
+      role: 'system',
+      content: normalizedSystem,
+    });
   }
+
+  for (const message of messages) {
+    if (isToolResultMessage(message)) {
+      const toolMessages = transformToolResults(message);
+      result.push(...toolMessages);
+    } else {
+      const transformed = transformMessage(message);
+      if (transformed) {
+        result.push(transformed);
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -427,6 +364,69 @@ function transformTool(tool: Tool): OpenAICompletionsTool {
       ...(strict !== undefined ? { strict } : {}),
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request into OpenAI Chat Completions API format.
+ *
+ * This function converts the universal request format to OpenAI's specific
+ * structure. Parameters are spread directly to support pass-through of any
+ * OpenAI API fields, enabling use of new API features without library updates.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and configuration
+ * @param modelId - The OpenAI model identifier (e.g., 'gpt-4o', 'gpt-4-turbo')
+ * @returns An OpenAI Chat Completions API request body
+ *
+ * @example
+ * ```typescript
+ * const openaiRequest = transformRequest({
+ *   messages: [userMessage('Hello!')],
+ *   params: { temperature: 0.7, max_tokens: 1000 },
+ *   config: { apiKey: 'sk-...' }
+ * }, 'gpt-4o');
+ * ```
+ */
+export function transformRequest(
+  request: LLMRequest<OpenAICompletionsParams>,
+  modelId: string
+): OpenAICompletionsRequest {
+  const params = request.params ?? ({} as OpenAICompletionsParams);
+
+  const openaiRequest: OpenAICompletionsRequest = {
+    ...params,
+    model: modelId,
+    messages: transformMessages(request.messages, request.system),
+  };
+
+  if (request.tools && request.tools.length > 0) {
+    openaiRequest.tools = request.tools.map(transformTool);
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    openaiRequest.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return openaiRequest;
 }
 
 /**

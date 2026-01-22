@@ -36,56 +36,6 @@ import type {
 } from './types.ts';
 
 /**
- * Transforms a UPP LLM request into Groq Chat Completions API format.
- *
- * @param request - The UPP LLM request containing messages, tools, and configuration
- * @param modelId - The Groq model identifier (e.g., 'llama-3.3-70b-versatile')
- * @returns A Groq Chat Completions API request body
- */
-export function transformRequest(
-  request: LLMRequest<GroqLLMParams>,
-  modelId: string
-): GroqRequest {
-  const params = request.params ?? ({} as GroqLLMParams);
-
-  const groqRequest: GroqRequest = {
-    ...params,
-    model: modelId,
-    messages: transformMessages(request.messages, request.system),
-  };
-
-  if (request.tools && request.tools.length > 0) {
-    groqRequest.tools = request.tools.map(transformTool);
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    groqRequest.response_format = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return groqRequest;
-}
-
-/**
  * Normalizes system prompt to string.
  */
 function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
@@ -128,46 +78,62 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms UPP messages to Groq message format.
- *
- * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt
- * @returns Array of Groq-formatted messages
- */
-function transformMessages(
-  messages: Message[],
-  system?: string | unknown[]
-): GroqMessage[] {
-  const result: GroqMessage[] = [];
-  const normalizedSystem = normalizeSystem(system);
-
-  if (normalizedSystem) {
-    result.push({
-      role: 'system',
-      content: normalizedSystem,
-    });
-  }
-
-  for (const message of messages) {
-    if (isToolResultMessage(message)) {
-      const toolMessages = transformToolResults(message);
-      result.push(...toolMessages);
-    } else {
-      const transformed = transformMessage(message);
-      if (transformed) {
-        result.push(transformed);
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
  * Filters content blocks to only include those with a valid type property.
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transforms a UPP content block to Groq user content format.
+ */
+function transformContentBlock(block: ContentBlock): GroqUserContent {
+  switch (block.type) {
+    case 'text':
+      return { type: 'text', text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      let url: string;
+
+      if (imageBlock.source.type === 'base64') {
+        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
+      } else if (imageBlock.source.type === 'url') {
+        url = imageBlock.source.url;
+      } else if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        url = `data:${imageBlock.mimeType};base64,${base64}`;
+      } else {
+        throw new UPPError(
+          'Unknown image source type',
+          ErrorCode.InvalidRequest,
+          'groq',
+          ModalityType.LLM
+        );
+      }
+
+      return {
+        type: 'image_url',
+        image_url: { url },
+      };
+    }
+
+    case 'document':
+      throw new UPPError(
+        'Groq does not support document input',
+        ErrorCode.InvalidRequest,
+        'groq',
+        ModalityType.LLM
+      );
+
+    default:
+      throw new UPPError(
+        `Unsupported content type: ${block.type}`,
+        ErrorCode.InvalidRequest,
+        'groq',
+        ModalityType.LLM
+      );
+  }
 }
 
 /**
@@ -251,55 +217,39 @@ export function transformToolResults(message: Message): GroqMessage[] {
 }
 
 /**
- * Transforms a UPP content block to Groq user content format.
+ * Transforms UPP messages to Groq message format.
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt
+ * @returns Array of Groq-formatted messages
  */
-function transformContentBlock(block: ContentBlock): GroqUserContent {
-  switch (block.type) {
-    case 'text':
-      return { type: 'text', text: block.text };
+function transformMessages(
+  messages: Message[],
+  system?: string | unknown[]
+): GroqMessage[] {
+  const result: GroqMessage[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      let url: string;
-
-      if (imageBlock.source.type === 'base64') {
-        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
-      } else if (imageBlock.source.type === 'url') {
-        url = imageBlock.source.url;
-      } else if (imageBlock.source.type === 'bytes') {
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        url = `data:${imageBlock.mimeType};base64,${base64}`;
-      } else {
-        throw new UPPError(
-          'Unknown image source type',
-          ErrorCode.InvalidRequest,
-          'groq',
-          ModalityType.LLM
-        );
-      }
-
-      return {
-        type: 'image_url',
-        image_url: { url },
-      };
-    }
-
-    case 'document':
-      throw new UPPError(
-        'Groq does not support document input',
-        ErrorCode.InvalidRequest,
-        'groq',
-        ModalityType.LLM
-      );
-
-    default:
-      throw new UPPError(
-        `Unsupported content type: ${block.type}`,
-        ErrorCode.InvalidRequest,
-        'groq',
-        ModalityType.LLM
-      );
+  if (normalizedSystem) {
+    result.push({
+      role: 'system',
+      content: normalizedSystem,
+    });
   }
+
+  for (const message of messages) {
+    if (isToolResultMessage(message)) {
+      const toolMessages = transformToolResults(message);
+      result.push(...toolMessages);
+    } else {
+      const transformed = transformMessage(message);
+      if (transformed) {
+        result.push(transformed);
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -332,6 +282,56 @@ function transformTool(tool: Tool): GroqTool {
       ...(strict !== undefined ? { strict } : {}),
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request into Groq Chat Completions API format.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and configuration
+ * @param modelId - The Groq model identifier (e.g., 'llama-3.3-70b-versatile')
+ * @returns A Groq Chat Completions API request body
+ */
+export function transformRequest(
+  request: LLMRequest<GroqLLMParams>,
+  modelId: string
+): GroqRequest {
+  const params = request.params ?? ({} as GroqLLMParams);
+
+  const groqRequest: GroqRequest = {
+    ...params,
+    model: modelId,
+    messages: transformMessages(request.messages, request.system),
+  };
+
+  if (request.tools && request.tools.length > 0) {
+    groqRequest.tools = request.tools.map(transformTool);
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    groqRequest.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return groqRequest;
 }
 
 /**

@@ -1515,16 +1515,22 @@ export function mcpTool(options: {
   headers?: Record<string, string>;
   require_approval?: 'always' | 'never' | { type: 'except'; tools: string[] };
 }): OpenAIMcpTool {
-  const { url, name, allowed_tools, headers, require_approval } = options;
+  const {
+    url,
+    name,
+    allowed_tools: allowedTools,
+    headers,
+    require_approval: requireApproval,
+  } = options;
   return {
     type: 'mcp',
     mcp: {
       server: {
         url,
         name,
-        ...(allowed_tools && { tool_configuration: { allowed_tools } }),
+        ...(allowedTools && { tool_configuration: { allowed_tools: allowedTools } }),
         headers,
-        require_approval,
+        require_approval: requireApproval,
       },
     },
   };

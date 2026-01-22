@@ -1,7 +1,7 @@
 # Provider Protocol SDK (UPP) - LLM Reference Guide
 
 **Package**: `@providerprotocol/ai`
-**Version**: 0.0.34
+**Version**: 0.0.35
 **Runtime**: Bun/Node.js (ESM only)
 
 ## Overview
@@ -1172,6 +1172,50 @@ const instance = llm<GoogleLLMParams>({
 });
 ```
 
+### Groq
+
+```typescript
+import { groq } from '@providerprotocol/ai/groq';
+import type { GroqLLMParams } from '@providerprotocol/ai/groq';
+
+const instance = llm<GroqLLMParams>({
+  model: groq('llama-3.3-70b-versatile'),
+  params: {
+    max_tokens: 4096,
+    temperature: 0.7,
+    // Reasoning support for compatible models
+    reasoning_effort: 'high',
+    reasoning_format: 'parsed',
+    // Web search for search-enabled models
+    search_settings: { mode: 'auto' },
+  },
+});
+```
+
+### Cerebras
+
+```typescript
+import { cerebras } from '@providerprotocol/ai/cerebras';
+import type { CerebrasLLMParams } from '@providerprotocol/ai/cerebras';
+
+const instance = llm<CerebrasLLMParams>({
+  model: cerebras('llama-3.3-70b'),
+  params: {
+    max_completion_tokens: 4096,
+    temperature: 0.7,
+  },
+});
+
+// With reasoning (gpt-oss-120b model)
+const reasoning = llm<CerebrasLLMParams>({
+  model: cerebras('gpt-oss-120b'),
+  params: {
+    reasoning_effort: 'high',
+    reasoning_format: 'parsed',
+  },
+});
+```
+
 ---
 
 ## Provider Capability Matrix
@@ -1181,10 +1225,10 @@ const instance = llm<GoogleLLMParams>({
 | Anthropic | ✓ | | | ✓ | ✓ | ✓ | ✓ | ✓ |
 | OpenAI | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Google | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| xAI | ✓ | | ✓ | ✓ | ✓ | | ✓ | |
+| xAI | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | |
 | Groq | ✓ | | | ✓ | ✓ | ✓ | ✓ | |
 | Cerebras | ✓ | | | ✓ | ✓ | ✓ | | |
-| Ollama | ✓ | ✓ | | ✓ | ✓ | | | |
+| Ollama | ✓ | ✓ | | ✓ | ✓ | ✓ | ✓ | |
 | OpenRouter | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Proxy | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 

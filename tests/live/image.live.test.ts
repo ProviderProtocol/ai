@@ -32,6 +32,238 @@ const XAI_MODEL = 'grok-2-image-1212';
 const GOOGLE_MODEL = 'imagen-4.0-generate-001';
 
 /**
+ * Adler-32 checksum for zlib.
+ */
+function adler32(data: Uint8Array): number {
+  let a = 1;
+  let b = 0;
+  const MOD = 65521;
+
+  for (let i = 0; i < data.length; i++) {
+    a = (a + data[i]!) % MOD;
+    b = (b + a) % MOD;
+  }
+
+  return ((b << 16) | a) >>> 0;
+}
+
+/**
+ * Simple CRC32 implementation for PNG.
+ */
+function crc32(data: Uint8Array): number {
+  let crc = 0xffffffff;
+  for (let i = 0; i < data.length; i++) {
+    crc ^= data[i]!;
+    for (let j = 0; j < 8; j++) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Minimal deflate compression (zlib format) for PNG IDAT.
+ * Uses stored blocks only (no actual compression) for simplicity.
+ */
+function deflateRaw(data: Uint8Array): Uint8Array {
+  // Zlib header: CMF=0x78 (deflate, 32K window), FLG=0x01 (no dict, check bits)
+  const maxBlockSize = 65535;
+  const numBlocks = Math.ceil(data.length / maxBlockSize);
+  const outputSize = 2 + numBlocks * 5 + data.length + 4; // header + block headers + data + adler32
+  const output = new Uint8Array(outputSize);
+
+  output[0] = 0x78; // CMF
+  output[1] = 0x01; // FLG
+
+  let outPos = 2;
+  let inPos = 0;
+
+  for (let block = 0; block < numBlocks; block++) {
+    const remaining = data.length - inPos;
+    const blockSize = Math.min(remaining, maxBlockSize);
+    const isLast = block === numBlocks - 1;
+
+    // Block header: BFINAL (1 bit) + BTYPE=00 (2 bits) = stored block
+    output[outPos++] = isLast ? 0x01 : 0x00;
+    // LEN (2 bytes, little-endian)
+    output[outPos++] = blockSize & 0xff;
+    output[outPos++] = (blockSize >> 8) & 0xff;
+    // NLEN (one's complement of LEN)
+    output[outPos++] = (~blockSize) & 0xff;
+    output[outPos++] = ((~blockSize) >> 8) & 0xff;
+
+    // Data
+    output.set(data.subarray(inPos, inPos + blockSize), outPos);
+    outPos += blockSize;
+    inPos += blockSize;
+  }
+
+  // Adler-32 checksum
+  const adler = adler32(data);
+  output[outPos++] = (adler >> 24) & 0xff;
+  output[outPos++] = (adler >> 16) & 0xff;
+  output[outPos++] = (adler >> 8) & 0xff;
+  output[outPos++] = adler & 0xff;
+
+  return output.subarray(0, outPos);
+}
+
+/**
+ * Creates a PNG chunk with CRC.
+ */
+function createChunk(type: string, data: Uint8Array): Uint8Array {
+  const chunk = new Uint8Array(4 + 4 + data.length + 4);
+  const view = new DataView(chunk.buffer);
+
+  // Length
+  view.setUint32(0, data.length, false);
+
+  // Type
+  for (let i = 0; i < 4; i++) {
+    chunk[4 + i] = type.charCodeAt(i);
+  }
+
+  // Data
+  chunk.set(data, 8);
+
+  // CRC32 of type + data
+  const crcData = new Uint8Array(4 + data.length);
+  for (let i = 0; i < 4; i++) {
+    crcData[i] = type.charCodeAt(i);
+  }
+  crcData.set(data, 4);
+  view.setUint32(8 + data.length, crc32(crcData), false);
+
+  return chunk;
+}
+
+/**
+ * Minimal PNG encoder for RGBA data.
+ * Creates an uncompressed PNG (sufficient for testing).
+ */
+function encodePNG(pixels: Uint8Array, width: number, height: number): Uint8Array {
+  const signature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
+
+  // IHDR chunk
+  const ihdr = new Uint8Array(13);
+  const ihdrView = new DataView(ihdr.buffer);
+  ihdrView.setUint32(0, width, false);
+  ihdrView.setUint32(4, height, false);
+  ihdr[8] = 8;  // bit depth
+  ihdr[9] = 6;  // color type (RGBA)
+  ihdr[10] = 0; // compression
+  ihdr[11] = 0; // filter
+  ihdr[12] = 0; // interlace
+
+  // Create raw image data with filter bytes
+  const rawData = new Uint8Array(height * (1 + width * 4));
+  for (let y = 0; y < height; y++) {
+    rawData[y * (1 + width * 4)] = 0; // filter type: none
+    for (let x = 0; x < width * 4; x++) {
+      rawData[y * (1 + width * 4) + 1 + x] = pixels[y * width * 4 + x]!;
+    }
+  }
+
+  // Compress with deflate (using zlib format)
+  const compressed = deflateRaw(rawData);
+
+  // Build chunks
+  const chunks: Uint8Array[] = [
+    signature,
+    createChunk('IHDR', ihdr),
+    createChunk('IDAT', compressed),
+    createChunk('IEND', new Uint8Array(0)),
+  ];
+
+  // Concatenate all chunks
+  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.length;
+  }
+
+  return result;
+}
+
+/**
+ * Creates a simple PNG mask with a transparent center region.
+ * The outer area is opaque black, the center is transparent.
+ */
+function createSimpleMask(width: number, height: number): Uint8Array {
+  // Create raw RGBA pixel data
+  const pixels = new Uint8Array(width * height * 4);
+
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.min(width, height) / 4;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < radius) {
+        // Transparent center (where edit will occur)
+        pixels[idx] = 0;     // R
+        pixels[idx + 1] = 0; // G
+        pixels[idx + 2] = 0; // B
+        pixels[idx + 3] = 0; // A (transparent)
+      } else {
+        // Opaque outer area (will be preserved)
+        pixels[idx] = 0;       // R
+        pixels[idx + 1] = 0;   // G
+        pixels[idx + 2] = 0;   // B
+        pixels[idx + 3] = 255; // A (opaque)
+      }
+    }
+  }
+
+  return encodePNG(pixels, width, height);
+}
+
+/**
+ * Creates an RGBA PNG image with a colored background and transparent center.
+ * Used for testing image edit without a separate mask.
+ */
+function createRGBAImageWithTransparency(width: number, height: number): Image {
+  const pixels = new Uint8Array(width * height * 4);
+
+  const centerX = width / 2;
+  const centerY = height / 2;
+  const radius = Math.min(width, height) / 3;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const idx = (y * width + x) * 4;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (distance < radius) {
+        // Transparent center (where edit will occur)
+        pixels[idx] = 0;     // R
+        pixels[idx + 1] = 0; // G
+        pixels[idx + 2] = 0; // B
+        pixels[idx + 3] = 0; // A (transparent)
+      } else {
+        // Red background (will be preserved)
+        pixels[idx] = 255;     // R
+        pixels[idx + 1] = 0;   // G
+        pixels[idx + 2] = 0;   // B
+        pixels[idx + 3] = 255; // A (opaque)
+      }
+    }
+  }
+
+  const pngBytes = encodePNG(pixels, width, height);
+  return Image.fromBytes(pngBytes, 'image/png');
+}
+
+/**
  * OpenAI Image Generation Tests (DALL-E)
  */
 describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Image Generation', () => {
@@ -62,8 +294,9 @@ describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Image Generation', () => {
 
     const result = await imageGen.generate('A cat');
 
-    expect(result.images[0]!.metadata?.revised_prompt).toBeDefined();
-    expect(typeof result.images[0]!.metadata?.revised_prompt).toBe('string');
+    const openaiMeta = result.images[0]!.metadata?.openai as { revised_prompt?: string } | undefined;
+    expect(openaiMeta?.revised_prompt).toBeDefined();
+    expect(typeof openaiMeta?.revised_prompt).toBe('string');
   }, 60000);
 
   test('supports different sizes', async () => {
@@ -431,238 +664,6 @@ describe.skipIf(!HAS_OPENAI_KEY)('OpenAI Image Edit', () => {
     expect(result.images[0]!.image).toBeInstanceOf(Image);
   }, 120000);
 });
-
-/**
- * Creates a simple PNG mask with a transparent center region.
- * The outer area is opaque black, the center is transparent.
- */
-function createSimpleMask(width: number, height: number): Uint8Array {
-  // Create raw RGBA pixel data
-  const pixels = new Uint8Array(width * height * 4);
-
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const radius = Math.min(width, height) / 4;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const dx = x - centerX;
-      const dy = y - centerY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance < radius) {
-        // Transparent center (where edit will occur)
-        pixels[idx] = 0;     // R
-        pixels[idx + 1] = 0; // G
-        pixels[idx + 2] = 0; // B
-        pixels[idx + 3] = 0; // A (transparent)
-      } else {
-        // Opaque outer area (will be preserved)
-        pixels[idx] = 0;       // R
-        pixels[idx + 1] = 0;   // G
-        pixels[idx + 2] = 0;   // B
-        pixels[idx + 3] = 255; // A (opaque)
-      }
-    }
-  }
-
-  return encodePNG(pixels, width, height);
-}
-
-/**
- * Minimal PNG encoder for RGBA data.
- * Creates an uncompressed PNG (sufficient for testing).
- */
-function encodePNG(pixels: Uint8Array, width: number, height: number): Uint8Array {
-  const signature = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]);
-
-  // IHDR chunk
-  const ihdr = new Uint8Array(13);
-  const ihdrView = new DataView(ihdr.buffer);
-  ihdrView.setUint32(0, width, false);
-  ihdrView.setUint32(4, height, false);
-  ihdr[8] = 8;  // bit depth
-  ihdr[9] = 6;  // color type (RGBA)
-  ihdr[10] = 0; // compression
-  ihdr[11] = 0; // filter
-  ihdr[12] = 0; // interlace
-
-  // Create raw image data with filter bytes
-  const rawData = new Uint8Array(height * (1 + width * 4));
-  for (let y = 0; y < height; y++) {
-    rawData[y * (1 + width * 4)] = 0; // filter type: none
-    for (let x = 0; x < width * 4; x++) {
-      rawData[y * (1 + width * 4) + 1 + x] = pixels[y * width * 4 + x]!;
-    }
-  }
-
-  // Compress with deflate (using zlib format)
-  const compressed = deflateRaw(rawData);
-
-  // Build chunks
-  const chunks: Uint8Array[] = [
-    signature,
-    createChunk('IHDR', ihdr),
-    createChunk('IDAT', compressed),
-    createChunk('IEND', new Uint8Array(0)),
-  ];
-
-  // Concatenate all chunks
-  const totalLength = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const result = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    result.set(chunk, offset);
-    offset += chunk.length;
-  }
-
-  return result;
-}
-
-/**
- * Creates a PNG chunk with CRC.
- */
-function createChunk(type: string, data: Uint8Array): Uint8Array {
-  const chunk = new Uint8Array(4 + 4 + data.length + 4);
-  const view = new DataView(chunk.buffer);
-
-  // Length
-  view.setUint32(0, data.length, false);
-
-  // Type
-  for (let i = 0; i < 4; i++) {
-    chunk[4 + i] = type.charCodeAt(i);
-  }
-
-  // Data
-  chunk.set(data, 8);
-
-  // CRC32 of type + data
-  const crcData = new Uint8Array(4 + data.length);
-  for (let i = 0; i < 4; i++) {
-    crcData[i] = type.charCodeAt(i);
-  }
-  crcData.set(data, 4);
-  view.setUint32(8 + data.length, crc32(crcData), false);
-
-  return chunk;
-}
-
-/**
- * Simple CRC32 implementation for PNG.
- */
-function crc32(data: Uint8Array): number {
-  let crc = 0xffffffff;
-  for (let i = 0; i < data.length; i++) {
-    crc ^= data[i]!;
-    for (let j = 0; j < 8; j++) {
-      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
-    }
-  }
-  return (crc ^ 0xffffffff) >>> 0;
-}
-
-/**
- * Minimal deflate compression (zlib format) for PNG IDAT.
- * Uses stored blocks only (no actual compression) for simplicity.
- */
-function deflateRaw(data: Uint8Array): Uint8Array {
-  // Zlib header: CMF=0x78 (deflate, 32K window), FLG=0x01 (no dict, check bits)
-  const maxBlockSize = 65535;
-  const numBlocks = Math.ceil(data.length / maxBlockSize);
-  const outputSize = 2 + numBlocks * 5 + data.length + 4; // header + block headers + data + adler32
-  const output = new Uint8Array(outputSize);
-
-  output[0] = 0x78; // CMF
-  output[1] = 0x01; // FLG
-
-  let outPos = 2;
-  let inPos = 0;
-
-  for (let block = 0; block < numBlocks; block++) {
-    const remaining = data.length - inPos;
-    const blockSize = Math.min(remaining, maxBlockSize);
-    const isLast = block === numBlocks - 1;
-
-    // Block header: BFINAL (1 bit) + BTYPE=00 (2 bits) = stored block
-    output[outPos++] = isLast ? 0x01 : 0x00;
-    // LEN (2 bytes, little-endian)
-    output[outPos++] = blockSize & 0xff;
-    output[outPos++] = (blockSize >> 8) & 0xff;
-    // NLEN (one's complement of LEN)
-    output[outPos++] = (~blockSize) & 0xff;
-    output[outPos++] = ((~blockSize) >> 8) & 0xff;
-
-    // Data
-    output.set(data.subarray(inPos, inPos + blockSize), outPos);
-    outPos += blockSize;
-    inPos += blockSize;
-  }
-
-  // Adler-32 checksum
-  const adler = adler32(data);
-  output[outPos++] = (adler >> 24) & 0xff;
-  output[outPos++] = (adler >> 16) & 0xff;
-  output[outPos++] = (adler >> 8) & 0xff;
-  output[outPos++] = adler & 0xff;
-
-  return output.subarray(0, outPos);
-}
-
-/**
- * Adler-32 checksum for zlib.
- */
-function adler32(data: Uint8Array): number {
-  let a = 1;
-  let b = 0;
-  const MOD = 65521;
-
-  for (let i = 0; i < data.length; i++) {
-    a = (a + data[i]!) % MOD;
-    b = (b + a) % MOD;
-  }
-
-  return ((b << 16) | a) >>> 0;
-}
-
-/**
- * Creates an RGBA PNG image with a colored background and transparent center.
- * Used for testing image edit without a separate mask.
- */
-function createRGBAImageWithTransparency(width: number, height: number): Image {
-  const pixels = new Uint8Array(width * height * 4);
-
-  const centerX = width / 2;
-  const centerY = height / 2;
-  const radius = Math.min(width, height) / 3;
-
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const dx = x - centerX;
-      const dy = y - centerY;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-
-      if (distance < radius) {
-        // Transparent center (where edit will occur)
-        pixels[idx] = 0;     // R
-        pixels[idx + 1] = 0; // G
-        pixels[idx + 2] = 0; // B
-        pixels[idx + 3] = 0; // A (transparent)
-      } else {
-        // Red background (will be preserved)
-        pixels[idx] = 255;     // R
-        pixels[idx + 1] = 0;   // G
-        pixels[idx + 2] = 0;   // B
-        pixels[idx + 3] = 255; // A (opaque)
-      }
-    }
-  }
-
-  const pngBytes = encodePNG(pixels, width, height);
-  return Image.fromBytes(pngBytes, 'image/png');
-}
 
 /**
  * Prompt Input Tests

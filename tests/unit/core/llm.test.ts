@@ -765,9 +765,7 @@ describe('LLM stream execution', () => {
     expect(onAbortCalls).toBe(1);
     expect(onErrorCalls).toBe(0);
     expect(capturedError).toBeInstanceOf(UPPError);
-    if (capturedError instanceof UPPError) {
-      expect(capturedError.code).toBe(ErrorCode.Cancelled);
-    }
+    expect((capturedError as unknown as UPPError).code).toBe(ErrorCode.Cancelled);
   });
 
   test('early termination rejects turn and aborts request', async () => {

@@ -4,6 +4,64 @@
  */
 
 /**
+ * Parses a single SSE event block into a JSON object.
+ *
+ * Handles the following line prefixes:
+ * - "data:" - Event data (multiple data lines are concatenated)
+ * - "event:" - Event type (added to result as _eventType)
+ * - ":" - Comment (ignored, often used for keep-alive)
+ * - Raw JSON starting with { or [ (provider-specific fallback)
+ *
+ * @param eventText - Raw text of a single SSE event block
+ * @returns Parsed JSON object, 'DONE' for termination signal, or null for invalid/empty events
+ */
+function parseSSEEvent(eventText: string): unknown | 'DONE' | null {
+  const lines = eventText.split('\n');
+  let data = '';
+  let eventType = '';
+
+  for (const line of lines) {
+    const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line;
+    if (normalizedLine.startsWith('event:')) {
+      let value = normalizedLine.slice(6);
+      if (value.startsWith(' ')) value = value.slice(1);
+      eventType = value;
+    } else if (normalizedLine.startsWith('data:')) {
+      let value = normalizedLine.slice(5);
+      if (value.startsWith(' ')) value = value.slice(1);
+      data += (data ? '\n' : '') + value;
+    } else if (normalizedLine.startsWith(':')) {
+      continue;
+    } else {
+      const trimmedStart = normalizedLine.trimStart();
+      if (trimmedStart.startsWith('{') || trimmedStart.startsWith('[')) {
+        data += (data ? '\n' : '') + trimmedStart;
+      }
+    }
+  }
+
+  if (!data) {
+    return null;
+  }
+
+  if (data === '[DONE]') {
+    return 'DONE';
+  }
+
+  try {
+    const parsed = JSON.parse(data);
+
+    if (eventType) {
+      return { _eventType: eventType, ...parsed };
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Parses a Server-Sent Events stream into JSON objects.
  *
  * This async generator handles the standard SSE wire format:
@@ -85,64 +143,6 @@ export async function* parseSSEStream(
     }
   } finally {
     reader.releaseLock();
-  }
-}
-
-/**
- * Parses a single SSE event block into a JSON object.
- *
- * Handles the following line prefixes:
- * - "data:" - Event data (multiple data lines are concatenated)
- * - "event:" - Event type (added to result as _eventType)
- * - ":" - Comment (ignored, often used for keep-alive)
- * - Raw JSON starting with { or [ (provider-specific fallback)
- *
- * @param eventText - Raw text of a single SSE event block
- * @returns Parsed JSON object, 'DONE' for termination signal, or null for invalid/empty events
- */
-function parseSSEEvent(eventText: string): unknown | 'DONE' | null {
-  const lines = eventText.split('\n');
-  let data = '';
-  let eventType = '';
-
-  for (const line of lines) {
-    const normalizedLine = line.endsWith('\r') ? line.slice(0, -1) : line;
-    if (normalizedLine.startsWith('event:')) {
-      let value = normalizedLine.slice(6);
-      if (value.startsWith(' ')) value = value.slice(1);
-      eventType = value;
-    } else if (normalizedLine.startsWith('data:')) {
-      let value = normalizedLine.slice(5);
-      if (value.startsWith(' ')) value = value.slice(1);
-      data += (data ? '\n' : '') + value;
-    } else if (normalizedLine.startsWith(':')) {
-      continue;
-    } else {
-      const trimmedStart = normalizedLine.trimStart();
-      if (trimmedStart.startsWith('{') || trimmedStart.startsWith('[')) {
-        data += (data ? '\n' : '') + trimmedStart;
-      }
-    }
-  }
-
-  if (!data) {
-    return null;
-  }
-
-  if (data === '[DONE]') {
-    return 'DONE';
-  }
-
-  try {
-    const parsed = JSON.parse(data);
-
-    if (eventType) {
-      return { _eventType: eventType, ...parsed };
-    }
-
-    return parsed;
-  } catch {
-    return null;
   }
 }
 

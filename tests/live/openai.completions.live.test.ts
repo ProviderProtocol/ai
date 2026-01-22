@@ -300,30 +300,38 @@ describe.skipIf(!process.env.OPENAI_API_KEY)('OpenAI Completions API Live', () =
 
     const stream = gpt.stream('Tell me about Tokyo, Japan.');
 
-    // OpenAI uses native structured output, so we accumulate text_delta events
-    let accumulatedJson = '';
+    // Structured output emits both TextDelta and ObjectDelta events
+    let sawTextDelta = false;
+    let sawObjectDelta = false;
+    let textDeltaJson = '';
+    let objectDeltaJson = '';
     for await (const event of stream) {
       if (event.type === StreamEventType.TextDelta && event.delta.text) {
-        accumulatedJson += event.delta.text;
+        sawTextDelta = true;
+        textDeltaJson += event.delta.text;
+      }
+      if (event.type === StreamEventType.ObjectDelta && event.delta.text) {
+        sawObjectDelta = true;
+        objectDeltaJson += event.delta.text;
       }
     }
 
-    // The accumulated JSON should be valid and parseable
-    expect(accumulatedJson.length).toBeGreaterThan(0);
-    const streamedData = JSON.parse(accumulatedJson) as CityData;
-    expect(streamedData.city).toContain('Tokyo');
-
     const turn = await stream.turn;
 
-    // The 'data' field should match what we accumulated
+    // Verify we got both TextDelta and ObjectDelta events
+    expect(sawTextDelta).toBe(true);
+    expect(sawObjectDelta).toBe(true);
+    expect(textDeltaJson.length).toBeGreaterThan(0);
+    expect(objectDeltaJson.length).toBeGreaterThan(0);
+    // Both should contain the same content
+    expect(textDeltaJson).toBe(objectDeltaJson);
+
+    // The 'data' field should contain parsed structured output
     expect(turn.data).toBeDefined();
     const data = turn.data as CityData;
     expect(data.city).toContain('Tokyo');
     expect(typeof data.population).toBe('number');
     expect(data.isCapital).toBe(true);
-
-    // Verify streamed matches final
-    expect(streamedData.city).toBe(data.city);
   });
 });
 

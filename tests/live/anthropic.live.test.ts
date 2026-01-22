@@ -293,30 +293,38 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('Anthropic Live API', () => {
 
     const stream = claude.stream('Tell me about Tokyo, Japan.');
 
-    // Anthropic uses tool-based structured output, so we accumulate tool_call_delta events
-    let accumulatedJson = '';
+    // Anthropic uses tool-based structured output - emits both ToolCallDelta and ObjectDelta
+    let sawToolCallDelta = false;
+    let sawObjectDelta = false;
+    let toolCallJson = '';
+    let objectDeltaJson = '';
     for await (const event of stream) {
       if (event.type === StreamEventType.ToolCallDelta && event.delta.argumentsJson) {
-        accumulatedJson += event.delta.argumentsJson;
+        sawToolCallDelta = true;
+        toolCallJson += event.delta.argumentsJson;
+      }
+      if (event.type === StreamEventType.ObjectDelta && event.delta.text) {
+        sawObjectDelta = true;
+        objectDeltaJson += event.delta.text;
       }
     }
 
-    // The accumulated JSON should be valid and parseable
-    expect(accumulatedJson.length).toBeGreaterThan(0);
-    const streamedData = JSON.parse(accumulatedJson) as CityData;
-    expect(streamedData.city).toContain('Tokyo');
-
     const turn = await stream.turn;
 
-    // The 'data' field should match what we accumulated
+    // Verify we got both ToolCallDelta and ObjectDelta events
+    expect(sawToolCallDelta).toBe(true);
+    expect(sawObjectDelta).toBe(true);
+    expect(toolCallJson.length).toBeGreaterThan(0);
+    expect(objectDeltaJson.length).toBeGreaterThan(0);
+    // Both should contain the same content
+    expect(toolCallJson).toBe(objectDeltaJson);
+
+    // The 'data' field should contain parsed structured output
     expect(turn.data).toBeDefined();
     const data = turn.data as CityData;
     expect(data.city).toContain('Tokyo');
     expect(typeof data.population).toBe('number');
     expect(data.isCapital).toBe(true);
-
-    // Verify streamed matches final
-    expect(streamedData.city).toBe(data.city);
   });
 });
 

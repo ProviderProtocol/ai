@@ -36,6 +36,344 @@ import type {
   AnthropicOutputFormat,
 } from './types.ts';
 
+function isValidCacheControl(value: unknown): value is AnthropicCacheControl {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { type?: unknown; ttl?: unknown };
+  if (candidate.type !== 'ephemeral') return false;
+  if (candidate.ttl !== undefined && candidate.ttl !== '5m' && candidate.ttl !== '1h') {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Validates and normalizes system prompt input for Anthropic.
+ */
+function normalizeSystem(
+  system: string | unknown[] | undefined
+): string | AnthropicSystemContent[] | undefined {
+  if (system === undefined || system === null) return undefined;
+  if (typeof system === 'string') return system;
+  if (!Array.isArray(system)) {
+    throw new UPPError(
+      'System prompt must be a string or an array of text blocks',
+      ErrorCode.InvalidRequest,
+      'anthropic',
+      ModalityType.LLM
+    );
+  }
+
+  const blocks: AnthropicSystemContent[] = [];
+  for (const block of system) {
+    if (!block || typeof block !== 'object') {
+      throw new UPPError(
+        'System prompt array must contain objects with type "text"',
+        ErrorCode.InvalidRequest,
+        'anthropic',
+        ModalityType.LLM
+      );
+    }
+    const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
+    if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
+      throw new UPPError(
+        'Anthropic system blocks must be of type "text" with a string text field',
+        ErrorCode.InvalidRequest,
+        'anthropic',
+        ModalityType.LLM
+      );
+    }
+    if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
+      throw new UPPError(
+        'Invalid cache_control for Anthropic system prompt',
+        ErrorCode.InvalidRequest,
+        'anthropic',
+        ModalityType.LLM
+      );
+    }
+    blocks.push(block as AnthropicSystemContent);
+  }
+
+  return blocks.length > 0 ? blocks : undefined;
+}
+
+/**
+ * Filters content blocks to include only those with a valid type property.
+ *
+ * @param content - Array of content blocks to filter
+ * @returns Filtered array containing only blocks with a string type property
+ */
+function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
+  return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Extracts cache control configuration from message metadata.
+ *
+ * @param message - The message to extract cache control from
+ * @returns The cache control configuration if present, undefined otherwise
+ */
+function extractCacheControl(message: Message): AnthropicCacheControl | undefined {
+  const anthropicMeta = message.metadata?.anthropic as
+    | { cache_control?: AnthropicCacheControl }
+    | undefined;
+  return anthropicMeta?.cache_control;
+}
+
+/**
+ * Transforms a UPP ContentBlock to Anthropic's content format.
+ *
+ * Supports text and image content types. Image blocks can be provided
+ * as base64, URL, or raw bytes (which are converted to base64).
+ *
+ * @param block - The UPP content block to transform
+ * @param cacheControl - Optional cache control to apply to the block
+ * @returns An AnthropicContent object
+ * @throws Error if the content type or image source type is unsupported
+ */
+function transformContentBlock(
+  block: ContentBlock,
+  cacheControl?: AnthropicCacheControl
+): AnthropicContent {
+  switch (block.type) {
+    case 'text':
+      return {
+        type: 'text',
+        text: block.text,
+        ...(cacheControl ? { cache_control: cacheControl } : {}),
+      };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      if (imageBlock.source.type === 'base64') {
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: imageBlock.mimeType,
+            data: imageBlock.source.data,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      if (imageBlock.source.type === 'url') {
+        return {
+          type: 'image',
+          source: {
+            type: 'url',
+            url: imageBlock.source.url,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        return {
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: imageBlock.mimeType,
+            data: base64,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      throw new Error(`Unknown image source type`);
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+      if (documentBlock.source.type === 'base64') {
+        return {
+          type: 'document',
+          source: {
+            type: 'base64',
+            media_type: documentBlock.mimeType,
+            data: documentBlock.source.data,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      if (documentBlock.source.type === 'url') {
+        return {
+          type: 'document',
+          source: {
+            type: 'url',
+            url: documentBlock.source.url,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      if (documentBlock.source.type === 'text') {
+        return {
+          type: 'document',
+          source: {
+            type: 'text',
+            media_type: documentBlock.mimeType,
+            data: documentBlock.source.data,
+          },
+          ...(cacheControl ? { cache_control: cacheControl } : {}),
+        };
+      }
+      throw new Error(`Unknown document source type`);
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
+}
+
+/**
+ * Transforms a UPP Message to Anthropic's message format.
+ *
+ * Handles three message types:
+ * - UserMessage: Converted with content blocks
+ * - AssistantMessage: Includes text and tool_use blocks
+ * - ToolResultMessage: Converted to user role with tool_result content
+ *
+ * Cache control can be specified via message metadata:
+ * ```typescript
+ * new UserMessage(content, {
+ *   metadata: { anthropic: { cache_control: { type: "ephemeral" } } }
+ * })
+ * ```
+ *
+ * @param message - The UPP message to transform
+ * @returns An AnthropicMessage with the appropriate role and content
+ * @throws Error if the message type is unknown
+ */
+function transformMessage(message: Message): AnthropicMessage {
+  const cacheControl = extractCacheControl(message);
+
+  if (isUserMessage(message)) {
+    const validContent = filterValidContent(message.content);
+    const contentBlocks = validContent.map((block, index, arr) =>
+      transformContentBlock(block, index === arr.length - 1 ? cacheControl : undefined)
+    );
+    return {
+      role: 'user',
+      content: contentBlocks,
+    };
+  }
+
+  if (isAssistantMessage(message)) {
+    const validContent = filterValidContent(message.content);
+    const content: AnthropicContent[] = [];
+
+    // Get thinking signatures from metadata if present
+    const anthropicMeta = message.metadata?.anthropic as
+      | { thinkingSignature?: string; thinkingSignatures?: Array<string | null> }
+      | undefined;
+    const thinkingSignatures = anthropicMeta?.thinkingSignatures;
+    let reasoningIndex = 0;
+
+    for (let i = 0; i < validContent.length; i++) {
+      const block = validContent[i]!;
+      const isLastNonToolBlock = i === validContent.length - 1 && !message.toolCalls?.length;
+
+      if (block.type === 'reasoning') {
+        // Convert reasoning blocks to thinking blocks for Anthropic
+        const signatureFromArray = thinkingSignatures?.[reasoningIndex];
+        const signature = Array.isArray(thinkingSignatures)
+          ? (typeof signatureFromArray === 'string' ? signatureFromArray : undefined)
+          : anthropicMeta?.thinkingSignature;
+        reasoningIndex += 1;
+        content.push({
+          type: 'thinking',
+          thinking: (block as ReasoningBlock).text,
+          ...(signature ? { signature } : {}),
+        });
+      } else {
+        content.push(transformContentBlock(block, isLastNonToolBlock ? cacheControl : undefined));
+      }
+    }
+
+    if (message.toolCalls) {
+      for (let i = 0; i < message.toolCalls.length; i++) {
+        const call = message.toolCalls[i]!;
+        const isLast = i === message.toolCalls.length - 1;
+        content.push({
+          type: 'tool_use',
+          id: call.toolCallId,
+          name: call.toolName,
+          input: call.arguments,
+          ...(isLast && cacheControl ? { cache_control: cacheControl } : {}),
+        });
+      }
+    }
+
+    return {
+      role: 'assistant',
+      content,
+    };
+  }
+
+  if (isToolResultMessage(message)) {
+    return {
+      role: 'user',
+      content: message.results.map((result, index, arr) => ({
+        type: 'tool_result' as const,
+        tool_use_id: result.toolCallId,
+        content:
+          typeof result.result === 'string'
+            ? result.result
+            : JSON.stringify(result.result),
+        is_error: result.isError,
+        ...(index === arr.length - 1 && cacheControl ? { cache_control: cacheControl } : {}),
+      })),
+    };
+  }
+
+  throw new Error(`Unknown message type: ${message.type}`);
+}
+
+/**
+ * Extracts cache control configuration from tool metadata.
+ *
+ * @param tool - The tool to extract cache control from
+ * @returns The cache control configuration if present, undefined otherwise
+ */
+function extractToolCacheControl(tool: Tool): AnthropicCacheControl | undefined {
+  const anthropicMeta = tool.metadata?.anthropic as
+    | { cache_control?: AnthropicCacheControl }
+    | undefined;
+  return anthropicMeta?.cache_control;
+}
+
+/**
+ * Transforms a UPP Tool definition to Anthropic's tool format.
+ *
+ * Cache control can be specified via tool metadata:
+ * ```typescript
+ * const tool: Tool = {
+ *   name: 'search_docs',
+ *   description: 'Search documentation',
+ *   parameters: {...},
+ *   metadata: { anthropic: { cache_control: { type: 'ephemeral' } } },
+ *   run: async (params) => {...}
+ * };
+ * ```
+ *
+ * @param tool - The UPP tool definition
+ * @returns An AnthropicTool with the appropriate input schema
+ */
+function transformTool(tool: Tool): AnthropicTool {
+  const cacheControl = extractToolCacheControl(tool);
+
+  return {
+    name: tool.name,
+    description: tool.description,
+    input_schema: {
+      type: 'object',
+      properties: tool.parameters.properties,
+      required: tool.parameters.required,
+      ...(tool.parameters.additionalProperties !== undefined
+        ? { additionalProperties: tool.parameters.additionalProperties }
+        : {}),
+    },
+    ...(cacheControl ? { cache_control: cacheControl } : {}),
+  };
+}
+
 /**
  * Transforms a UPP LLM request to Anthropic's native API format.
  *
@@ -144,344 +482,6 @@ export function transformRequest<TParams extends AnthropicLLMParams>(
   }
 
   return anthropicRequest;
-}
-
-/**
- * Validates and normalizes system prompt input for Anthropic.
- */
-function normalizeSystem(
-  system: string | unknown[] | undefined
-): string | AnthropicSystemContent[] | undefined {
-  if (system === undefined || system === null) return undefined;
-  if (typeof system === 'string') return system;
-  if (!Array.isArray(system)) {
-    throw new UPPError(
-      'System prompt must be a string or an array of text blocks',
-      ErrorCode.InvalidRequest,
-      'anthropic',
-      ModalityType.LLM
-    );
-  }
-
-  const blocks: AnthropicSystemContent[] = [];
-  for (const block of system) {
-    if (!block || typeof block !== 'object') {
-      throw new UPPError(
-        'System prompt array must contain objects with type "text"',
-        ErrorCode.InvalidRequest,
-        'anthropic',
-        ModalityType.LLM
-      );
-    }
-    const candidate = block as { type?: unknown; text?: unknown; cache_control?: unknown };
-    if (candidate.type !== 'text' || typeof candidate.text !== 'string') {
-      throw new UPPError(
-        'Anthropic system blocks must be of type "text" with a string text field',
-        ErrorCode.InvalidRequest,
-        'anthropic',
-        ModalityType.LLM
-      );
-    }
-    if (candidate.cache_control !== undefined && !isValidCacheControl(candidate.cache_control)) {
-      throw new UPPError(
-        'Invalid cache_control for Anthropic system prompt',
-        ErrorCode.InvalidRequest,
-        'anthropic',
-        ModalityType.LLM
-      );
-    }
-    blocks.push(block as AnthropicSystemContent);
-  }
-
-  return blocks.length > 0 ? blocks : undefined;
-}
-
-function isValidCacheControl(value: unknown): value is AnthropicCacheControl {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as { type?: unknown; ttl?: unknown };
-  if (candidate.type !== 'ephemeral') return false;
-  if (candidate.ttl !== undefined && candidate.ttl !== '5m' && candidate.ttl !== '1h') {
-    return false;
-  }
-  return true;
-}
-
-/**
- * Filters content blocks to include only those with a valid type property.
- *
- * @param content - Array of content blocks to filter
- * @returns Filtered array containing only blocks with a string type property
- */
-function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
-  return content.filter((c) => c && typeof c.type === 'string');
-}
-
-/**
- * Extracts cache control configuration from message metadata.
- *
- * @param message - The message to extract cache control from
- * @returns The cache control configuration if present, undefined otherwise
- */
-function extractCacheControl(message: Message): AnthropicCacheControl | undefined {
-  const anthropicMeta = message.metadata?.anthropic as
-    | { cache_control?: AnthropicCacheControl }
-    | undefined;
-  return anthropicMeta?.cache_control;
-}
-
-/**
- * Transforms a UPP Message to Anthropic's message format.
- *
- * Handles three message types:
- * - UserMessage: Converted with content blocks
- * - AssistantMessage: Includes text and tool_use blocks
- * - ToolResultMessage: Converted to user role with tool_result content
- *
- * Cache control can be specified via message metadata:
- * ```typescript
- * new UserMessage(content, {
- *   metadata: { anthropic: { cache_control: { type: "ephemeral" } } }
- * })
- * ```
- *
- * @param message - The UPP message to transform
- * @returns An AnthropicMessage with the appropriate role and content
- * @throws Error if the message type is unknown
- */
-function transformMessage(message: Message): AnthropicMessage {
-  const cacheControl = extractCacheControl(message);
-
-  if (isUserMessage(message)) {
-    const validContent = filterValidContent(message.content);
-    const contentBlocks = validContent.map((block, index, arr) =>
-      transformContentBlock(block, index === arr.length - 1 ? cacheControl : undefined)
-    );
-    return {
-      role: 'user',
-      content: contentBlocks,
-    };
-  }
-
-  if (isAssistantMessage(message)) {
-    const validContent = filterValidContent(message.content);
-    const content: AnthropicContent[] = [];
-
-    // Get thinking signatures from metadata if present
-    const anthropicMeta = message.metadata?.anthropic as
-      | { thinkingSignature?: string; thinkingSignatures?: Array<string | null> }
-      | undefined;
-    const thinkingSignatures = anthropicMeta?.thinkingSignatures;
-    let reasoningIndex = 0;
-
-    for (let i = 0; i < validContent.length; i++) {
-      const block = validContent[i]!;
-      const isLastNonToolBlock = i === validContent.length - 1 && !message.toolCalls?.length;
-
-      if (block.type === 'reasoning') {
-        // Convert reasoning blocks to thinking blocks for Anthropic
-        const signatureFromArray = thinkingSignatures?.[reasoningIndex];
-        const signature = Array.isArray(thinkingSignatures)
-          ? (typeof signatureFromArray === 'string' ? signatureFromArray : undefined)
-          : anthropicMeta?.thinkingSignature;
-        reasoningIndex += 1;
-        content.push({
-          type: 'thinking',
-          thinking: (block as ReasoningBlock).text,
-          ...(signature ? { signature } : {}),
-        });
-      } else {
-        content.push(transformContentBlock(block, isLastNonToolBlock ? cacheControl : undefined));
-      }
-    }
-
-    if (message.toolCalls) {
-      for (let i = 0; i < message.toolCalls.length; i++) {
-        const call = message.toolCalls[i]!;
-        const isLast = i === message.toolCalls.length - 1;
-        content.push({
-          type: 'tool_use',
-          id: call.toolCallId,
-          name: call.toolName,
-          input: call.arguments,
-          ...(isLast && cacheControl ? { cache_control: cacheControl } : {}),
-        });
-      }
-    }
-
-    return {
-      role: 'assistant',
-      content,
-    };
-  }
-
-  if (isToolResultMessage(message)) {
-    return {
-      role: 'user',
-      content: message.results.map((result, index, arr) => ({
-        type: 'tool_result' as const,
-        tool_use_id: result.toolCallId,
-        content:
-          typeof result.result === 'string'
-            ? result.result
-            : JSON.stringify(result.result),
-        is_error: result.isError,
-        ...(index === arr.length - 1 && cacheControl ? { cache_control: cacheControl } : {}),
-      })),
-    };
-  }
-
-  throw new Error(`Unknown message type: ${message.type}`);
-}
-
-/**
- * Transforms a UPP ContentBlock to Anthropic's content format.
- *
- * Supports text and image content types. Image blocks can be provided
- * as base64, URL, or raw bytes (which are converted to base64).
- *
- * @param block - The UPP content block to transform
- * @param cacheControl - Optional cache control to apply to the block
- * @returns An AnthropicContent object
- * @throws Error if the content type or image source type is unsupported
- */
-function transformContentBlock(
-  block: ContentBlock,
-  cacheControl?: AnthropicCacheControl
-): AnthropicContent {
-  switch (block.type) {
-    case 'text':
-      return {
-        type: 'text',
-        text: block.text,
-        ...(cacheControl ? { cache_control: cacheControl } : {}),
-      };
-
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      if (imageBlock.source.type === 'base64') {
-        return {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: imageBlock.mimeType,
-            data: imageBlock.source.data,
-          },
-          ...(cacheControl ? { cache_control: cacheControl } : {}),
-        };
-      }
-      if (imageBlock.source.type === 'url') {
-        return {
-          type: 'image',
-          source: {
-            type: 'url',
-            url: imageBlock.source.url,
-          },
-          ...(cacheControl ? { cache_control: cacheControl } : {}),
-        };
-      }
-      if (imageBlock.source.type === 'bytes') {
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        return {
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: imageBlock.mimeType,
-            data: base64,
-          },
-          ...(cacheControl ? { cache_control: cacheControl } : {}),
-        };
-      }
-      throw new Error(`Unknown image source type`);
-    }
-
-    case 'document': {
-      const documentBlock = block as DocumentBlock;
-      if (documentBlock.source.type === 'base64') {
-        return {
-          type: 'document',
-          source: {
-            type: 'base64',
-            media_type: documentBlock.mimeType,
-            data: documentBlock.source.data,
-          },
-          ...(cacheControl ? { cache_control: cacheControl } : {}),
-        };
-      }
-      if (documentBlock.source.type === 'url') {
-        return {
-          type: 'document',
-          source: {
-            type: 'url',
-            url: documentBlock.source.url,
-          },
-          ...(cacheControl ? { cache_control: cacheControl } : {}),
-        };
-      }
-      if (documentBlock.source.type === 'text') {
-        return {
-          type: 'document',
-          source: {
-            type: 'text',
-            media_type: documentBlock.mimeType,
-            data: documentBlock.source.data,
-          },
-          ...(cacheControl ? { cache_control: cacheControl } : {}),
-        };
-      }
-      throw new Error(`Unknown document source type`);
-    }
-
-    default:
-      throw new Error(`Unsupported content type: ${block.type}`);
-  }
-}
-
-/**
- * Extracts cache control configuration from tool metadata.
- *
- * @param tool - The tool to extract cache control from
- * @returns The cache control configuration if present, undefined otherwise
- */
-function extractToolCacheControl(tool: Tool): AnthropicCacheControl | undefined {
-  const anthropicMeta = tool.metadata?.anthropic as
-    | { cache_control?: AnthropicCacheControl }
-    | undefined;
-  return anthropicMeta?.cache_control;
-}
-
-/**
- * Transforms a UPP Tool definition to Anthropic's tool format.
- *
- * Cache control can be specified via tool metadata:
- * ```typescript
- * const tool: Tool = {
- *   name: 'search_docs',
- *   description: 'Search documentation',
- *   parameters: {...},
- *   metadata: { anthropic: { cache_control: { type: 'ephemeral' } } },
- *   run: async (params) => {...}
- * };
- * ```
- *
- * @param tool - The UPP tool definition
- * @returns An AnthropicTool with the appropriate input schema
- */
-function transformTool(tool: Tool): AnthropicTool {
-  const cacheControl = extractToolCacheControl(tool);
-
-  return {
-    name: tool.name,
-    description: tool.description,
-    input_schema: {
-      type: 'object',
-      properties: tool.parameters.properties,
-      required: tool.parameters.required,
-      ...(tool.parameters.additionalProperties !== undefined
-        ? { additionalProperties: tool.parameters.additionalProperties }
-        : {}),
-    },
-    ...(cacheControl ? { cache_control: cacheControl } : {}),
-  };
 }
 
 /**

@@ -157,6 +157,11 @@ export async function runSubscriberStream(
       queue.push(...filtered);
     };
 
+    const waitForNewEvents = (): Promise<void> => new Promise<void>((resolve) => {
+      resolveWait = resolve;
+      setTimeout(resolve, 500);
+    });
+
     try {
       // 3. Replay buffered events (subscription is already active)
       const events = await adapter.getEvents(streamId);
@@ -212,10 +217,7 @@ export async function runSubscriberStream(
         }
 
         // Wait for new events
-        await new Promise<void>((resolve) => {
-          resolveWait = resolve;
-          setTimeout(resolve, 500);
-        });
+        await waitForNewEvents();
         resolveWait = null;
       }
 

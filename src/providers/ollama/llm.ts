@@ -193,7 +193,7 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
           };
 
           if (apiKey) {
-            headers['Authorization'] = `Bearer ${apiKey}`;
+            headers.Authorization = `Bearer ${apiKey}`;
           }
 
           if (request.config.headers) {
@@ -256,7 +256,7 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
               };
 
               if (apiKey) {
-                headers['Authorization'] = `Bearer ${apiKey}`;
+                headers.Authorization = `Bearer ${apiKey}`;
               }
 
               if (request.config.headers) {
@@ -313,11 +313,10 @@ export function createLLMHandler(): LLMHandler<OllamaLLMParams> {
 
                 const events = transformStreamChunk(chunk, state);
                 for (const event of events) {
+                  yield event;
+                  // Also emit ObjectDelta for structured output - gives developers explicit hook
                   if (request.structure && event.type === StreamEventType.TextDelta) {
-                    // Emit ObjectDelta without parsing - middleware handles parsing
                     yield objectDelta(event.delta.text ?? '', event.index);
-                  } else {
-                    yield event;
                   }
                 }
               }

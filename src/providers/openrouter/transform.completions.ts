@@ -46,110 +46,12 @@ import type {
   OpenRouterReasoningDetail,
 } from './types.ts';
 
-/**
- * Transforms a UPP LLMRequest into an OpenRouter Chat Completions API request body.
- *
- * Parameters are spread directly to enable pass-through of any OpenRouter API fields,
- * even those not explicitly defined in our types. This allows developers to use new
- * API features without waiting for library updates.
- *
- * @param request - The UPP LLM request containing messages, tools, and parameters
- * @param modelId - The OpenRouter model identifier (e.g., 'openai/gpt-4o')
- * @returns A fully formed OpenRouter Chat Completions request body
- */
-export function transformRequest(
-  request: LLMRequest<OpenRouterCompletionsParams>,
-  modelId: string
-): OpenRouterCompletionsRequest {
-  const params = request.params ?? ({} as OpenRouterCompletionsParams);
-
-  const openrouterRequest: OpenRouterCompletionsRequest = {
-    ...params,
-    model: modelId,
-    messages: transformMessages(request.messages, request.system),
-  };
-
-  if (request.tools && request.tools.length > 0) {
-    openrouterRequest.tools = request.tools.map(transformTool);
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    openrouterRequest.response_format = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return openrouterRequest;
-}
-
-/**
- * Transforms UPP messages into OpenRouter Chat Completions message format.
- *
- * Handles system prompts, user messages, assistant messages, and tool results.
- * Tool result messages are expanded into individual tool messages.
- *
- * System prompts support both string and array formats:
- * - String: Simple text system prompt
- * - Array: Content blocks with optional cache_control for Anthropic/Gemini models
- *
- * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt (string or array with cache_control)
- * @returns Array of OpenRouter-formatted messages
- */
-function transformMessages(
-  messages: Message[],
-  system?: string | unknown[]
-): OpenRouterCompletionsMessage[] {
-  const result: OpenRouterCompletionsMessage[] = [];
-
-  if (system !== undefined && system !== null) {
-    const normalizedSystem = normalizeSystem(system);
-    if (typeof normalizedSystem === 'string') {
-      if (normalizedSystem.length > 0) {
-        result.push({
-          role: 'system',
-          content: normalizedSystem,
-        });
-      }
-    } else if (normalizedSystem.length > 0) {
-      result.push({
-        role: 'system',
-        content: normalizedSystem,
-      });
-    }
-  }
-
-  for (const message of messages) {
-    if (isToolResultMessage(message)) {
-      const toolMessages = transformToolResults(message);
-      result.push(...toolMessages);
-    } else {
-      const transformed = transformMessage(message);
-      if (transformed) {
-        result.push(transformed);
-      }
-    }
-  }
-
-  return result;
+function isValidCacheControl(value: unknown): value is OpenRouterCacheControl {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as { type?: unknown; ttl?: unknown };
+  if (candidate.type !== 'ephemeral') return false;
+  if (candidate.ttl !== undefined && candidate.ttl !== '1h') return false;
+  return true;
 }
 
 function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemContent[] {
@@ -196,14 +98,6 @@ function normalizeSystem(system: string | unknown[]): string | OpenRouterSystemC
   return blocks;
 }
 
-function isValidCacheControl(value: unknown): value is OpenRouterCacheControl {
-  if (!value || typeof value !== 'object') return false;
-  const candidate = value as { type?: unknown; ttl?: unknown };
-  if (candidate.type !== 'ephemeral') return false;
-  if (candidate.ttl !== undefined && candidate.ttl !== '1h') return false;
-  return true;
-}
-
 /**
  * Filters content blocks to only those with a valid type property.
  *
@@ -228,6 +122,119 @@ function extractCacheControl(message: Message): OpenRouterCacheControl | undefin
 }
 
 /**
+ * Transforms a UPP content block to OpenRouter user content format.
+ *
+ * Supports text and image content types. Images are converted to data URLs
+ * or passed through as URL references.
+ *
+ * @param block - The UPP content block to transform
+ * @returns OpenRouter user content part
+ * @throws Error if the content type is unsupported
+ */
+function transformContentBlock(block: ContentBlock): OpenRouterUserContent {
+  switch (block.type) {
+    case 'text':
+      return { type: 'text', text: block.text };
+
+    case 'image': {
+      const imageBlock = block as ImageBlock;
+      let url: string;
+
+      if (imageBlock.source.type === 'base64') {
+        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
+      } else if (imageBlock.source.type === 'url') {
+        url = imageBlock.source.url;
+      } else if (imageBlock.source.type === 'bytes') {
+        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
+        url = `data:${imageBlock.mimeType};base64,${base64}`;
+      } else {
+        throw new Error('Unknown image source type');
+      }
+
+      return {
+        type: 'image_url',
+        image_url: { url },
+      };
+    }
+
+    case 'document': {
+      const documentBlock = block as DocumentBlock;
+
+      if (documentBlock.source.type === 'text') {
+        if (!documentBlock.source.data) {
+          throw new UPPError(
+            'Text document source data is empty',
+            ErrorCode.InvalidRequest,
+            'openrouter',
+            ModalityType.LLM
+          );
+        }
+        const title = documentBlock.title ? `[Document: ${documentBlock.title}]\n` : '';
+        return { type: 'text', text: `${title}${documentBlock.source.data}` };
+      }
+
+      const filename = documentBlock.title ?? 'document.pdf';
+
+      if (documentBlock.source.type === 'base64') {
+        const fileData = `data:${documentBlock.mimeType};base64,${documentBlock.source.data}`;
+        return {
+          type: 'file',
+          file: {
+            filename,
+            file_data: fileData,
+          },
+        };
+      }
+
+      if (documentBlock.source.type === 'url') {
+        return {
+          type: 'file',
+          file: {
+            filename,
+            file_url: documentBlock.source.url,
+          },
+        };
+      }
+
+      throw new UPPError(
+        'Unknown document source type',
+        ErrorCode.InvalidRequest,
+        'openrouter',
+        ModalityType.LLM
+      );
+    }
+
+    case 'audio': {
+      const audioBlock = block as AudioBlock;
+      const base64 = Buffer.from(audioBlock.data).toString('base64');
+      const format = audioBlock.mimeType.split('/')[1] ?? 'mp3';
+
+      return {
+        type: 'input_audio',
+        input_audio: {
+          data: base64,
+          format,
+        },
+      };
+    }
+
+    case 'video': {
+      const videoBlock = block as VideoBlock;
+      const base64 = Buffer.from(videoBlock.data).toString('base64');
+      const url = `data:${videoBlock.mimeType};base64,${base64}`;
+
+      return {
+        type: 'video_url',
+        video_url: { url },
+      };
+    }
+
+    default:
+      throw new Error(`Unsupported content type: ${block.type}`);
+  }
+}
+
+/**
  * Transforms a single UPP message to OpenRouter Chat Completions format.
  *
  * Cache control can be specified via message metadata:
@@ -245,10 +252,8 @@ function transformMessage(message: Message): OpenRouterCompletionsMessage | null
     const validContent = filterValidContent(message.content);
     const cacheControl = extractCacheControl(message);
 
-    // If cache_control is present, always use array format to attach it
     if (cacheControl) {
       const content = validContent.map(transformContentBlock);
-      // Apply cache_control to the last text content block
       for (let i = content.length - 1; i >= 0; i--) {
         const block = content[i];
         if (block?.type === 'text') {
@@ -259,7 +264,6 @@ function transformMessage(message: Message): OpenRouterCompletionsMessage | null
       return { role: 'user', content };
     }
 
-    // No cache_control: use string shortcut for single text block
     if (validContent.length === 1 && validContent[0]?.type === 'text') {
       return {
         role: 'user',
@@ -274,7 +278,6 @@ function transformMessage(message: Message): OpenRouterCompletionsMessage | null
 
   if (isAssistantMessage(message)) {
     const validContent = filterValidContent(message.content);
-    // Filter out reasoning blocks - they're preserved via reasoning_details in metadata
     const nonReasoningContent = validContent.filter(c => c.type !== 'reasoning');
     const textContent = nonReasoningContent
       .filter((c): c is TextBlock => c.type === 'text')
@@ -298,7 +301,6 @@ function transformMessage(message: Message): OpenRouterCompletionsMessage | null
         }));
     }
 
-    // Forward reasoning_details from metadata for multi-turn context preservation
     const openrouterMeta = message.metadata?.openrouter as
       | { reasoning_details?: OpenRouterReasoningDetail[] }
       | undefined;
@@ -354,122 +356,55 @@ export function transformToolResults(
 }
 
 /**
- * Transforms a UPP content block to OpenRouter user content format.
+ * Transforms UPP messages into OpenRouter Chat Completions message format.
  *
- * Supports text and image content types. Images are converted to data URLs
- * or passed through as URL references.
+ * Handles system prompts, user messages, assistant messages, and tool results.
+ * Tool result messages are expanded into individual tool messages.
  *
- * @param block - The UPP content block to transform
- * @returns OpenRouter user content part
- * @throws Error if the content type is unsupported
+ * System prompts support both string and array formats:
+ * - String: Simple text system prompt
+ * - Array: Content blocks with optional cache_control for Anthropic/Gemini models
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt (string or array with cache_control)
+ * @returns Array of OpenRouter-formatted messages
  */
-function transformContentBlock(block: ContentBlock): OpenRouterUserContent {
-  switch (block.type) {
-    case 'text':
-      return { type: 'text', text: block.text };
+function transformMessages(
+  messages: Message[],
+  system?: string | unknown[]
+): OpenRouterCompletionsMessage[] {
+  const result: OpenRouterCompletionsMessage[] = [];
 
-    case 'image': {
-      const imageBlock = block as ImageBlock;
-      let url: string;
-
-      if (imageBlock.source.type === 'base64') {
-        url = `data:${imageBlock.mimeType};base64,${imageBlock.source.data}`;
-      } else if (imageBlock.source.type === 'url') {
-        url = imageBlock.source.url;
-      } else if (imageBlock.source.type === 'bytes') {
-        // Convert bytes to base64
-        const base64 = Buffer.from(imageBlock.source.data).toString('base64');
-        url = `data:${imageBlock.mimeType};base64,${base64}`;
-      } else {
-        throw new Error('Unknown image source type');
+  if (system !== undefined && system !== null) {
+    const normalizedSystem = normalizeSystem(system);
+    if (typeof normalizedSystem === 'string') {
+      if (normalizedSystem.length > 0) {
+        result.push({
+          role: 'system',
+          content: normalizedSystem,
+        });
       }
-
-      return {
-        type: 'image_url',
-        image_url: { url },
-      };
+    } else if (normalizedSystem.length > 0) {
+      result.push({
+        role: 'system',
+        content: normalizedSystem,
+      });
     }
-
-    case 'document': {
-      const documentBlock = block as DocumentBlock;
-
-      // Text documents: include as inline text (OpenRouter file type is for PDFs)
-      if (documentBlock.source.type === 'text') {
-        if (!documentBlock.source.data) {
-          throw new UPPError(
-            'Text document source data is empty',
-            ErrorCode.InvalidRequest,
-            'openrouter',
-            ModalityType.LLM
-          );
-        }
-        const title = documentBlock.title ? `[Document: ${documentBlock.title}]\n` : '';
-        return { type: 'text', text: `${title}${documentBlock.source.data}` };
-      }
-
-      // PDF documents: use file type
-      const filename = documentBlock.title ?? 'document.pdf';
-
-      if (documentBlock.source.type === 'base64') {
-        const fileData = `data:${documentBlock.mimeType};base64,${documentBlock.source.data}`;
-        return {
-          type: 'file',
-          file: {
-            filename,
-            file_data: fileData,
-          },
-        };
-      }
-
-      if (documentBlock.source.type === 'url') {
-        return {
-          type: 'file',
-          file: {
-            filename,
-            file_url: documentBlock.source.url,
-          },
-        };
-      }
-
-      throw new UPPError(
-        'Unknown document source type',
-        ErrorCode.InvalidRequest,
-        'openrouter',
-        ModalityType.LLM
-      );
-    }
-
-    case 'audio': {
-      const audioBlock = block as AudioBlock;
-      // Audio requires base64 encoding; direct URLs are not supported
-      const base64 = Buffer.from(audioBlock.data).toString('base64');
-      // Extract format from mime type (e.g., 'audio/mp3' -> 'mp3')
-      const format = audioBlock.mimeType.split('/')[1] ?? 'mp3';
-
-      return {
-        type: 'input_audio',
-        input_audio: {
-          data: base64,
-          format,
-        },
-      };
-    }
-
-    case 'video': {
-      const videoBlock = block as VideoBlock;
-      // Convert bytes to base64 data URL
-      const base64 = Buffer.from(videoBlock.data).toString('base64');
-      const url = `data:${videoBlock.mimeType};base64,${base64}`;
-
-      return {
-        type: 'video_url',
-        video_url: { url },
-      };
-    }
-
-    default:
-      throw new Error(`Unsupported content type: ${block.type}`);
   }
+
+  for (const message of messages) {
+    if (isToolResultMessage(message)) {
+      const toolMessages = transformToolResults(message);
+      result.push(...toolMessages);
+    } else {
+      const transformed = transformMessage(message);
+      if (transformed) {
+        result.push(transformed);
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -497,6 +432,82 @@ function transformTool(tool: Tool): OpenRouterCompletionsTool {
 }
 
 /**
+ * Transforms a UPP LLMRequest into an OpenRouter Chat Completions API request body.
+ *
+ * Parameters are spread directly to enable pass-through of any OpenRouter API fields,
+ * even those not explicitly defined in our types. This allows developers to use new
+ * API features without waiting for library updates.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and parameters
+ * @param modelId - The OpenRouter model identifier (e.g., 'openai/gpt-4o')
+ * @returns A fully formed OpenRouter Chat Completions request body
+ */
+export function transformRequest(
+  request: LLMRequest<OpenRouterCompletionsParams>,
+  modelId: string
+): OpenRouterCompletionsRequest {
+  const params = request.params ?? ({} as OpenRouterCompletionsParams);
+
+  const openrouterRequest: OpenRouterCompletionsRequest = {
+    ...params,
+    model: modelId,
+    messages: transformMessages(request.messages, request.system),
+  };
+
+  if (request.tools && request.tools.length > 0) {
+    openrouterRequest.tools = request.tools.map(transformTool);
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    openrouterRequest.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return openrouterRequest;
+}
+
+/**
+ * Parses a generated image data URL into an ImageBlock.
+ *
+ * @param dataUrl - The data URL from the image generation response
+ * @returns An ImageBlock or null if parsing fails
+ */
+function parseGeneratedImage(dataUrl: string): ImageBlock | null {
+  const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+  if (!match) {
+    return null;
+  }
+  const [, mimeType, data] = match;
+  if (!mimeType || !data) {
+    return null;
+  }
+  return {
+    type: 'image',
+    mimeType,
+    source: { type: 'base64', data },
+  };
+}
+
+/**
  * Transforms an OpenRouter Chat Completions API response to UPP LLMResponse format.
  *
  * Extracts text content, tool calls, usage statistics, and stop reason from
@@ -516,7 +527,6 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
   const textContent: AssistantContent[] = [];
   let structuredData: unknown;
 
-  // Extract reasoning from reasoning_details
   if (choice.message.reasoning_details && choice.message.reasoning_details.length > 0) {
     for (const detail of choice.message.reasoning_details) {
       if (detail.type === 'reasoning.text' && detail.text) {
@@ -524,7 +534,6 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
       } else if (detail.type === 'reasoning.summary' && detail.summary) {
         reasoningContent.push({ type: 'reasoning', text: detail.summary });
       }
-      // reasoning.encrypted blocks don't have displayable text
     }
   }
 
@@ -546,7 +555,6 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
     }
   }
 
-  // Combine reasoning before text content (matches other providers' pattern)
   const content: AssistantContent[] = [...reasoningContent, ...textContent];
 
   const toolCalls: ToolCall[] = [];
@@ -577,7 +585,6 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
           model: data.model,
           finish_reason: choice.finish_reason,
           system_fingerprint: data.system_fingerprint,
-          // Store reasoning_details for multi-turn context preservation
           reasoning_details: choice.message.reasoning_details,
         },
       },
@@ -613,28 +620,6 @@ export function transformResponse(data: OpenRouterCompletionsResponse): LLMRespo
     usage,
     stopReason,
     data: structuredData,
-  };
-}
-
-/**
- * Parses a generated image data URL into an ImageBlock.
- *
- * @param dataUrl - The data URL from the image generation response
- * @returns An ImageBlock or null if parsing fails
- */
-function parseGeneratedImage(dataUrl: string): ImageBlock | null {
-  const match = dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
-  if (!match) {
-    return null;
-  }
-  const [, mimeType, data] = match;
-  if (!mimeType || !data) {
-    return null;
-  }
-  return {
-    type: 'image',
-    mimeType,
-    source: { type: 'base64', data },
   };
 }
 
@@ -763,11 +748,9 @@ export function transformStreamEvent(
       }
     }
 
-    // Handle reasoning_details in streaming
     if (choice.delta.reasoning_details) {
       for (const detail of choice.delta.reasoning_details) {
         state.reasoningDetails.push(detail);
-        // Extract text for ReasoningDelta events
         if (detail.type === 'reasoning.text' && detail.text) {
           state.reasoning += detail.text;
           events.push({
@@ -783,7 +766,6 @@ export function transformStreamEvent(
             delta: { text: detail.summary },
           });
         }
-        // reasoning.encrypted blocks don't have displayable text
       }
     }
 
@@ -816,7 +798,6 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
   const textContent: AssistantContent[] = [];
   let structuredData: unknown;
 
-  // Add reasoning content if present
   if (state.reasoning) {
     reasoningContent.push({ type: 'reasoning', text: state.reasoning });
   }
@@ -837,7 +818,6 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
     }
   }
 
-  // Combine reasoning before text content (matches other providers' pattern)
   const content: AssistantContent[] = [...reasoningContent, ...textContent];
 
   const toolCalls: ToolCall[] = [];
@@ -867,7 +847,6 @@ export function buildResponseFromState(state: CompletionsStreamState): LLMRespon
         openrouter: {
           model: state.model,
           finish_reason: state.finishReason,
-          // Store reasoning_details for multi-turn context preservation
           reasoning_details: state.reasoningDetails.length > 0 ? state.reasoningDetails : undefined,
         },
       },

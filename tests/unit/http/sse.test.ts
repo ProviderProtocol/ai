@@ -190,8 +190,8 @@ describe('parseSSEStream', () => {
     });
 
     const consume = async () => {
-      for await (const _event of parseSSEStream(stream)) {
-        // consume until error
+      for await (const event of parseSSEStream(stream)) {
+        void event;
       }
     };
 

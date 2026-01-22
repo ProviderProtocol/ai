@@ -5,11 +5,11 @@ import { FlatCompat } from "@eslint/eslintrc";
 // 1. Import the plugin explicitly
 import importPlugin from "eslint-plugin-import";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const currentFilename = fileURLToPath(import.meta.url);
+const currentDirname = path.dirname(currentFilename);
 
 const compat = new FlatCompat({
-    baseDirectory: __dirname,
+    baseDirectory: currentDirname,
     recommendedConfig: js.configs.recommended,
     allConfig: js.configs.all
 });
@@ -36,7 +36,8 @@ function fixupConfig(config) {
         '@typescript-eslint/no-throw-literal',
         '@typescript-eslint/no-useless-constructor',
         '@typescript-eslint/no-implied-eval',
-        '@typescript-eslint/return-await'
+        '@typescript-eslint/return-await',
+        "@typescript-eslint/no-unused-vars"
     ]);
 
     return config.map(entry => {
@@ -66,7 +67,7 @@ export default [
         languageOptions: {
             parserOptions: {
                 project: './tsconfig.json',
-                tsconfigRootDir: __dirname,
+                tsconfigRootDir: currentDirname,
             },
         },
         settings: {
@@ -78,6 +79,19 @@ export default [
         },
         rules: {
             '@typescript-eslint/only-throw-error': 'error',
+            '@typescript-eslint/no-redeclare': ['error', { ignoreDeclarationMerge: true }],
+            '@typescript-eslint/naming-convention': [
+                'error',
+                {
+                    selector: 'variable',
+                    format: ['camelCase', 'PascalCase', 'UPPER_CASE'],
+                },
+                {
+                    selector: 'variable',
+                    modifiers: ['destructured'],
+                    format: null,
+                },
+            ],
             'import/extensions': [
                 'error',
                 'ignorePackages',
@@ -95,6 +109,18 @@ export default [
         files: ['**/*.test.ts', '**/*.test.tsx', '**/tests/**/*.ts', '**/tests/**/*.tsx'],
         rules: {
             'import/no-extraneous-dependencies': 'off',
+        },
+    },
+    {
+        files: ['*.config.mjs', '*.config.ts', '*.config.js', 'scripts/**/*.ts'],
+        rules: {
+            'import/no-extraneous-dependencies': 'off',
+        },
+    },
+    {
+        files: ['src/types/**/*.ts'],
+        rules: {
+            '@typescript-eslint/no-redeclare': 'off',
         },
     }
 ];

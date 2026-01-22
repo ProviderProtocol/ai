@@ -300,30 +300,39 @@ describe.skipIf(!process.env.OPENROUTER_API_KEY)('OpenRouter Responses API Live 
 
     const stream = model.stream('Tell me about Berlin, Germany.');
 
-    // Accumulate text_delta events
-    let accumulatedJson = '';
+    // Structured output emits both TextDelta and ObjectDelta events
+    let sawTextDelta = false;
+    let sawObjectDelta = false;
+    let textDeltaJson = '';
+    let objectDeltaJson = '';
     for await (const event of stream) {
       if (event.type === StreamEventType.TextDelta && event.delta.text) {
-        accumulatedJson += event.delta.text;
+        sawTextDelta = true;
+        textDeltaJson += event.delta.text;
+      }
+      if (event.type === StreamEventType.ObjectDelta && event.delta.text) {
+        sawObjectDelta = true;
+        objectDeltaJson += event.delta.text;
       }
     }
 
-    // The accumulated JSON should be valid and parseable
-    expect(accumulatedJson.length).toBeGreaterThan(0);
-    const streamedData = JSON.parse(accumulatedJson);
-    expect(streamedData.city).toContain('Berlin');
-
     const turn = await stream.turn;
 
-    // The 'data' field should match what we accumulated
+    // Verify we got both TextDelta and ObjectDelta events
+    expect(sawTextDelta).toBe(true);
+    expect(sawObjectDelta).toBe(true);
+    expect(textDeltaJson.length).toBeGreaterThan(0);
+    expect(objectDeltaJson.length).toBeGreaterThan(0);
+    // Both should contain the same content
+    expect(textDeltaJson).toBe(objectDeltaJson);
+
+    // The 'data' field should contain parsed structured output
     expect(turn.data).toBeDefined();
     const berlinData = turn.data as CityData;
     expect(berlinData.city).toContain('Berlin');
     expect(typeof berlinData.population).toBe('number');
     expect(berlinData.isCapital).toBe(true);
 
-    // Verify streamed matches final
-    expect(streamedData.city).toBe(berlinData.city);
   });
 
   test('reasoning effort parameter', async () => {

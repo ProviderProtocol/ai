@@ -549,8 +549,8 @@ describe('stream()', () => {
     if (!stream) return;
 
     const consume = async () => {
-      for await (const _event of stream) {
-        // no-op
+      for await (const event of stream) {
+        void event;
       }
     };
 

@@ -16,6 +16,46 @@ function isOperator(value: string): value is Operator {
   return value === '+' || value === '-' || value === '*' || value === '/';
 }
 
+function parseNumber(
+  expression: string,
+  startIndex: number
+): { value: number; nextIndex: number } | null {
+  let i = startIndex;
+  let hasDot = false;
+  let sawDigit = false;
+
+  if (expression[i] === '+' || expression[i] === '-') {
+    i += 1;
+  }
+
+  while (i < expression.length) {
+    const char = expression[i]!;
+    if (char >= '0' && char <= '9') {
+      sawDigit = true;
+      i += 1;
+      continue;
+    }
+    if (char === '.' && !hasDot) {
+      hasDot = true;
+      i += 1;
+      continue;
+    }
+    break;
+  }
+
+  if (!sawDigit) {
+    return null;
+  }
+
+  const raw = expression.slice(startIndex, i);
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    return null;
+  }
+
+  return { value, nextIndex: i };
+}
+
 function tokenize(expression: string): Token[] | null {
   const tokens: Token[] = [];
   let i = 0;
@@ -64,46 +104,6 @@ function tokenize(expression: string): Token[] | null {
   }
 
   return tokens;
-}
-
-function parseNumber(
-  expression: string,
-  startIndex: number
-): { value: number; nextIndex: number } | null {
-  let i = startIndex;
-  let hasDot = false;
-  let sawDigit = false;
-
-  if (expression[i] === '+' || expression[i] === '-') {
-    i += 1;
-  }
-
-  while (i < expression.length) {
-    const char = expression[i]!;
-    if (char >= '0' && char <= '9') {
-      sawDigit = true;
-      i += 1;
-      continue;
-    }
-    if (char === '.' && !hasDot) {
-      hasDot = true;
-      i += 1;
-      continue;
-    }
-    break;
-  }
-
-  if (!sawDigit) {
-    return null;
-  }
-
-  const raw = expression.slice(startIndex, i);
-  const value = Number(raw);
-  if (!Number.isFinite(value)) {
-    return null;
-  }
-
-  return { value, nextIndex: i };
 }
 
 function toRpn(tokens: Token[]): Token[] | null {

@@ -11,6 +11,45 @@
 import type { AudioBlock } from '../../types/content.ts';
 
 /**
+ * Detects the MIME type of an audio file based on its file extension.
+ *
+ * Supports common audio formats: MP3, WAV, OGG, FLAC, AAC, M4A, WebM.
+ * Returns 'application/octet-stream' for unknown extensions.
+ *
+ * Note: Provider support varies. Google Gemini supports MP3, WAV, AIFF, AAC,
+ * OGG Vorbis, and FLAC. Opus is NOT supported by Google.
+ *
+ * @param path - File path or filename with extension
+ * @returns The detected MIME type string
+ */
+function detectMimeType(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase();
+
+  switch (ext) {
+    case 'mp3':
+      return 'audio/mp3';
+    case 'wav':
+      return 'audio/wav';
+    case 'ogg':
+    case 'oga':
+      return 'audio/ogg';
+    case 'flac':
+      return 'audio/flac';
+    case 'aac':
+      return 'audio/aac';
+    case 'm4a':
+      return 'audio/mp4';
+    case 'webm':
+      return 'audio/webm';
+    case 'aiff':
+    case 'aif':
+      return 'audio/aiff';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+/**
  * Represents an audio file that can be used in UPP messages.
  *
  * Audio can be created from various sources (files, bytes, base64) and
@@ -201,44 +240,5 @@ export class Audio {
       block.mimeType,
       block.duration
     );
-  }
-}
-
-/**
- * Detects the MIME type of an audio file based on its file extension.
- *
- * Supports common audio formats: MP3, WAV, OGG, FLAC, AAC, M4A, WebM.
- * Returns 'application/octet-stream' for unknown extensions.
- *
- * Note: Provider support varies. Google Gemini supports MP3, WAV, AIFF, AAC,
- * OGG Vorbis, and FLAC. Opus is NOT supported by Google.
- *
- * @param path - File path or filename with extension
- * @returns The detected MIME type string
- */
-function detectMimeType(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase();
-
-  switch (ext) {
-    case 'mp3':
-      return 'audio/mp3';
-    case 'wav':
-      return 'audio/wav';
-    case 'ogg':
-    case 'oga':
-      return 'audio/ogg';
-    case 'flac':
-      return 'audio/flac';
-    case 'aac':
-      return 'audio/aac';
-    case 'm4a':
-      return 'audio/mp4';
-    case 'webm':
-      return 'audio/webm';
-    case 'aiff':
-    case 'aif':
-      return 'audio/aiff';
-    default:
-      return 'application/octet-stream';
   }
 }

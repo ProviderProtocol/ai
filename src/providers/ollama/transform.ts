@@ -18,7 +18,7 @@ import type { StreamEvent } from '../../types/stream.ts';
 import { StreamEventType } from '../../types/stream.ts';
 import type { Tool, ToolCall } from '../../types/tool.ts';
 import type { TokenUsage } from '../../types/turn.ts';
-import type { ContentBlock, TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
+import type { TextBlock, ImageBlock, AssistantContent } from '../../types/content.ts';
 import {
   AssistantMessage,
   isUserMessage,
@@ -33,86 +33,8 @@ import type {
   OllamaTool,
   OllamaResponse,
   OllamaStreamChunk,
-  OllamaToolCall,
   OllamaOptions,
 } from './types.ts';
-
-/**
- * Transforms a UPP LLM request into Ollama's native API format.
- *
- * This function handles the mapping between UPP's unified request structure
- * and Ollama's specific requirements, including:
- *
- * - Converting messages to Ollama's message format
- * - Mapping model parameters to Ollama's nested `options` structure
- * - Handling top-level parameters like `keep_alive` and `think`
- * - Converting tools to Ollama's function format
- * - Setting up structured output via the `format` field
- *
- * Parameters are spread to allow pass-through of any Ollama API fields,
- * enabling developers to use new API features without library updates.
- *
- * @typeParam TParams - The parameter type extending OllamaLLMParams
- * @param request - The UPP-format LLM request
- * @param modelId - The Ollama model identifier (e.g., 'llama3.2', 'mistral')
- * @returns The transformed Ollama API request body
- *
- * @example
- * ```typescript
- * const ollamaRequest = transformRequest(
- *   {
- *     messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
- *     config: {},
- *     params: { temperature: 0.7 }
- *   },
- *   'llama3.2'
- * );
- * ```
- */
-export function transformRequest<TParams extends OllamaLLMParams>(
-  request: LLMRequest<TParams>,
-  modelId: string
-): OllamaRequest {
-  const params = (request.params ?? {}) as OllamaLLMParams;
-
-  // Extract top-level params vs options params
-  const {
-    keep_alive,
-    think,
-    logprobs,
-    top_logprobs,
-    ...optionsParams
-  } = params;
-
-  // Spread params to pass through all fields, then set required fields
-  const ollamaRequest: OllamaRequest = {
-    model: modelId,
-    messages: transformMessages(request.messages, request.system),
-  };
-
-  // Add top-level params if provided
-  if (keep_alive !== undefined) ollamaRequest.keep_alive = keep_alive;
-  if (think !== undefined) ollamaRequest.think = think;
-  if (logprobs !== undefined) ollamaRequest.logprobs = logprobs;
-  if (top_logprobs !== undefined) ollamaRequest.top_logprobs = top_logprobs;
-
-  // Spread remaining params into options to pass through all model parameters
-  if (Object.keys(optionsParams).length > 0) {
-    ollamaRequest.options = optionsParams as OllamaOptions;
-  }
-
-  // Tools come from request, not params
-  if (request.tools && request.tools.length > 0) {
-    ollamaRequest.tools = request.tools.map(transformTool);
-  }
-
-  // Structured output via format field
-  if (request.structure) {
-    ollamaRequest.format = request.structure as unknown as Record<string, unknown>;
-  }
-
-  return ollamaRequest;
-}
 
 /**
  * Normalizes system prompt to string.
@@ -295,6 +217,83 @@ function transformTool(tool: Tool): OllamaTool {
       },
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request into Ollama's native API format.
+ *
+ * This function handles the mapping between UPP's unified request structure
+ * and Ollama's specific requirements, including:
+ *
+ * - Converting messages to Ollama's message format
+ * - Mapping model parameters to Ollama's nested `options` structure
+ * - Handling top-level parameters like `keep_alive` and `think`
+ * - Converting tools to Ollama's function format
+ * - Setting up structured output via the `format` field
+ *
+ * Parameters are spread to allow pass-through of any Ollama API fields,
+ * enabling developers to use new API features without library updates.
+ *
+ * @typeParam TParams - The parameter type extending OllamaLLMParams
+ * @param request - The UPP-format LLM request
+ * @param modelId - The Ollama model identifier (e.g., 'llama3.2', 'mistral')
+ * @returns The transformed Ollama API request body
+ *
+ * @example
+ * ```typescript
+ * const ollamaRequest = transformRequest(
+ *   {
+ *     messages: [{ role: 'user', content: [{ type: 'text', text: 'Hello' }] }],
+ *     config: {},
+ *     params: { temperature: 0.7 }
+ *   },
+ *   'llama3.2'
+ * );
+ * ```
+ */
+export function transformRequest<TParams extends OllamaLLMParams>(
+  request: LLMRequest<TParams>,
+  modelId: string
+): OllamaRequest {
+  const params = (request.params ?? {}) as OllamaLLMParams;
+
+  // Extract top-level params vs options params
+  const {
+    keep_alive,
+    think,
+    logprobs,
+    top_logprobs,
+    ...optionsParams
+  } = params;
+
+  // Spread params to pass through all fields, then set required fields
+  const ollamaRequest: OllamaRequest = {
+    model: modelId,
+    messages: transformMessages(request.messages, request.system),
+  };
+
+  // Add top-level params if provided
+  if (keep_alive !== undefined) ollamaRequest.keep_alive = keep_alive;
+  if (think !== undefined) ollamaRequest.think = think;
+  if (logprobs !== undefined) ollamaRequest.logprobs = logprobs;
+  if (top_logprobs !== undefined) ollamaRequest.top_logprobs = top_logprobs;
+
+  // Spread remaining params into options to pass through all model parameters
+  if (Object.keys(optionsParams).length > 0) {
+    ollamaRequest.options = optionsParams as OllamaOptions;
+  }
+
+  // Tools come from request, not params
+  if (request.tools && request.tools.length > 0) {
+    ollamaRequest.tools = request.tools.map(transformTool);
+  }
+
+  // Structured output via format field
+  if (request.structure) {
+    ollamaRequest.format = request.structure as unknown as Record<string, unknown>;
+  }
+
+  return ollamaRequest;
 }
 
 /**

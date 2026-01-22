@@ -246,11 +246,10 @@ export function createResponsesLLMHandler(): LLMHandler<XAIResponsesParams> {
 
                   const uppEvents = transformStreamEvent(event, state);
                   for (const uppEvent of uppEvents) {
+                    yield uppEvent;
+                    // Also emit ObjectDelta for structured output - gives developers explicit hook
                     if (request.structure && uppEvent.type === StreamEventType.TextDelta) {
-                      // Emit ObjectDelta without parsing - middleware handles parsing
                       yield objectDelta(uppEvent.delta.text ?? '', uppEvent.index);
-                    } else {
-                      yield uppEvent;
                     }
                   }
                 }

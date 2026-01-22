@@ -64,56 +64,36 @@ function getCapabilities(modelId: string): ImageCapabilities {
 }
 
 /**
- * Creates an image handler for xAI's Image Generation API.
- *
- * @returns An image handler configured for xAI
- *
- * @example
- * ```typescript
- * const handler = createImageHandler();
- * const model = handler.bind('grok-2-image-1212');
- *
- * const response = await model.generate({
- *   prompt: 'A sunset over mountains',
- *   config: { apiKey: 'xai-...' },
- *   params: { n: 1 }
- * });
- * ```
+ * Transform xAI response to ImageResponse.
  */
-export function createImageHandler(): ImageHandler<XAIImageParams> {
-  let providerRef: ImageProvider<XAIImageParams> | null = null;
+function transformResponse(data: XAIImagesResponse): ImageResponse {
+  const images: GeneratedImage[] = data.data.map((item) => {
+    let image: Image;
+    if (item.b64_json) {
+      image = Image.fromBase64(item.b64_json, 'image/jpeg');
+    } else if (item.url) {
+      image = Image.fromUrl(item.url, 'image/jpeg');
+    } else {
+      throw new UPPError(
+        'No image data in response',
+        ErrorCode.ProviderError,
+        'xai',
+        ModalityType.Image
+      );
+    }
+
+    return {
+      image,
+      metadata: item.revised_prompt
+        ? { xai: { revised_prompt: item.revised_prompt } }
+        : undefined,
+    };
+  });
 
   return {
-    _setProvider(provider: ImageProvider<XAIImageParams>) {
-      providerRef = provider;
-    },
-
-    bind(modelId: string): BoundImageModel<XAIImageParams> {
-      if (!providerRef) {
-        throw new UPPError(
-          'Provider reference not set. Handler must be used with createProvider().',
-          ErrorCode.InvalidRequest,
-          'xai',
-          ModalityType.Image
-        );
-      }
-
-      const capabilities = getCapabilities(modelId);
-
-      const model: BoundImageModel<XAIImageParams> = {
-        modelId,
-        capabilities,
-
-        get provider(): ImageProvider<XAIImageParams> {
-          return providerRef!;
-        },
-
-        async generate(request: ImageRequest<XAIImageParams>): Promise<ImageResponse> {
-          return executeGenerate(modelId, request);
-        },
-      };
-
-      return model;
+    images,
+    usage: {
+      imagesGenerated: images.length,
     },
   };
 }
@@ -174,37 +154,56 @@ async function executeGenerate(
 }
 
 /**
- * Transform xAI response to ImageResponse.
+ * Creates an image handler for xAI's Image Generation API.
+ *
+ * @returns An image handler configured for xAI
+ *
+ * @example
+ * ```typescript
+ * const handler = createImageHandler();
+ * const model = handler.bind('grok-2-image-1212');
+ *
+ * const response = await model.generate({
+ *   prompt: 'A sunset over mountains',
+ *   config: { apiKey: 'xai-...' },
+ *   params: { n: 1 }
+ * });
+ * ```
  */
-function transformResponse(data: XAIImagesResponse): ImageResponse {
-  const images: GeneratedImage[] = data.data.map((item) => {
-    let image: Image;
-    if (item.b64_json) {
-      image = Image.fromBase64(item.b64_json, 'image/jpeg');
-    } else if (item.url) {
-      image = Image.fromUrl(item.url, 'image/jpeg');
-    } else {
-      throw new UPPError(
-        'No image data in response',
-        ErrorCode.ProviderError,
-        'xai',
-        ModalityType.Image
-      );
-    }
-
-    return {
-      image,
-      // Per-image metadata namespaced under provider (Spec 15.4)
-      metadata: item.revised_prompt
-        ? { xai: { revised_prompt: item.revised_prompt } }
-        : undefined,
-    };
-  });
+export function createImageHandler(): ImageHandler<XAIImageParams> {
+  let providerRef: ImageProvider<XAIImageParams> | null = null;
 
   return {
-    images,
-    usage: {
-      imagesGenerated: images.length,
+    _setProvider(provider: ImageProvider<XAIImageParams>) {
+      providerRef = provider;
+    },
+
+    bind(modelId: string): BoundImageModel<XAIImageParams> {
+      if (!providerRef) {
+        throw new UPPError(
+          'Provider reference not set. Handler must be used with createProvider().',
+          ErrorCode.InvalidRequest,
+          'xai',
+          ModalityType.Image
+        );
+      }
+
+      const capabilities = getCapabilities(modelId);
+
+      const model: BoundImageModel<XAIImageParams> = {
+        modelId,
+        capabilities,
+
+        get provider(): ImageProvider<XAIImageParams> {
+          return providerRef!;
+        },
+
+        async generate(request: ImageRequest<XAIImageParams>): Promise<ImageResponse> {
+          return executeGenerate(modelId, request);
+        },
+      };
+
+      return model;
     },
   };
 }

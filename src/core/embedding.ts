@@ -30,92 +30,69 @@ import { toError } from '../utils/error.ts';
 import { runHook, runErrorHook, createMiddlewareContext } from '../middleware/runner.ts';
 
 /**
- * Creates an embedding instance configured with the specified options.
+ * Decode base64-encoded float32 array.
  *
- * This is the primary factory function for creating embedding instances.
- * It validates provider capabilities, binds the model, and returns an
- * instance with an `embed` method for generating embeddings.
- *
- * @typeParam TParams - Provider-specific parameter type
- * @param options - Configuration options for the embedding instance
- * @returns A configured embedding instance ready for use
- * @throws {UPPError} When the provider does not support the embedding modality
- *
- * @example
- * ```typescript
- * import { embedding } from 'upp';
- * import { openai } from 'upp/openai';
- *
- * const embedder = embedding({
- *   model: openai('text-embedding-3-large'),
- *   params: { dimensions: 1536 }
- * });
- *
- * // Single input
- * const result = await embedder.embed('Hello world');
- *
- * // Batch input
- * const batch = await embedder.embed(['doc1', 'doc2', 'doc3']);
- *
- * // Large-scale with progress
- * const stream = embedder.embed(documents, { chunked: true });
- * for await (const progress of stream) {
- *   console.log(`${progress.percent}% complete`);
- * }
- * ```
+ * @param b64 - Base64-encoded float32 buffer
+ * @param providerName - Provider name for error reporting
+ * @returns Decoded float array
  */
-export function embedding<TParams = unknown>(
-  options: EmbeddingOptions<TParams>
-): EmbeddingInstance<TParams> {
-  const { model: modelRef, config: explicitConfig = {}, params, middleware = [] } = options;
-  const providerConfig = modelRef.providerConfig ?? {};
-  const config: ProviderConfig = {
-    ...providerConfig,
-    ...explicitConfig,
-    headers: {
-      ...providerConfig.headers,
-      ...explicitConfig.headers,
-    },
-  };
-
-  const provider = modelRef.provider;
-  const handler = resolveEmbeddingHandler<TParams>(provider);
-  if (!handler) {
+function decodeBase64(b64: string, providerName: string): number[] {
+  try {
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i);
+    }
+    const floats = new Float32Array(bytes.buffer);
+    return Array.from(floats);
+  } catch (error) {
+    const cause = error instanceof Error ? error : new Error('Failed to decode base64 vector');
     throw new UPPError(
-      `Provider '${provider.name}' does not support embedding modality`,
-      ErrorCode.InvalidRequest,
-      provider.name,
-      ModalityType.Embedding
+      'Invalid base64 embedding vector',
+      ErrorCode.InvalidResponse,
+      providerName,
+      ModalityType.Embedding,
+      undefined,
+      cause
     );
   }
+}
 
-  const boundModel = handler.bind(modelRef.modelId);
-
-  function embed(
-    input: EmbeddingInput | EmbeddingInput[],
-    embedOptions?: EmbedOptions & { chunked?: false }
-  ): Promise<EmbeddingResult>;
-  function embed(
-    input: EmbeddingInput[],
-    embedOptions: EmbedOptions & { chunked: true }
-  ): EmbeddingStream;
-  function embed(
-    input: EmbeddingInput | EmbeddingInput[],
-    embedOptions?: EmbedOptions
-  ): Promise<EmbeddingResult> | EmbeddingStream {
-    const inputs = Array.isArray(input) ? input : [input];
-
-    if (embedOptions?.chunked) {
-      return createChunkedStream(boundModel, inputs, params, config, embedOptions, middleware);
-    }
-
-    return executeEmbed(boundModel, inputs, params, config, embedOptions?.signal, embedOptions?.inputType, middleware);
+/**
+ * Normalize vector from floats or base64 string to number array.
+ *
+ * @param vector - Float vector or base64 string
+ * @param providerName - Provider name for error reporting
+ * @returns Normalized float array
+ */
+function normalizeVector(vector: number[] | string, providerName: string): number[] {
+  if (Array.isArray(vector)) {
+    return vector;
   }
+  return decodeBase64(vector, providerName);
+}
 
+/**
+ * Normalize provider response to public EmbeddingResult.
+ *
+ * @param response - Provider response
+ * @param providerName - Provider name for error reporting
+ * @returns Normalized embedding result
+ */
+function normalizeResponse(response: EmbeddingResponse, providerName: string): EmbeddingResult {
   return {
-    model: boundModel,
-    params,
-    embed,
+    embeddings: response.embeddings.map((vec, i) => {
+      const vector = normalizeVector(vec.vector, providerName);
+      return {
+        vector,
+        dimensions: vector.length,
+        index: vec.index ?? i,
+        tokens: vec.tokens,
+        metadata: vec.metadata,
+      };
+    }),
+    usage: response.usage,
+    metadata: response.metadata,
   };
 }
 
@@ -173,73 +150,6 @@ async function executeEmbed<TParams>(
     const err = toError(error);
     await runErrorHook(middleware, err, ctx);
     throw err;
-  }
-}
-
-/**
- * Normalize provider response to public EmbeddingResult.
- *
- * @param response - Provider response
- * @param providerName - Provider name for error reporting
- * @returns Normalized embedding result
- */
-function normalizeResponse(response: EmbeddingResponse, providerName: string): EmbeddingResult {
-  return {
-    embeddings: response.embeddings.map((vec, i) => {
-      const vector = normalizeVector(vec.vector, providerName);
-      return {
-        vector,
-        dimensions: vector.length,
-        index: vec.index ?? i,
-        tokens: vec.tokens,
-        metadata: vec.metadata,
-      };
-    }),
-    usage: response.usage,
-    metadata: response.metadata,
-  };
-}
-
-/**
- * Normalize vector from floats or base64 string to number array.
- *
- * @param vector - Float vector or base64 string
- * @param providerName - Provider name for error reporting
- * @returns Normalized float array
- */
-function normalizeVector(vector: number[] | string, providerName: string): number[] {
-  if (Array.isArray(vector)) {
-    return vector;
-  }
-  return decodeBase64(vector, providerName);
-}
-
-/**
- * Decode base64-encoded float32 array.
- *
- * @param b64 - Base64-encoded float32 buffer
- * @param providerName - Provider name for error reporting
- * @returns Decoded float array
- */
-function decodeBase64(b64: string, providerName: string): number[] {
-  try {
-    const binary = atob(b64);
-    const bytes = new Uint8Array(binary.length);
-    for (let i = 0; i < binary.length; i++) {
-      bytes[i] = binary.charCodeAt(i);
-    }
-    const floats = new Float32Array(bytes.buffer);
-    return Array.from(floats);
-  } catch (error) {
-    const cause = error instanceof Error ? error : new Error('Failed to decode base64 vector');
-    throw new UPPError(
-      'Invalid base64 embedding vector',
-      ErrorCode.InvalidResponse,
-      providerName,
-      ModalityType.Embedding,
-      undefined,
-      cause
-    );
   }
 }
 
@@ -419,5 +329,95 @@ function createChunkedStream<TParams>(
     [Symbol.asyncIterator]: () => generator,
     result: resultPromise,
     abort: () => abortController.abort(),
+  };
+}
+
+/**
+ * Creates an embedding instance configured with the specified options.
+ *
+ * This is the primary factory function for creating embedding instances.
+ * It validates provider capabilities, binds the model, and returns an
+ * instance with an `embed` method for generating embeddings.
+ *
+ * @typeParam TParams - Provider-specific parameter type
+ * @param options - Configuration options for the embedding instance
+ * @returns A configured embedding instance ready for use
+ * @throws {UPPError} When the provider does not support the embedding modality
+ *
+ * @example
+ * ```typescript
+ * import { embedding } from 'upp';
+ * import { openai } from 'upp/openai';
+ *
+ * const embedder = embedding({
+ *   model: openai('text-embedding-3-large'),
+ *   params: { dimensions: 1536 }
+ * });
+ *
+ * // Single input
+ * const result = await embedder.embed('Hello world');
+ *
+ * // Batch input
+ * const batch = await embedder.embed(['doc1', 'doc2', 'doc3']);
+ *
+ * // Large-scale with progress
+ * const stream = embedder.embed(documents, { chunked: true });
+ * for await (const progress of stream) {
+ *   console.log(`${progress.percent}% complete`);
+ * }
+ * ```
+ */
+export function embedding<TParams = unknown>(
+  options: EmbeddingOptions<TParams>
+): EmbeddingInstance<TParams> {
+  const { model: modelRef, config: explicitConfig = {}, params, middleware = [] } = options;
+  const providerConfig = modelRef.providerConfig ?? {};
+  const config: ProviderConfig = {
+    ...providerConfig,
+    ...explicitConfig,
+    headers: {
+      ...providerConfig.headers,
+      ...explicitConfig.headers,
+    },
+  };
+
+  const provider = modelRef.provider;
+  const handler = resolveEmbeddingHandler<TParams>(provider);
+  if (!handler) {
+    throw new UPPError(
+      `Provider '${provider.name}' does not support embedding modality`,
+      ErrorCode.InvalidRequest,
+      provider.name,
+      ModalityType.Embedding
+    );
+  }
+
+  const boundModel = handler.bind(modelRef.modelId);
+
+  function embed(
+    input: EmbeddingInput | EmbeddingInput[],
+    embedOptions?: EmbedOptions & { chunked?: false }
+  ): Promise<EmbeddingResult>;
+  function embed(
+    input: EmbeddingInput[],
+    embedOptions: EmbedOptions & { chunked: true }
+  ): EmbeddingStream;
+  function embed(
+    input: EmbeddingInput | EmbeddingInput[],
+    embedOptions?: EmbedOptions
+  ): Promise<EmbeddingResult> | EmbeddingStream {
+    const inputs = Array.isArray(input) ? input : [input];
+
+    if (embedOptions?.chunked) {
+      return createChunkedStream(boundModel, inputs, params, config, embedOptions, middleware);
+    }
+
+    return executeEmbed(boundModel, inputs, params, config, embedOptions?.signal, embedOptions?.inputType, middleware);
+  }
+
+  return {
+    model: boundModel,
+    params,
+    embed,
   };
 }

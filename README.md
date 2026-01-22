@@ -196,20 +196,75 @@ const thinker = llm({
 | `interleavedThinking` | Claude can think between tool calls |
 | `devFullThinking` | Developer mode for full thinking visibility |
 | `effort` | Control response thoroughness vs efficiency (Opus 4.5) |
+| `computerUseLegacy` | Computer use for Claude 3.x models |
 | `computerUse` | Mouse, keyboard, screenshot control (Claude 4) |
+| `computerUseOpus` | Computer use with extra commands (Opus 4.5) |
 | `codeExecution` | Python/Bash sandbox execution |
 | `tokenEfficientTools` | Up to 70% token reduction for tool calls |
 | `fineGrainedToolStreaming` | Stream tool args without buffering |
+| `maxTokens35Sonnet` | 8,192 output tokens for Claude 3.5 Sonnet |
 | `output128k` | 128K token output length |
 | `context1m` | 1 million token context window (Sonnet 4) |
 | `promptCaching` | Reduced latency and costs via caching |
 | `extendedCacheTtl` | 1-hour cache TTL (vs 5-minute default) |
+| `contextManagement` | Automatic tool call clearing for context |
+| `modelContextWindowExceeded` | Handle exceeded context windows |
 | `advancedToolUse` | Tool Search, Programmatic Tool Calling |
 | `mcpClient` | Connect to remote MCP servers |
+| `mcpClientLatest` | Updated MCP client |
 | `filesApi` | Upload and manage files |
 | `pdfs` | PDF document support |
+| `tokenCounting` | Token counting endpoint |
 | `messageBatches` | Async batch processing at 50% cost |
 | `skills` | Agent Skills (PowerPoint, Excel, Word, PDF) |
+
+## Anthropic Built-in Tools
+
+Use Anthropic's built-in tools directly with the `tools` export:
+
+```typescript
+import { anthropic, betas, tools } from '@providerprotocol/ai/anthropic';
+import { llm } from '@providerprotocol/ai';
+
+// Web search with optional user location
+const model = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  params: {
+    tools: [tools.webSearch({ max_results: 5 })],
+  },
+});
+
+// Computer use (requires beta)
+const computerModel = llm({
+  model: anthropic('claude-sonnet-4-20250514', {
+    betas: [betas.computerUse],
+  }),
+  params: {
+    tools: [tools.computer({ display_width: 1920, display_height: 1080, display_number: 1 })],
+  },
+});
+
+// Code execution (requires beta)
+const codeModel = llm({
+  model: anthropic('claude-sonnet-4-20250514', {
+    betas: [betas.codeExecution],
+  }),
+  params: {
+    tools: [tools.codeExecution()],
+  },
+});
+```
+
+**Available Built-in Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `tools.webSearch()` | Search the web with optional max results and location |
+| `tools.computer()` | Mouse, keyboard, and screenshot control |
+| `tools.textEditor()` | Edit text files programmatically |
+| `tools.bash()` | Execute bash commands |
+| `tools.codeExecution()` | Run code in a sandboxed environment |
+| `tools.toolSearch()` | Search through available tools |
 
 ## Reasoning / Extended Thinking
 
@@ -834,6 +889,74 @@ export default defineEventHandler(async (event) => {
 - Request/response logging, content filtering
 - Double-layer retry: client retries to proxy, server retries to AI provider
 
+## OpenAI API Modes
+
+OpenAI supports two API endpoints. The Responses API is the default and recommended approach:
+
+```typescript
+import { openai } from '@providerprotocol/ai/openai';
+
+// Responses API (default, recommended)
+openai('gpt-4o')
+
+// Chat Completions API (legacy)
+openai('gpt-4o', { api: 'completions' })
+```
+
+The Responses API supports built-in tools and stateful conversations. Use completions for backward compatibility.
+
+## OpenAI Built-in Tools
+
+With the Responses API, use OpenAI's built-in tools directly:
+
+```typescript
+import { llm } from '@providerprotocol/ai';
+import { openai, tools } from '@providerprotocol/ai/openai';
+
+// Web search
+const model = llm({
+  model: openai('gpt-4o'),
+  params: {
+    tools: [tools.webSearch()],
+  },
+});
+
+// File search with vector stores
+const researchModel = llm({
+  model: openai('gpt-4o'),
+  params: {
+    tools: [tools.fileSearch({ vector_store_ids: ['vs_abc123'] })],
+  },
+});
+
+// Code interpreter
+const codeModel = llm({
+  model: openai('gpt-4o'),
+  params: {
+    tools: [tools.codeInterpreter()],
+  },
+});
+
+// Image generation
+const creativeModel = llm({
+  model: openai('gpt-4o'),
+  params: {
+    tools: [tools.imageGeneration()],
+  },
+});
+```
+
+**Available Built-in Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `tools.webSearch()` | Search the web with optional user location |
+| `tools.fileSearch()` | Search uploaded files in vector stores |
+| `tools.codeInterpreter()` | Execute code in a sandboxed environment |
+| `tools.computer()` | Computer use with display configuration |
+| `tools.imageGeneration()` | Generate images via DALL-E |
+| `tools.mcp()` | Connect to MCP servers |
+
 ## xAI API Modes
 
 xAI supports multiple API compatibility modes:
@@ -867,7 +990,33 @@ const model = llm({
 const turn = await model.generate('Hello!');
 ```
 
-**Capabilities:** Streaming, tool calling, structured output, image input (Llama 4 preview).
+**With web search:**
+
+```typescript
+const searchModel = llm({
+  model: groq('llama-3.3-70b-versatile'),
+  params: {
+    search_settings: { mode: 'auto' },
+  },
+});
+```
+
+**With RAG documents:**
+
+```typescript
+const ragModel = llm({
+  model: groq('llama-3.3-70b-versatile'),
+  params: {
+    documents: [
+      { title: 'Doc 1', content: 'Document content here...' },
+      { title: 'Doc 2', content: 'More content...' },
+    ],
+    citation_options: { include: true },
+  },
+});
+```
+
+**Capabilities:** Streaming, tool calling, structured output, image input (Llama 4 preview), web search, RAG with citations.
 
 **Environment:** `GROQ_API_KEY`
 

@@ -137,6 +137,9 @@ export function createProvider<TOptions = unknown>(
     );
   }
 
+  // Declare provider first so closure can capture it
+  let provider: Provider<TOptions>;
+
   // Create the factory function
   const fn = function (modelId: string, modelOptions?: TOptions): ModelReference<TOptions> {
     if (options.createModelReference) {
@@ -159,7 +162,7 @@ export function createProvider<TOptions = unknown>(
     },
   });
 
-  const provider = fn as Provider<TOptions>;
+  provider = fn as Provider<TOptions>;
 
   // If there's a resolver, set provider on all handlers
   if (hasResolver) {

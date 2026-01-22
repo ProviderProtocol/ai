@@ -110,66 +110,40 @@ function getCapabilities(modelId: string): ImageCapabilities {
 }
 
 /**
- * Creates an image handler for OpenAI's Image Generation API.
- *
- * @returns An image handler configured for OpenAI
- *
- * @example
- * ```typescript
- * const handler = createImageHandler();
- * const model = handler.bind('dall-e-3');
- *
- * const response = await model.generate({
- *   prompt: 'A sunset over mountains',
- *   config: { apiKey: 'sk-...' },
- *   params: { size: '1024x1024', quality: 'hd' }
- * });
- * ```
+ * Transform OpenAI response to ImageResponse.
  */
-export function createImageHandler(): ImageHandler<OpenAIImageParams> {
-  let providerRef: ImageProvider<OpenAIImageParams> | null = null;
+function transformResponse(data: OpenAIImagesResponse): ImageResponse {
+  const images: GeneratedImage[] = data.data.map((item) => {
+    let image: Image;
+    if (item.b64_json) {
+      image = Image.fromBase64(item.b64_json, 'image/png');
+    } else if (item.url) {
+      image = Image.fromUrl(item.url, 'image/png');
+    } else {
+      throw new UPPError(
+        'No image data in response',
+        ErrorCode.ProviderError,
+        'openai',
+        ModalityType.Image
+      );
+    }
+
+    return {
+      image,
+      metadata: item.revised_prompt
+        ? { openai: { revised_prompt: item.revised_prompt } }
+        : undefined,
+    };
+  });
 
   return {
-    _setProvider(provider: ImageProvider<OpenAIImageParams>) {
-      providerRef = provider;
-    },
-
-    bind(modelId: string): BoundImageModel<OpenAIImageParams> {
-      if (!providerRef) {
-        throw new UPPError(
-          'Provider reference not set. Handler must be used with createProvider().',
-          ErrorCode.InvalidRequest,
-          'openai',
-          ModalityType.Image
-        );
-      }
-
-      const capabilities = getCapabilities(modelId);
-
-      const model: BoundImageModel<OpenAIImageParams> = {
-        modelId,
-        capabilities,
-
-        get provider(): ImageProvider<OpenAIImageParams> {
-          return providerRef!;
-        },
-
-        async generate(request: ImageRequest<OpenAIImageParams>): Promise<ImageResponse> {
-          return executeGenerate(modelId, request);
-        },
-
-        async edit(request: ImageEditRequest<OpenAIImageParams>): Promise<ImageResponse> {
-          return executeEdit(modelId, request);
-        },
-      };
-
-      if (capabilities.streaming) {
-        model.stream = function (request: ImageRequest<OpenAIImageParams>): ImageProviderStreamResult {
-          return executeStream(modelId, request);
-        };
-      }
-
-      return model;
+    images,
+    usage: data.usage ? {
+      imagesGenerated: images.length,
+      inputTokens: data.usage.input_tokens,
+      outputTokens: data.usage.output_tokens,
+    } : {
+      imagesGenerated: images.length,
     },
   };
 }
@@ -489,41 +463,66 @@ function executeStream(
 }
 
 /**
- * Transform OpenAI response to ImageResponse.
+ * Creates an image handler for OpenAI's Image Generation API.
+ *
+ * @returns An image handler configured for OpenAI
+ *
+ * @example
+ * ```typescript
+ * const handler = createImageHandler();
+ * const model = handler.bind('dall-e-3');
+ *
+ * const response = await model.generate({
+ *   prompt: 'A sunset over mountains',
+ *   config: { apiKey: 'sk-...' },
+ *   params: { size: '1024x1024', quality: 'hd' }
+ * });
+ * ```
  */
-function transformResponse(data: OpenAIImagesResponse): ImageResponse {
-  const images: GeneratedImage[] = data.data.map((item) => {
-    let image: Image;
-    if (item.b64_json) {
-      image = Image.fromBase64(item.b64_json, 'image/png');
-    } else if (item.url) {
-      image = Image.fromUrl(item.url, 'image/png');
-    } else {
-      throw new UPPError(
-        'No image data in response',
-        ErrorCode.ProviderError,
-        'openai',
-        ModalityType.Image
-      );
-    }
-
-    return {
-      image,
-      // Per-image metadata namespaced under provider (Spec 15.4)
-      metadata: item.revised_prompt
-        ? { openai: { revised_prompt: item.revised_prompt } }
-        : undefined,
-    };
-  });
+export function createImageHandler(): ImageHandler<OpenAIImageParams> {
+  let providerRef: ImageProvider<OpenAIImageParams> | null = null;
 
   return {
-    images,
-    usage: data.usage ? {
-      imagesGenerated: images.length,
-      inputTokens: data.usage.input_tokens,
-      outputTokens: data.usage.output_tokens,
-    } : {
-      imagesGenerated: images.length,
+    _setProvider(provider: ImageProvider<OpenAIImageParams>) {
+      providerRef = provider;
+    },
+
+    bind(modelId: string): BoundImageModel<OpenAIImageParams> {
+      if (!providerRef) {
+        throw new UPPError(
+          'Provider reference not set. Handler must be used with createProvider().',
+          ErrorCode.InvalidRequest,
+          'openai',
+          ModalityType.Image
+        );
+      }
+
+      const capabilities = getCapabilities(modelId);
+
+      const model: BoundImageModel<OpenAIImageParams> = {
+        modelId,
+        capabilities,
+
+        get provider(): ImageProvider<OpenAIImageParams> {
+          return providerRef!;
+        },
+
+        async generate(request: ImageRequest<OpenAIImageParams>): Promise<ImageResponse> {
+          return executeGenerate(modelId, request);
+        },
+
+        async edit(request: ImageEditRequest<OpenAIImageParams>): Promise<ImageResponse> {
+          return executeEdit(modelId, request);
+        },
+      };
+
+      if (capabilities.streaming) {
+        model.stream = function (request: ImageRequest<OpenAIImageParams>): ImageProviderStreamResult {
+          return executeStream(modelId, request);
+        };
+      }
+
+      return model;
     },
   };
 }

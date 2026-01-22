@@ -36,56 +36,6 @@ import type {
 } from './types.ts';
 
 /**
- * Transforms a UPP LLM request into Cerebras Chat Completions API format.
- *
- * @param request - The UPP LLM request containing messages, tools, and configuration
- * @param modelId - The Cerebras model identifier (e.g., 'llama-3.3-70b')
- * @returns A Cerebras Chat Completions API request body
- */
-export function transformRequest(
-  request: LLMRequest<CerebrasLLMParams>,
-  modelId: string
-): CerebrasRequest {
-  const params = request.params ?? ({} as CerebrasLLMParams);
-
-  const cerebrasRequest: CerebrasRequest = {
-    ...params,
-    model: modelId,
-    messages: transformMessages(request.messages, request.system),
-  };
-
-  if (request.tools && request.tools.length > 0) {
-    cerebrasRequest.tools = request.tools.map(transformTool);
-  }
-
-  if (request.structure) {
-    const schema: Record<string, unknown> = {
-      type: 'object',
-      properties: request.structure.properties,
-      required: request.structure.required,
-      ...(request.structure.additionalProperties !== undefined
-        ? { additionalProperties: request.structure.additionalProperties }
-        : { additionalProperties: false }),
-    };
-    if (request.structure.description) {
-      schema.description = request.structure.description;
-    }
-
-    cerebrasRequest.response_format = {
-      type: 'json_schema',
-      json_schema: {
-        name: 'json_response',
-        description: request.structure.description,
-        schema,
-        strict: true,
-      },
-    };
-  }
-
-  return cerebrasRequest;
-}
-
-/**
  * Normalizes system prompt to string.
  */
 function normalizeSystem(system: string | unknown[] | undefined): string | undefined {
@@ -128,46 +78,44 @@ function normalizeSystem(system: string | unknown[] | undefined): string | undef
 }
 
 /**
- * Transforms UPP messages to Cerebras message format.
- *
- * @param messages - Array of UPP messages to transform
- * @param system - Optional system prompt
- * @returns Array of Cerebras-formatted messages
- */
-function transformMessages(
-  messages: Message[],
-  system?: string | unknown[]
-): CerebrasMessage[] {
-  const result: CerebrasMessage[] = [];
-  const normalizedSystem = normalizeSystem(system);
-
-  if (normalizedSystem) {
-    result.push({
-      role: 'system',
-      content: normalizedSystem,
-    });
-  }
-
-  for (const message of messages) {
-    if (isToolResultMessage(message)) {
-      const toolMessages = transformToolResults(message);
-      result.push(...toolMessages);
-    } else {
-      const transformed = transformMessage(message);
-      if (transformed) {
-        result.push(transformed);
-      }
-    }
-  }
-
-  return result;
-}
-
-/**
  * Filters content blocks to only include those with a valid type property.
  */
 function filterValidContent<T extends { type?: string }>(content: T[]): T[] {
   return content.filter((c) => c && typeof c.type === 'string');
+}
+
+/**
+ * Transforms a UPP content block to Cerebras user content format.
+ */
+function transformContentBlock(block: ContentBlock): CerebrasUserContent {
+  switch (block.type) {
+    case 'text':
+      return { type: 'text', text: block.text };
+
+    case 'image':
+      throw new UPPError(
+        'Cerebras does not support image input',
+        ErrorCode.InvalidRequest,
+        'cerebras',
+        ModalityType.LLM
+      );
+
+    case 'document':
+      throw new UPPError(
+        'Cerebras does not support document input',
+        ErrorCode.InvalidRequest,
+        'cerebras',
+        ModalityType.LLM
+      );
+
+    default:
+      throw new UPPError(
+        `Unsupported content type: ${block.type}`,
+        ErrorCode.InvalidRequest,
+        'cerebras',
+        ModalityType.LLM
+      );
+  }
 }
 
 /**
@@ -251,37 +199,39 @@ export function transformToolResults(message: Message): CerebrasMessage[] {
 }
 
 /**
- * Transforms a UPP content block to Cerebras user content format.
+ * Transforms UPP messages to Cerebras message format.
+ *
+ * @param messages - Array of UPP messages to transform
+ * @param system - Optional system prompt
+ * @returns Array of Cerebras-formatted messages
  */
-function transformContentBlock(block: ContentBlock): CerebrasUserContent {
-  switch (block.type) {
-    case 'text':
-      return { type: 'text', text: block.text };
+function transformMessages(
+  messages: Message[],
+  system?: string | unknown[]
+): CerebrasMessage[] {
+  const result: CerebrasMessage[] = [];
+  const normalizedSystem = normalizeSystem(system);
 
-    case 'image':
-      throw new UPPError(
-        'Cerebras does not support image input',
-        ErrorCode.InvalidRequest,
-        'cerebras',
-        ModalityType.LLM
-      );
-
-    case 'document':
-      throw new UPPError(
-        'Cerebras does not support document input',
-        ErrorCode.InvalidRequest,
-        'cerebras',
-        ModalityType.LLM
-      );
-
-    default:
-      throw new UPPError(
-        `Unsupported content type: ${block.type}`,
-        ErrorCode.InvalidRequest,
-        'cerebras',
-        ModalityType.LLM
-      );
+  if (normalizedSystem) {
+    result.push({
+      role: 'system',
+      content: normalizedSystem,
+    });
   }
+
+  for (const message of messages) {
+    if (isToolResultMessage(message)) {
+      const toolMessages = transformToolResults(message);
+      result.push(...toolMessages);
+    } else {
+      const transformed = transformMessage(message);
+      if (transformed) {
+        result.push(transformed);
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -314,6 +264,56 @@ function transformTool(tool: Tool): CerebrasTool {
       ...(strict !== undefined ? { strict } : {}),
     },
   };
+}
+
+/**
+ * Transforms a UPP LLM request into Cerebras Chat Completions API format.
+ *
+ * @param request - The UPP LLM request containing messages, tools, and configuration
+ * @param modelId - The Cerebras model identifier (e.g., 'llama-3.3-70b')
+ * @returns A Cerebras Chat Completions API request body
+ */
+export function transformRequest(
+  request: LLMRequest<CerebrasLLMParams>,
+  modelId: string
+): CerebrasRequest {
+  const params = request.params ?? ({} as CerebrasLLMParams);
+
+  const cerebrasRequest: CerebrasRequest = {
+    ...params,
+    model: modelId,
+    messages: transformMessages(request.messages, request.system),
+  };
+
+  if (request.tools && request.tools.length > 0) {
+    cerebrasRequest.tools = request.tools.map(transformTool);
+  }
+
+  if (request.structure) {
+    const schema: Record<string, unknown> = {
+      type: 'object',
+      properties: request.structure.properties,
+      required: request.structure.required,
+      ...(request.structure.additionalProperties !== undefined
+        ? { additionalProperties: request.structure.additionalProperties }
+        : { additionalProperties: false }),
+    };
+    if (request.structure.description) {
+      schema.description = request.structure.description;
+    }
+
+    cerebrasRequest.response_format = {
+      type: 'json_schema',
+      json_schema: {
+        name: 'json_response',
+        description: request.structure.description,
+        schema,
+        strict: true,
+      },
+    };
+  }
+
+  return cerebrasRequest;
 }
 
 /**

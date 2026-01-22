@@ -46,6 +46,109 @@ function hasFork(strategy: RetryStrategy | undefined): strategy is ForkableRetry
 }
 
 /**
+ * Delays execution for a specified duration.
+ *
+ * @param ms - Duration to sleep in milliseconds
+ * @returns Promise that resolves after the specified delay
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Parses Retry-After header values into seconds.
+ *
+ * Supports both delta-seconds and HTTP-date formats.
+ */
+function parseRetryAfter(headerValue: string | null, maxSeconds: number): number | null {
+  if (!headerValue) {
+    return null;
+  }
+
+  const seconds = parseInt(headerValue, 10);
+  if (!Number.isNaN(seconds)) {
+    return Math.min(maxSeconds, Math.max(0, seconds));
+  }
+
+  const dateMillis = Date.parse(headerValue);
+  if (Number.isNaN(dateMillis)) {
+    return null;
+  }
+
+  const deltaMs = dateMillis - Date.now();
+  if (deltaMs <= 0) {
+    return 0;
+  }
+
+  const deltaSeconds = Math.ceil(deltaMs / 1000);
+  return Math.min(maxSeconds, Math.max(0, deltaSeconds));
+}
+
+/**
+ * Executes a fetch request with configurable timeout.
+ *
+ * Creates an AbortController to cancel the request if it exceeds the timeout.
+ * Properly handles both user-provided abort signals and timeout-based cancellation,
+ * throwing appropriate error types for each case.
+ *
+ * @param fetchFn - The fetch function to use (allows custom implementations)
+ * @param url - The URL to fetch
+ * @param init - Standard fetch RequestInit options
+ * @param timeout - Maximum time in milliseconds before aborting
+ * @param provider - Provider identifier for error context
+ * @param modality - Request modality for error context
+ * @returns The Response from the fetch call
+ *
+ * @throws {UPPError} TIMEOUT - When the timeout is exceeded
+ * @throws {UPPError} CANCELLED - When cancelled via user-provided signal
+ * @throws {Error} Network errors are passed through unchanged
+ */
+async function fetchWithTimeout(
+  fetchFn: typeof fetch,
+  url: string,
+  init: RequestInit,
+  timeout: number,
+  provider: string,
+  modality: Modality
+): Promise<Response> {
+  const existingSignal = init.signal;
+
+  // Check if already aborted before starting
+  if (existingSignal?.aborted) {
+    throw cancelledError(provider, modality);
+  }
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+  const onAbort = () => controller.abort();
+  if (existingSignal) {
+    existingSignal.addEventListener('abort', onAbort, { once: true });
+  }
+
+  try {
+    const response = await fetchFn(url, {
+      ...init,
+      signal: controller.signal,
+    });
+    return response;
+  } catch (error) {
+    if (toError(error).name === 'AbortError') {
+      if (existingSignal?.aborted) {
+        throw cancelledError(provider, modality);
+      }
+      throw timeoutError(timeout, provider, modality);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    if (existingSignal) {
+      existingSignal.removeEventListener('abort', onAbort);
+    }
+  }
+}
+
+/**
  * Executes an HTTP fetch request with automatic retry, timeout handling, and error normalization.
  *
  * This function wraps the standard fetch API with additional capabilities:
@@ -176,80 +279,6 @@ export async function doFetch(
 }
 
 /**
- * Executes a fetch request with configurable timeout.
- *
- * Creates an AbortController to cancel the request if it exceeds the timeout.
- * Properly handles both user-provided abort signals and timeout-based cancellation,
- * throwing appropriate error types for each case.
- *
- * @param fetchFn - The fetch function to use (allows custom implementations)
- * @param url - The URL to fetch
- * @param init - Standard fetch RequestInit options
- * @param timeout - Maximum time in milliseconds before aborting
- * @param provider - Provider identifier for error context
- * @param modality - Request modality for error context
- * @returns The Response from the fetch call
- *
- * @throws {UPPError} TIMEOUT - When the timeout is exceeded
- * @throws {UPPError} CANCELLED - When cancelled via user-provided signal
- * @throws {Error} Network errors are passed through unchanged
- */
-async function fetchWithTimeout(
-  fetchFn: typeof fetch,
-  url: string,
-  init: RequestInit,
-  timeout: number,
-  provider: string,
-  modality: Modality
-): Promise<Response> {
-  const existingSignal = init.signal;
-
-  // Check if already aborted before starting
-  if (existingSignal?.aborted) {
-    throw cancelledError(provider, modality);
-  }
-
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeout);
-
-  const onAbort = () => controller.abort();
-  if (existingSignal) {
-    existingSignal.addEventListener('abort', onAbort, { once: true });
-  }
-
-  try {
-    const response = await fetchFn(url, {
-      ...init,
-      signal: controller.signal,
-    });
-    return response;
-  } catch (error) {
-    if (toError(error).name === 'AbortError') {
-      if (existingSignal?.aborted) {
-        throw cancelledError(provider, modality);
-      }
-      throw timeoutError(timeout, provider, modality);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-    if (existingSignal) {
-      existingSignal.removeEventListener('abort', onAbort);
-    }
-  }
-}
-
-/**
- * Delays execution for a specified duration.
- *
- * @param ms - Duration to sleep in milliseconds
- * @returns Promise that resolves after the specified delay
- */
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-/**
  * Executes an HTTP fetch request for streaming responses.
  *
  * Unlike {@link doFetch}, this function returns the response immediately without
@@ -333,33 +362,4 @@ export async function doStreamFetch(
     }
     throw networkError(toError(error), provider, modality);
   }
-}
-
-/**
- * Parses Retry-After header values into seconds.
- *
- * Supports both delta-seconds and HTTP-date formats.
- */
-function parseRetryAfter(headerValue: string | null, maxSeconds: number): number | null {
-  if (!headerValue) {
-    return null;
-  }
-
-  const seconds = parseInt(headerValue, 10);
-  if (!Number.isNaN(seconds)) {
-    return Math.min(maxSeconds, Math.max(0, seconds));
-  }
-
-  const dateMillis = Date.parse(headerValue);
-  if (Number.isNaN(dateMillis)) {
-    return null;
-  }
-
-  const deltaMs = dateMillis - Date.now();
-  if (deltaMs <= 0) {
-    return 0;
-  }
-
-  const deltaSeconds = Math.ceil(deltaMs / 1000);
-  return Math.min(maxSeconds, Math.max(0, deltaSeconds));
 }

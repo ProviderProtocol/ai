@@ -11,6 +11,49 @@
 import type { VideoBlock } from '../../types/content.ts';
 
 /**
+ * Detects the MIME type of a video file based on its file extension.
+ *
+ * Supports common video formats: MP4, WebM, OGV, MOV, AVI, MPEG, WMV, 3GPP, FLV.
+ * Returns 'application/octet-stream' for unknown extensions.
+ *
+ * Note: Provider support varies. Google Gemini supports MP4, MPEG, MOV, AVI,
+ * WMV, MPEGPS, FLV, 3GPP, and WebM. MKV is NOT supported by Google.
+ *
+ * @param path - File path or filename with extension
+ * @returns The detected MIME type string
+ */
+function detectMimeType(path: string): string {
+  const ext = path.split('.').pop()?.toLowerCase();
+
+  switch (ext) {
+    case 'mp4':
+    case 'm4v':
+      return 'video/mp4';
+    case 'webm':
+      return 'video/webm';
+    case 'ogv':
+    case 'ogg':
+      return 'video/ogg';
+    case 'mov':
+      return 'video/quicktime';
+    case 'avi':
+      return 'video/x-msvideo';
+    case 'mpeg':
+    case 'mpg':
+      return 'video/mpeg';
+    case 'wmv':
+      return 'video/x-ms-wmv';
+    case '3gp':
+    case '3gpp':
+      return 'video/3gpp';
+    case 'flv':
+      return 'video/x-flv';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+/**
  * Represents a video file that can be used in UPP messages.
  *
  * Video can be created from various sources (files, bytes, base64) and
@@ -226,48 +269,5 @@ export class Video {
         height: block.height,
       }
     );
-  }
-}
-
-/**
- * Detects the MIME type of a video file based on its file extension.
- *
- * Supports common video formats: MP4, WebM, OGV, MOV, AVI, MPEG, WMV, 3GPP, FLV.
- * Returns 'application/octet-stream' for unknown extensions.
- *
- * Note: Provider support varies. Google Gemini supports MP4, MPEG, MOV, AVI,
- * WMV, MPEGPS, FLV, 3GPP, and WebM. MKV is NOT supported by Google.
- *
- * @param path - File path or filename with extension
- * @returns The detected MIME type string
- */
-function detectMimeType(path: string): string {
-  const ext = path.split('.').pop()?.toLowerCase();
-
-  switch (ext) {
-    case 'mp4':
-    case 'm4v':
-      return 'video/mp4';
-    case 'webm':
-      return 'video/webm';
-    case 'ogv':
-    case 'ogg':
-      return 'video/ogg';
-    case 'mov':
-      return 'video/quicktime';
-    case 'avi':
-      return 'video/x-msvideo';
-    case 'mpeg':
-    case 'mpg':
-      return 'video/mpeg';
-    case 'wmv':
-      return 'video/x-ms-wmv';
-    case '3gp':
-    case '3gpp':
-      return 'video/3gpp';
-    case 'flv':
-      return 'video/x-flv';
-    default:
-      return 'application/octet-stream';
   }
 }
