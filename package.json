@@ -111,6 +111,36 @@
       "types": "./dist/middleware/pubsub/server/fastify/index.d.ts",
       "import": "./dist/middleware/pubsub/server/fastify/index.js",
       "default": "./dist/middleware/pubsub/server/fastify/index.js"
+    },
+    "./proxy/server": {
+      "types": "./dist/proxy/server/index.d.ts",
+      "import": "./dist/proxy/server/index.js",
+      "default": "./dist/proxy/server/index.js"
+    },
+    "./proxy/server/webapi": {
+      "types": "./dist/proxy/server/webapi/index.d.ts",
+      "import": "./dist/proxy/server/webapi/index.js",
+      "default": "./dist/proxy/server/webapi/index.js"
+    },
+    "./proxy/server/express": {
+      "types": "./dist/proxy/server/express/index.d.ts",
+      "import": "./dist/proxy/server/express/index.js",
+      "default": "./dist/proxy/server/express/index.js"
+    },
+    "./proxy/server/h3": {
+      "types": "./dist/proxy/server/h3/index.d.ts",
+      "import": "./dist/proxy/server/h3/index.js",
+      "default": "./dist/proxy/server/h3/index.js"
+    },
+    "./proxy/server/fastify": {
+      "types": "./dist/proxy/server/fastify/index.d.ts",
+      "import": "./dist/proxy/server/fastify/index.js",
+      "default": "./dist/proxy/server/fastify/index.js"
+    },
+    "./utils": {
+      "types": "./dist/utils/index.d.ts",
+      "import": "./dist/utils/index.js",
+      "default": "./dist/utils/index.js"
     }
   },
   "files": [
