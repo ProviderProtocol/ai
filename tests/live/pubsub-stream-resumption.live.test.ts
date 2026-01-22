@@ -83,4 +83,25 @@ describe.skipIf(!process.env.ANTHROPIC_API_KEY)('PubSub stream resumption (live)
     expect(originalText).toBe(turn.response.text);
     expect(subscriberText).toBe(turn.response.text);
   });
+
+  test('auto-drained streams still publish subscriber events', async () => {
+    const adapter = memoryAdapter();
+    const streamId = `pubsub-${crypto.randomUUID()}`;
+
+    const model = llm({
+      model: anthropic('claude-3-5-haiku-latest'),
+      params: { max_tokens: 128 },
+      middleware: [pubsubMiddleware({ adapter, streamId })],
+    });
+
+    const stream = model.stream('Repeat the word "hello" 30 times, separated by spaces.');
+    const subscriberTextPromise = collectSubscriberText(
+      createSubscriberStream(streamId, adapter)
+    );
+
+    const turn = await stream;
+    const subscriberText = await subscriberTextPromise;
+
+    expect(subscriberText).toBe(turn.response.text);
+  });
 });

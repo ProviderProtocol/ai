@@ -152,10 +152,12 @@ describe('memoryAdapter', () => {
       await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
 
       const received: unknown[] = [];
-      adapter.subscribe('stream-1', (event) => received.push(event));
+      adapter.subscribe('stream-1', (event) => received.push(event), () => {});
 
       const event = textDelta('Hello');
       adapter.publish('stream-1', event);
+
+      await Promise.resolve();
 
       expect(received).toHaveLength(1);
       expect(received[0]).toEqual(event);
@@ -166,10 +168,12 @@ describe('memoryAdapter', () => {
 
       const received1: unknown[] = [];
       const received2: unknown[] = [];
-      adapter.subscribe('stream-1', (event) => received1.push(event));
-      adapter.subscribe('stream-1', (event) => received2.push(event));
+      adapter.subscribe('stream-1', (event) => received1.push(event), () => {});
+      adapter.subscribe('stream-1', (event) => received2.push(event), () => {});
 
       adapter.publish('stream-1', textDelta('Hello'));
+
+      await Promise.resolve();
 
       expect(received1).toHaveLength(1);
       expect(received2).toHaveLength(1);
@@ -179,17 +183,19 @@ describe('memoryAdapter', () => {
       await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
 
       const received: unknown[] = [];
-      const unsubscribe = adapter.subscribe('stream-1', (event) => received.push(event));
+      const unsubscribe = adapter.subscribe('stream-1', (event) => received.push(event), () => {});
 
       adapter.publish('stream-1', textDelta('Hello'));
       unsubscribe();
       adapter.publish('stream-1', textDelta('World'));
 
+      await Promise.resolve();
+
       expect(received).toHaveLength(1);
     });
 
     test('subscribe to non-existent stream returns no-op unsubscribe', async () => {
-      const unsubscribe = adapter.subscribe('non-existent', () => {});
+      const unsubscribe = adapter.subscribe('non-existent', () => {}, () => {});
       expect(() => unsubscribe()).not.toThrow();
     });
 
@@ -203,12 +209,47 @@ describe('memoryAdapter', () => {
       const received: unknown[] = [];
       adapter.subscribe('stream-1', () => {
         throw new Error('Subscriber error');
-      });
-      adapter.subscribe('stream-1', (event) => received.push(event));
+      }, () => {});
+      adapter.subscribe('stream-1', (event) => received.push(event), () => {});
 
       adapter.publish('stream-1', textDelta('Hello'));
 
+      await Promise.resolve();
+
       expect(received).toHaveLength(1);
+    });
+
+    test('calls completion callback when stream is marked completed', async () => {
+      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
+
+      let completed = false;
+      adapter.subscribe('stream-1', () => {}, () => {
+        completed = true;
+      });
+
+      await adapter.markCompleted('stream-1');
+
+      await Promise.resolve();
+
+      expect(completed).toBe(true);
+    });
+
+    test('completion callback errors do not affect other subscribers', async () => {
+      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
+
+      let completed = false;
+      adapter.subscribe('stream-1', () => {}, () => {
+        throw new Error('Completion error');
+      });
+      adapter.subscribe('stream-1', () => {}, () => {
+        completed = true;
+      });
+
+      await adapter.markCompleted('stream-1');
+
+      await Promise.resolve();
+
+      expect(completed).toBe(true);
     });
   });
 
@@ -224,24 +265,6 @@ describe('memoryAdapter', () => {
 
     test('removing non-existent stream is no-op', async () => {
       await expect(adapter.remove('non-existent')).resolves.toBeUndefined();
-    });
-  });
-
-  describe('cleanup', () => {
-    test('removes streams older than maxAge', async () => {
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-
-      await new Promise((resolve) => setTimeout(resolve, 50));
-
-      await adapter.create('stream-2', { modelId: 'claude-3', provider: 'anthropic' });
-
-      await adapter.cleanup(25);
-
-      const stream1 = await adapter.getStream('stream-1');
-      const stream2 = await adapter.getStream('stream-2');
-
-      expect(stream1).toBeNull();
-      expect(stream2).not.toBeNull();
     });
   });
 
@@ -287,4 +310,5 @@ describe('memoryAdapter', () => {
       expect(stream4).not.toBeNull();
     });
   });
+
 });

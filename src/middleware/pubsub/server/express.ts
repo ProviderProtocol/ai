@@ -23,10 +23,10 @@ interface ExpressResponse {
 /**
  * Stream buffered and live events to an Express response.
  *
- * This utility handles the reconnection pattern for Express routes:
- * 1. Replays all buffered events from the adapter
- * 2. If stream is already completed, ends immediately
- * 3. Otherwise, subscribes to live events until completion
+ * Handles reconnection for Express routes:
+ * 1. Replays buffered events from the adapter
+ * 2. Subscribes to live events until completion signal
+ * 3. Ends when stream completes or client disconnects
  *
  * @param streamId - The stream ID to subscribe to
  * @param adapter - The pub-sub adapter instance
@@ -34,11 +34,25 @@ interface ExpressResponse {
  *
  * @example
  * ```typescript
- * import { streamSubscriber } from '@providerprotocol/ai/middleware/pubsub/server/express';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
+ * import { express } from '@providerprotocol/ai/middleware/pubsub/server';
  *
- * app.post('/api/ai/reconnect', async (req, res) => {
- *   const { streamId } = req.body;
- *   streamSubscriber(streamId, adapter, res);
+ * const adapter = memoryAdapter();
+ *
+ * app.post('/api/chat', async (req, res) => {
+ *   const { input, conversationId } = req.body;
+ *
+ *   if (!await adapter.exists(conversationId)) {
+ *     const model = llm({
+ *       model: anthropic('claude-sonnet-4-20250514'),
+ *       middleware: [pubsubMiddleware({ adapter, streamId: conversationId })],
+ *     });
+ *     model.stream(input).then(turn => saveToDatabase(conversationId, turn));
+ *   }
+ *
+ *   return express.streamSubscriber(conversationId, adapter, res);
  * });
  * ```
  */

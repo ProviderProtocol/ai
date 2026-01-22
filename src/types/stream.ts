@@ -144,7 +144,8 @@ export interface StreamEvent {
  * Stream result - an async iterable that also provides the final turn.
  *
  * Allows consuming streaming events while also awaiting the complete
- * Turn result after streaming finishes.
+ * Turn result after streaming finishes. Implements `PromiseLike<Turn>`
+ * for direct awaiting with automatic stream consumption.
  *
  * @typeParam TData - Type of the structured output data
  *
@@ -154,20 +155,23 @@ export interface StreamEvent {
  *
  * const stream = instance.stream('Tell me a story');
  *
- * // Consume streaming events
+ * // Option 1: Consume streaming events manually
  * for await (const event of stream) {
  *   if (event.type === StreamEventType.TextDelta) {
  *     process.stdout.write(event.delta.text ?? '');
  *   }
  * }
- *
- * // Get the complete turn after streaming
  * const turn = await stream.turn;
- * console.log('\n\nTokens used:', turn.usage.totalTokens);
+ *
+ * // Option 2: Just await the turn (auto-drains the stream)
+ * const turn = await instance.stream('Tell me a story');
+ *
+ * // Option 3: Fire-and-forget with callback
+ * instance.stream('Tell me a story').then(turn => saveToDB(turn));
  * ```
  */
 export interface StreamResult<TData = unknown>
-  extends AsyncIterable<StreamEvent> {
+  extends AsyncIterable<StreamEvent>, PromiseLike<Turn<TData>> {
   /**
    * Promise that resolves to the complete Turn after streaming finishes.
    * Rejects if the stream is aborted or terminated early.
@@ -198,6 +202,13 @@ export interface StreamResult<TData = unknown>
  *   turnPromise,
  *   abortController
  * );
+ *
+ * // Can be awaited directly (auto-drains)
+ * const turn = await stream;
+ *
+ * // Or iterated manually
+ * for await (const event of stream) { ... }
+ * const turn = await stream.turn;
  * ```
  */
 export function createStreamResult<TData = unknown>(
@@ -206,17 +217,32 @@ export function createStreamResult<TData = unknown>(
   abortController: AbortController
 ): StreamResult<TData> {
   let cachedTurn: Promise<Turn<TData>> | null = null;
+  let drainStarted = false;
 
   const getTurn = (): Promise<Turn<TData>> => {
-    // Lazily build the turn promise to avoid work (or rejections) when unused.
     if (typeof turnPromiseOrFactory === 'function') {
       if (!cachedTurn) {
         cachedTurn = turnPromiseOrFactory();
       }
       return cachedTurn;
     }
-
     return turnPromiseOrFactory;
+  };
+
+  const drain = (): void => {
+    if (drainStarted) return;
+    drainStarted = true;
+    void (async () => {
+      try {
+        let done = false;
+        while (!done) {
+          const result = await generator.next();
+          done = result.done ?? false;
+        }
+      } catch {
+        // Errors are surfaced via turn promise
+      }
+    })();
   };
 
   return {
@@ -228,6 +254,13 @@ export function createStreamResult<TData = unknown>(
     },
     abort() {
       abortController.abort();
+    },
+    then<TResult1 = Turn<TData>, TResult2 = never>(
+      onfulfilled?: ((value: Turn<TData>) => TResult1 | PromiseLike<TResult1>) | null,
+      onrejected?: ((reason: unknown) => TResult2 | PromiseLike<TResult2>) | null
+    ): Promise<TResult1 | TResult2> {
+      drain();
+      return getTurn().then(onfulfilled, onrejected);
     },
   };
 }

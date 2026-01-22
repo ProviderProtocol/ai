@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, mock } from 'bun:test';
+import { test, expect, describe, beforeEach } from 'bun:test';
 import {
   pubsubMiddleware,
   getStreamId,
@@ -133,7 +133,7 @@ describe('pubsubMiddleware', () => {
       const streamCtx = createStreamContext(ctx.state);
 
       const receivedEvents: unknown[] = [];
-      adapter.subscribe('publish-stream', (e) => receivedEvents.push(e));
+      adapter.subscribe('publish-stream', (e) => receivedEvents.push(e), () => {});
 
       const event = textDelta('Hello');
       mw.onStreamEvent!(event, streamCtx);
@@ -175,7 +175,7 @@ describe('pubsubMiddleware', () => {
   });
 
   describe('onStreamEnd', () => {
-    test('marks stream as completed', async () => {
+    test('notifies subscribers and removes stream from adapter', async () => {
       const mw = pubsubMiddleware({ adapter, streamId: 'complete-stream' });
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
@@ -183,10 +183,18 @@ describe('pubsubMiddleware', () => {
       await mw.onRequest!(ctx);
       const streamCtx = createStreamContext(ctx.state);
 
+      let completionNotified = false;
+      adapter.subscribe('complete-stream', () => {}, () => {
+        completionNotified = true;
+      });
+
       await mw.onStreamEnd!(streamCtx);
 
-      const completed = await adapter.isCompleted('complete-stream');
-      expect(completed).toBe(true);
+      await Promise.resolve();
+
+      expect(completionNotified).toBe(true);
+      const exists = await adapter.exists('complete-stream');
+      expect(exists).toBe(false);
     });
 
     test('waits for pending appends before completion', async () => {
@@ -247,17 +255,25 @@ describe('pubsubMiddleware', () => {
   });
 
   describe('onError', () => {
-    test('marks stream as completed on error', async () => {
+    test('notifies subscribers and removes stream on error', async () => {
       const mw = pubsubMiddleware({ adapter, streamId: 'error-stream' });
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
       await mw.onRequest!(ctx);
 
+      let completionNotified = false;
+      adapter.subscribe('error-stream', () => {}, () => {
+        completionNotified = true;
+      });
+
       await mw.onError!(new Error('test error'), ctx);
 
-      const completed = await adapter.isCompleted('error-stream');
-      expect(completed).toBe(true);
+      await Promise.resolve();
+
+      expect(completionNotified).toBe(true);
+      const exists = await adapter.exists('error-stream');
+      expect(exists).toBe(false);
     });
 
     test('does nothing when no streamId', async () => {
@@ -269,42 +285,28 @@ describe('pubsubMiddleware', () => {
       // Should not throw
       await mw.onError!(new Error('test error'), ctx);
     });
-
-    test('invokes cleanup on error path', async () => {
-      const base = memoryAdapter();
-      const cleanup = mock(async (maxAge: number) => {
-        await base.cleanup(maxAge);
-      });
-      const wrappedAdapter: PubSubAdapter = {
-        ...base,
-        cleanup,
-      };
-
-      const mw = pubsubMiddleware({ adapter: wrappedAdapter, streamId: 'cleanup-stream' });
-      const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
-
-      mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
-
-      await mw.onError!(new Error('test error'), ctx);
-
-      expect(cleanup).toHaveBeenCalledTimes(1);
-      expect(cleanup.mock.calls[0]?.[0]).toBe(600_000);
-    });
   });
 
   describe('onAbort', () => {
-    test('marks stream as completed on abort', async () => {
+    test('notifies subscribers and removes stream on abort', async () => {
       const mw = pubsubMiddleware({ adapter, streamId: 'abort-stream' });
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
       await mw.onRequest!(ctx);
 
+      let completionNotified = false;
+      adapter.subscribe('abort-stream', () => {}, () => {
+        completionNotified = true;
+      });
+
       await mw.onAbort!(new Error('abort'), ctx);
 
-      const completed = await adapter.isCompleted('abort-stream');
-      expect(completed).toBe(true);
+      await Promise.resolve();
+
+      expect(completionNotified).toBe(true);
+      const exists = await adapter.exists('abort-stream');
+      expect(exists).toBe(false);
     });
   });
 

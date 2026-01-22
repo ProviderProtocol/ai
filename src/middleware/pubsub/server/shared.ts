@@ -24,12 +24,7 @@ export interface StreamWriter {
  */
 export interface StreamOptions {
   signal?: AbortSignal;
-  /** Max time to wait for stream creation (ms). @default 5000 */
-  creationTimeout?: number;
 }
-
-const DEFAULT_CREATION_TIMEOUT = 5000;
-const CREATION_POLL_INTERVAL = 50;
 
 /**
  * Formats a stream event as an SSE data line.
@@ -40,40 +35,15 @@ export function formatSSE(event: StreamEvent): string {
 }
 
 /**
- * Waits for a stream to be created, with timeout.
- * Returns true if stream exists, false if timed out.
- */
-async function waitForStream(
-  streamId: string,
-  adapter: PubSubAdapter,
-  timeout: number,
-  signal?: AbortSignal
-): Promise<boolean> {
-  const deadline = Date.now() + timeout;
-
-  while (Date.now() < deadline) {
-    if (signal?.aborted) return false;
-
-    const exists = await adapter.exists(streamId);
-    if (exists) return true;
-
-    await new Promise((resolve) => setTimeout(resolve, CREATION_POLL_INTERVAL));
-  }
-
-  return false;
-}
-
-/**
  * Core subscriber stream logic shared across all adapters.
  *
  * Handles:
  * 1. Waiting for stream creation (with timeout)
- * 2. Subscribing to live events FIRST (to prevent event loss)
+ * 2. Subscribing to live events and completion signal
  * 3. Replaying buffered events
- * 4. Checking if already completed
- * 5. Processing live events until completion
- * 6. Final cleanup
- * 7. Client disconnect via AbortSignal
+ * 4. Processing live events until completion signal
+ * 5. Final cleanup
+ * 6. Client disconnect via AbortSignal
  *
  * @internal
  */
@@ -83,44 +53,45 @@ export async function runSubscriberStream(
   writer: StreamWriter,
   options: StreamOptions = {}
 ): Promise<void> {
-  const { signal, creationTimeout = DEFAULT_CREATION_TIMEOUT } = options;
+  const { signal } = options;
 
-  // Early exit if already aborted
   if (signal?.aborted) {
     writer.end();
     return;
   }
 
   try {
-    // 1. Wait for stream to be created (handles race with background generation)
-    const streamExists = await waitForStream(streamId, adapter, creationTimeout, signal);
-
     if (signal?.aborted) {
       writer.end();
       return;
     }
 
+    const streamExists = await adapter.exists(streamId);
     if (!streamExists) {
       writer.write(`data: ${JSON.stringify({ error: 'Stream not found' })}\n\n`);
       writer.end();
       return;
     }
 
-    // 2. Subscribe FIRST to prevent event loss during replay
-    // Any events emitted while we replay will queue up
     const queue: Array<{ event: StreamEvent; cursor: number | null }> = [];
     let resolveWait: (() => void) | null = null;
-    let done = false;
+    let completed = false;
     let lastSentCursor = -1;
 
-    const unsubscribe = adapter.subscribe(streamId, (event: StreamEvent, cursor?: number) => {
+    const onEvent = (event: StreamEvent, cursor?: number): void => {
       queue.push({ event, cursor: cursor ?? null });
       resolveWait?.();
-    });
+    };
 
-    // Handle client disconnect
+    const onComplete = (): void => {
+      completed = true;
+      resolveWait?.();
+    };
+
+    const unsubscribe = adapter.subscribe(streamId, onEvent, onComplete);
+
     const onAbort = (): void => {
-      done = true;
+      completed = true;
       resolveWait?.();
     };
     signal?.addEventListener('abort', onAbort);
@@ -128,13 +99,9 @@ export async function runSubscriberStream(
     const drainQueue = (): void => {
       while (queue.length > 0 && !signal?.aborted) {
         const item = queue.shift();
-        if (!item) {
-          break;
-        }
+        if (!item) break;
         const { event, cursor } = item;
-        if (cursor !== null && cursor <= lastSentCursor) {
-          continue;
-        }
+        if (cursor !== null && cursor <= lastSentCursor) continue;
         writer.write(formatSSE(event));
         if (cursor !== null && cursor > lastSentCursor) {
           lastSentCursor = cursor;
@@ -143,27 +110,34 @@ export async function runSubscriberStream(
     };
 
     const dropReplayDuplicates = (): void => {
-      if (queue.length === 0) {
-        return;
-      }
+      if (queue.length === 0) return;
       const filtered: Array<{ event: StreamEvent; cursor: number | null }> = [];
       for (const item of queue) {
-        if (item.cursor !== null && item.cursor <= lastSentCursor) {
-          continue;
-        }
+        if (item.cursor !== null && item.cursor <= lastSentCursor) continue;
         filtered.push(item);
       }
       queue.length = 0;
       queue.push(...filtered);
     };
 
-    const waitForNewEvents = (): Promise<void> => new Promise<void>((resolve) => {
-      resolveWait = resolve;
-      setTimeout(resolve, 500);
+    const waitForSignal = (): Promise<void> => new Promise((resolve) => {
+      let settled = false;
+
+      const settle = (): void => {
+        if (settled) return;
+        settled = true;
+        resolveWait = null;
+        resolve();
+      };
+
+      resolveWait = settle;
+
+      if (completed || signal?.aborted || queue.length > 0) {
+        settle();
+      }
     });
 
     try {
-      // 3. Replay buffered events (subscription is already active)
       const events = await adapter.getEvents(streamId);
 
       if (!events) {
@@ -178,50 +152,29 @@ export async function runSubscriberStream(
       }
 
       lastSentCursor = events.length - 1;
-
-      // Drop queued events that are already included in the replay (cursor-aware)
       dropReplayDuplicates();
 
-      // Check abort after replay
       if (signal?.aborted) {
         writer.end();
         return;
       }
 
-      // 4. Check if already completed
-      const completed = await adapter.isCompleted(streamId).catch(() => false);
-      if (completed) {
-        // Drain any queued events first (these are post-replay events)
+      // Check if already completed before we subscribed
+      const alreadyCompleted = await adapter.isCompleted(streamId).catch(() => false);
+      if (alreadyCompleted) {
         drainQueue();
         writer.write('data: [DONE]\n\n');
         writer.end();
         return;
       }
 
-      // 5. Process live events until completion
-      while (!done) {
-        // Check abort
-        if (signal?.aborted) break;
-
-        // Drain queue (all events here are post-replay, no duplicates)
+      // Wait for events or completion signal (no polling)
+      while (!completed && !signal?.aborted) {
         drainQueue();
-
-        // Check abort again
-        if (signal?.aborted) break;
-
-        // Check completion
-        const isComplete = await adapter.isCompleted(streamId).catch(() => false);
-        if (isComplete) {
-          done = true;
-          break;
-        }
-
-        // Wait for new events
-        await waitForNewEvents();
-        resolveWait = null;
+        if (completed || signal?.aborted) break;
+        await waitForSignal();
       }
 
-      // Final drain (only if not aborted)
       if (!signal?.aborted) {
         drainQueue();
       }
@@ -230,13 +183,11 @@ export async function runSubscriberStream(
       unsubscribe();
     }
 
-    // Only send DONE if not aborted
     if (!signal?.aborted) {
       writer.write('data: [DONE]\n\n');
     }
     writer.end();
   } catch (error) {
-    // Don't send error if client disconnected
     if (!signal?.aborted) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       writer.write(`data: ${JSON.stringify({ error: errorMsg })}\n\n`);

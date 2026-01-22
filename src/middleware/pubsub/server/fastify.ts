@@ -24,10 +24,10 @@ interface FastifyReply {
 /**
  * Stream buffered and live events to a Fastify reply.
  *
- * This utility handles the reconnection pattern for Fastify routes:
- * 1. Replays all buffered events from the adapter
- * 2. If stream is already completed, ends immediately
- * 3. Otherwise, subscribes to live events until completion
+ * Handles reconnection for Fastify routes:
+ * 1. Replays buffered events from the adapter
+ * 2. Subscribes to live events until completion signal
+ * 3. Ends when stream completes or client disconnects
  *
  * @param streamId - The stream ID to subscribe to
  * @param adapter - The pub-sub adapter instance
@@ -35,11 +35,25 @@ interface FastifyReply {
  *
  * @example
  * ```typescript
- * import { streamSubscriber } from '@providerprotocol/ai/middleware/pubsub/server/fastify';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
+ * import { fastify as pubsubFastify } from '@providerprotocol/ai/middleware/pubsub/server';
  *
- * app.post('/api/ai/reconnect', async (request, reply) => {
- *   const { streamId } = request.body;
- *   return streamSubscriber(streamId, adapter, reply);
+ * const adapter = memoryAdapter();
+ *
+ * app.post('/api/chat', async (request, reply) => {
+ *   const { input, conversationId } = request.body as { input: string; conversationId: string };
+ *
+ *   if (!await adapter.exists(conversationId)) {
+ *     const model = llm({
+ *       model: anthropic('claude-sonnet-4-20250514'),
+ *       middleware: [pubsubMiddleware({ adapter, streamId: conversationId })],
+ *     });
+ *     model.stream(input).then(turn => saveToDatabase(conversationId, turn));
+ *   }
+ *
+ *   return pubsubFastify.streamSubscriber(conversationId, adapter, reply);
  * });
  * ```
  */

@@ -1,7 +1,7 @@
 # Provider Protocol SDK (UPP) - LLM Reference Guide
 
 **Package**: `@providerprotocol/ai`
-**Version**: 0.0.35
+**Version**: 0.0.36
 **Runtime**: Bun/Node.js (ESM only)
 
 ## Overview
@@ -64,6 +64,14 @@ for await (const event of stream) {
 
 const turn = await stream.turn;
 console.log('Total tokens:', turn.usage.totalTokens);
+```
+
+Stream results are PromiseLike, so you can also `await` or `.then()` them to auto-drain:
+
+```typescript
+const turn = await claude.stream('Tell me a story');
+// or
+claude.stream('Tell me a story').then((turn) => { /* save to DB */ });
 ```
 
 ---
@@ -932,6 +940,9 @@ for await (const event of stream) {
 ### Pub/Sub Middleware (Stream Resumption)
 
 Enables clients to reconnect and catch up on missed events during active generation.
+Streams are removed on completion/abort/error. If a stream never reaches those hooks
+(for example, a process crash), the adapter may retain the entry. Custom adapters should
+invoke `onComplete` when `markCompleted()` runs so subscriber streams can terminate.
 
 ```typescript
 import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
@@ -945,7 +956,6 @@ const instance = llm({
     pubsubMiddleware({
       adapter,
       streamId: 'unique-stream-id',  // Client-provided ID for reconnection
-      ttl: 600_000,  // 10 minutes (default)
     }),
   ],
 });
@@ -961,7 +971,7 @@ The middleware buffers events and the server routes handle reconnection logic.
 import { llm } from '@providerprotocol/ai';
 import { anthropic } from '@providerprotocol/ai/anthropic';
 import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
-import { createSubscriberStream } from '@providerprotocol/ai/middleware/pubsub/server/webapi';
+import { webapi } from '@providerprotocol/ai/middleware/pubsub/server/webapi';
 
 const adapter = memoryAdapter();
 
@@ -979,14 +989,12 @@ Bun.serve({
         model: anthropic('claude-sonnet-4-20250514'),
         middleware: [pubsubMiddleware({ adapter, streamId })],
       });
-      // Consume stream in background - don't await
-      (async () => {
-        for await (const _ of model.stream(messages)) { /* events buffered by middleware */ }
-      })();
+      // Fire and forget - stream auto-drains via .then()
+      model.stream(messages).then(turn => { /* save to DB */ });
     }
 
     // Both new requests and reconnects: subscribe to buffered + live events
-    return new Response(createSubscriberStream(streamId, adapter), {
+    return new Response(webapi.createSubscriberStream(streamId, adapter), {
       headers: {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
@@ -1041,14 +1049,13 @@ const redisAdapter: PubSubAdapter = {
   async exists(streamId) { /* check Redis */ },
   async create(streamId, metadata) { /* store in Redis */ },
   async append(streamId, event) { /* append event */ },
-  async markCompleted(streamId) { /* mark done */ },
+  async markCompleted(streamId) { /* mark done, notify onComplete subscribers */ },
   async isCompleted(streamId) { /* check completion */ },
   async getEvents(streamId) { /* fetch all events */ },
   async getStream(streamId) { /* get metadata */ },
-  subscribe(streamId, callback) { /* Redis pub/sub */ },
+  subscribe(streamId, onEvent, onComplete) { /* Redis pub/sub */ },
   publish(streamId, event) { /* broadcast event */ },
-  async remove(streamId) { /* cleanup */ },
-  async cleanup(maxAge) { /* remove old streams */ },
+  async remove(streamId) { /* remove from storage */ },
 };
 ```
 

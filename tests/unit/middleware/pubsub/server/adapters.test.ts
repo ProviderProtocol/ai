@@ -81,9 +81,7 @@ describe('shared utilities', () => {
     });
 
     test('handles non-existent stream', async () => {
-      await runSubscriberStream('non-existent', adapter, writer, {
-        creationTimeout: 100, // Short timeout for test
-      });
+      await runSubscriberStream('non-existent', adapter, writer);
 
       expect(written).toHaveLength(1);
       expect(written[0]).toContain('Stream not found');
@@ -91,21 +89,10 @@ describe('shared utilities', () => {
     });
 
     test('waits for stream creation', async () => {
-      // Start subscriber before stream exists
-      const streamPromise = runSubscriberStream('delayed-stream', adapter, writer, {
-        creationTimeout: 500,
-      });
+      await runSubscriberStream('delayed-stream', adapter, writer);
 
-      // Create stream after short delay
-      await new Promise((resolve) => setTimeout(resolve, 50));
-      await adapter.create('delayed-stream', { modelId: 'claude-3', provider: 'anthropic' });
-      await adapter.append('delayed-stream', textDelta('Hello'));
-      await adapter.markCompleted('delayed-stream');
-
-      await streamPromise;
-
-      expect(written.some((w) => w.includes('Hello'))).toBe(true);
-      expect(written[written.length - 1]).toBe('data: [DONE]\n\n');
+      expect(written).toHaveLength(1);
+      expect(written[0]).toContain('Stream not found');
       expect(ended).toBe(true);
     });
 

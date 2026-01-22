@@ -23,6 +23,7 @@ export type {
   PubSubOptions,
   StoredStream,
   SubscriptionCallback,
+  CompletionCallback,
   Unsubscribe,
   MemoryAdapterOptions,
 } from './types.ts';
@@ -30,12 +31,6 @@ export { memoryAdapter } from './memory-adapter.ts';
 
 const STATE_KEY_STREAM_ID = 'pubsub:streamId';
 const STATE_KEY_ADAPTER = 'pubsub:adapter';
-
-const DEFAULT_TTL = 600_000; // 10 minutes
-const CLEANUP_INTERVAL = 60_000; // 1 minute
-
-/** Track last cleanup time per adapter to avoid shared state issues */
-const adapterCleanupTimes = new WeakMap<PubSubAdapter, number>();
 
 interface AppendChainState {
   chain: Promise<void>;
@@ -68,9 +63,9 @@ export function getAdapter(state: Map<string, unknown>): PubSubAdapter | undefin
  * - Creates stream entries for new requests
  * - Buffers all stream events
  * - Publishes events to subscribers
- * - Marks streams as completed
+ * - On stream end: notifies subscribers, then removes from adapter
  *
- * Server routes handle reconnection logic using `createSubscriberStream`.
+ * Server routes handle reconnection logic using `streamSubscriber`.
  *
  * @param options - Middleware configuration
  * @returns Middleware instance
@@ -79,35 +74,33 @@ export function getAdapter(state: Map<string, unknown>): PubSubAdapter | undefin
  * ```typescript
  * import { llm } from '@providerprotocol/ai';
  * import { anthropic } from '@providerprotocol/ai/anthropic';
- * import { pubsubMiddleware } from '@providerprotocol/ai/middleware/pubsub';
- * import { createSubscriberStream } from '@providerprotocol/ai/middleware/pubsub/server/webapi';
+ * import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
+ * import { h3 } from '@providerprotocol/ai/middleware/pubsub/server';
  *
- * // Server route handling both new requests and reconnections
- * export async function POST(req: Request) {
- *   const { messages, streamId } = await req.json();
- *   const exists = await adapter.exists(streamId);
+ * const adapter = memoryAdapter();
+ *
+ * export default defineEventHandler(async (event) => {
+ *   const { input, conversationId } = await readBody(event);
+ *   const exists = await adapter.exists(conversationId);
  *
  *   if (!exists) {
- *     // Start background generation (fire and forget)
  *     const model = llm({
  *       model: anthropic('claude-sonnet-4-20250514'),
- *       middleware: [pubsubMiddleware({ adapter, streamId })],
+ *       middleware: [pubsubMiddleware({ adapter, streamId: conversationId })],
  *     });
- *     consumeInBackground(model.stream(messages));
+ *     // Fire and forget - stream auto-drains via .then()
+ *     model.stream(getThreadFromDatabase(conversationId, input))
+ *       .then(turn => storeInDatabase(conversationId, turn));
  *   }
  *
- *   // Both new and reconnect: subscribe to events
- *   return new Response(createSubscriberStream(streamId, adapter), {
- *     headers: { 'Content-Type': 'text/event-stream' },
- *   });
- * }
+ *   return h3.streamSubscriber(conversationId, adapter, event);
+ * });
  * ```
  */
 export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
   const {
     adapter = memoryAdapter(),
     streamId,
-    ttl = DEFAULT_TTL,
   } = options;
 
   const appendChains = new Map<string, AppendChainState>();
@@ -139,32 +132,29 @@ export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
     appendChains.delete(id);
   };
 
-  const maybeCleanup = (): void => {
-    const now = Date.now();
-    const lastCleanup = adapterCleanupTimes.get(adapter) ?? 0;
-    if (now - lastCleanup > CLEANUP_INTERVAL) {
-      adapterCleanupTimes.set(adapter, now);
-      adapter.cleanup(ttl).catch(() => {
-        // Cleanup errors are non-fatal
-      });
-    }
-  };
-
-  const finalizeStream = async (ctx: MiddlewareContext): Promise<void> => {
-    const id = ctx.state.get(STATE_KEY_STREAM_ID) as string | undefined;
+  /**
+   * Finalizes a stream by marking completion and removing it from storage.
+   *
+   * @remarks
+   * Streams are removed when completion/abort/error hooks run. If a stream never
+   * reaches these hooks (for example, a process crash), adapter entries may persist.
+   * Custom adapters may implement their own safety cleanup if needed.
+   */
+  const finalizeStreamByState = async (state: Map<string, unknown>): Promise<void> => {
+    const id = state.get(STATE_KEY_STREAM_ID) as string | undefined;
     if (!id) {
       return;
     }
 
     await waitForAppends(id);
 
-    await adapter.markCompleted(id).catch(() => {
-      // Completion errors are non-fatal
-    });
+    // Mark completed first - this notifies all subscribers via onComplete callback
+    await adapter.markCompleted(id).catch(() => {});
 
     clearAppendState(id);
 
-    maybeCleanup();
+    // Remove after subscribers have been notified
+    await adapter.remove(id).catch(() => {});
   };
 
   return {
@@ -186,7 +176,6 @@ export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
         return;
       }
 
-      // Create stream entry if it doesn't exist
       const exists = await adapter.exists(streamId);
       if (!exists) {
         await adapter.create(streamId, {
@@ -202,36 +191,21 @@ export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
         return event;
       }
 
-      // Buffer first, then broadcast - ensures event is persisted before
-      // subscribers are notified, preventing replay gaps with async adapters
       enqueueAppend(id, event);
 
       return event;
     },
 
     async onStreamEnd(ctx: StreamContext): Promise<void> {
-      const id = ctx.state.get(STATE_KEY_STREAM_ID) as string | undefined;
-      if (!id) {
-        return;
-      }
-
-      await waitForAppends(id);
-
-      await adapter.markCompleted(id).catch(() => {
-        // Completion errors are non-fatal
-      });
-
-      clearAppendState(id);
-
-      maybeCleanup();
+      await finalizeStreamByState(ctx.state);
     },
 
     async onError(_error: Error, ctx: MiddlewareContext): Promise<void> {
-      await finalizeStream(ctx);
+      await finalizeStreamByState(ctx.state);
     },
 
     async onAbort(_error: Error, ctx: MiddlewareContext): Promise<void> {
-      await finalizeStream(ctx);
+      await finalizeStreamByState(ctx.state);
     },
   };
 }

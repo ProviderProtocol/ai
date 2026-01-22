@@ -13,12 +13,10 @@ import { runSubscriberStream } from './shared.ts';
 /**
  * Creates a ReadableStream that replays buffered events and subscribes to live events.
  *
- * This utility handles the reconnection pattern for server routes:
- * 1. Replays all buffered events from the adapter
- * 2. If stream is already completed, closes immediately
- * 3. Otherwise, subscribes to live events until completion
- *
- * Works with any framework that supports web standard ReadableStream.
+ * Handles reconnection for Web API frameworks (Bun, Deno, Next.js, Cloudflare Workers):
+ * 1. Replays buffered events from the adapter
+ * 2. Subscribes to live events until completion signal
+ * 3. Closes when stream completes or client disconnects
  *
  * @param streamId - The stream ID to subscribe to
  * @param adapter - The pub-sub adapter instance
@@ -26,17 +24,29 @@ import { runSubscriberStream } from './shared.ts';
  *
  * @example
  * ```typescript
- * import { createSubscriberStream } from '@providerprotocol/ai/middleware/pubsub/server/webapi';
+ * import { llm } from '@providerprotocol/ai';
+ * import { anthropic } from '@providerprotocol/ai/anthropic';
+ * import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
+ * import { webapi } from '@providerprotocol/ai/middleware/pubsub/server';
  *
- * // Next.js App Router
+ * const adapter = memoryAdapter();
+ *
+ * // Next.js App Router / Bun.serve / Deno.serve
  * export async function POST(req: Request) {
- *   const { streamId } = await req.json();
+ *   const { input, conversationId } = await req.json();
  *
- *   return new Response(createSubscriberStream(streamId, adapter), {
+ *   if (!await adapter.exists(conversationId)) {
+ *     const model = llm({
+ *       model: anthropic('claude-sonnet-4-20250514'),
+ *       middleware: [pubsubMiddleware({ adapter, streamId: conversationId })],
+ *     });
+ *     model.stream(input).then(turn => saveToDatabase(conversationId, turn));
+ *   }
+ *
+ *   return new Response(webapi.createSubscriberStream(conversationId, adapter), {
  *     headers: {
  *       'Content-Type': 'text/event-stream',
  *       'Cache-Control': 'no-cache',
- *       'Connection': 'keep-alive',
  *     },
  *   });
  * }

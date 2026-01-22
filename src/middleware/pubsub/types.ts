@@ -31,6 +31,14 @@ export interface StoredStream {
 export type SubscriptionCallback = (event: StreamEvent, cursor?: number) => void;
 
 /**
+ * Completion callback when stream ends.
+ *
+ * Adapters should invoke this when {@link PubSubAdapter.markCompleted} is called
+ * so subscriber streams can terminate.
+ */
+export type CompletionCallback = () => void;
+
+/**
  * Unsubscribe function returned by subscribe.
  */
 export type Unsubscribe = () => void;
@@ -110,11 +118,16 @@ export interface PubSubAdapter {
    * Subscribes to live events for a stream.
    *
    * @param streamId - Stream to subscribe to
-   * @param callback - Function called for each new event
-   * @param callback.cursor - Zero-based index of the event when supported
+   * @param onEvent - Function called for each new event
+   * @param onEvent.cursor - Zero-based index of the event when supported
+   * @param onComplete - Function called when stream is marked completed
    * @returns Unsubscribe function
    */
-  subscribe(streamId: string, callback: SubscriptionCallback): Unsubscribe;
+  subscribe(
+    streamId: string,
+    onEvent: SubscriptionCallback,
+    onComplete: CompletionCallback
+  ): Unsubscribe;
 
   /**
    * Publishes event to all subscribers.
@@ -125,18 +138,11 @@ export interface PubSubAdapter {
   publish(streamId: string, event: StreamEvent): void;
 
   /**
-   * Removes a stream (cleanup).
+   * Removes a stream from storage.
    *
    * @param streamId - Stream to remove
    */
   remove(streamId: string): Promise<void>;
-
-  /**
-   * Removes streams older than maxAge.
-   *
-   * @param maxAge - Maximum age in milliseconds
-   */
-  cleanup(maxAge: number): Promise<void>;
 }
 
 /**
@@ -160,12 +166,6 @@ export interface PubSubOptions {
    * - No pub/sub behavior, middleware is effectively disabled
    */
   streamId?: string;
-
-  /**
-   * TTL for stored streams in milliseconds.
-   * @default 600000 (10 minutes)
-   */
-  ttl?: number;
 }
 
 /**

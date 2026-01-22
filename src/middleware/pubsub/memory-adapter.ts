@@ -12,6 +12,7 @@ import type {
   PubSubAdapter,
   StoredStream,
   SubscriptionCallback,
+  CompletionCallback,
   Unsubscribe,
   MemoryAdapterOptions,
 } from './types.ts';
@@ -30,9 +31,14 @@ interface MutableStoredStream {
   events: StreamEvent[];
 }
 
+interface Subscriber {
+  onEvent: SubscriptionCallback;
+  onComplete: CompletionCallback;
+}
+
 interface StreamEntry {
   stream: MutableStoredStream;
-  subscribers: Set<SubscriptionCallback>;
+  subscribers: Set<Subscriber>;
 }
 
 /**
@@ -58,6 +64,16 @@ export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter
 
   const streams = new Map<string, StreamEntry>();
   const eventCursors = new WeakMap<StreamEvent, number>();
+
+  const scheduleCallback = (callback: () => void): void => {
+    queueMicrotask(() => {
+      try {
+        callback();
+      } catch {
+        // Subscriber errors should not affect other subscribers
+      }
+    });
+  };
 
   const evictOldest = (): void => {
     if (streams.size >= maxStreams) {
@@ -121,6 +137,10 @@ export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter
 
       entry.stream.completed = true;
       entry.stream.updatedAt = Date.now();
+
+      for (const subscriber of entry.subscribers) {
+        scheduleCallback(subscriber.onComplete);
+      }
     },
 
     async isCompleted(streamId): Promise<boolean> {
@@ -142,16 +162,17 @@ export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter
       return entry?.stream ?? null;
     },
 
-    subscribe(streamId, callback): Unsubscribe {
+    subscribe(streamId, onEvent, onComplete): Unsubscribe {
       const entry = streams.get(streamId);
       if (!entry) {
         return () => {};
       }
 
-      entry.subscribers.add(callback);
+      const subscriber: Subscriber = { onEvent, onComplete };
+      entry.subscribers.add(subscriber);
 
       return () => {
-        entry.subscribers.delete(callback);
+        entry.subscribers.delete(subscriber);
       };
     },
 
@@ -162,28 +183,15 @@ export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter
       }
 
       const cursor = eventCursors.get(event) ?? entry.stream.events.length - 1;
-      for (const callback of entry.subscribers) {
-        try {
-          callback(event, cursor);
-        } catch {
-          // Subscriber errors should not affect other subscribers
-        }
+      for (const subscriber of entry.subscribers) {
+        scheduleCallback(() => {
+          subscriber.onEvent(event, cursor);
+        });
       }
     },
 
     async remove(streamId): Promise<void> {
       streams.delete(streamId);
-    },
-
-    async cleanup(maxAge): Promise<void> {
-      const now = Date.now();
-      const cutoff = now - maxAge;
-
-      for (const [id, entry] of streams) {
-        if (entry.stream.updatedAt < cutoff) {
-          streams.delete(id);
-        }
-      }
     },
   };
 }
