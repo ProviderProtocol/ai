@@ -156,6 +156,9 @@ export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
 
       if (streamId) {
         ctx.state.set(STATE_KEY_STREAM_ID, streamId);
+        // Ensure stream exists immediately so exists() returns true
+        // before first token arrives (prevents duplicate generations)
+        adapter.subscribe(streamId, () => {}, () => {})();
       }
     },
 

@@ -50,6 +50,21 @@ describe('pubsubMiddleware', () => {
 
       expect(getStreamId(ctx.state)).toBeUndefined();
     });
+
+    test('stream exists immediately after onStart (prevents duplicate generations)', async () => {
+      const mw = pubsubMiddleware({ adapter, streamId: 'early-exists' });
+      const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
+
+      // Before onStart, stream should not exist
+      const existsBefore = await adapter.exists('early-exists');
+      expect(existsBefore).toBe(false);
+
+      mw.onStart!(ctx);
+
+      // After onStart (before any tokens), stream should exist
+      const existsAfter = await adapter.exists('early-exists');
+      expect(existsAfter).toBe(true);
+    });
   });
 
   describe('onStreamEvent', () => {
