@@ -81,17 +81,13 @@ export function getAdapter(state: Map<string, unknown>): PubSubAdapter | undefin
  *
  * export default defineEventHandler(async (event) => {
  *   const { input, conversationId } = await readBody(event);
- *   const exists = await adapter.exists(conversationId);
  *
- *   if (!exists) {
- *     const model = llm({
- *       model: anthropic('claude-sonnet-4-20250514'),
- *       middleware: [pubsubMiddleware({ adapter, streamId: conversationId })],
- *     });
- *     // Fire and forget - stream auto-drains via .then()
- *     model.stream(getThreadFromDatabase(conversationId, input))
- *       .then(turn => storeInDatabase(conversationId, turn));
- *   }
+ *   // Fire and forget - subscriber connects immediately, events flow when ready
+ *   const model = llm({
+ *     model: anthropic('claude-sonnet-4-20250514'),
+ *     middleware: [pubsubMiddleware({ adapter, streamId: conversationId })],
+ *   });
+ *   model.stream(input).then(turn => saveToDatabase(turn));
  *
  *   return h3.streamSubscriber(conversationId, adapter, event);
  * });
@@ -133,12 +129,11 @@ export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
   };
 
   /**
-   * Finalizes a stream by marking completion and removing it from storage.
+   * Finalizes a stream by marking completion and removing from adapter.
    *
-   * @remarks
-   * Streams are removed when completion/abort/error hooks run. If a stream never
-   * reaches these hooks (for example, a process crash), adapter entries may persist.
-   * Custom adapters may implement their own safety cleanup if needed.
+   * Called on any terminal state (complete, error, abort). After finalization,
+   * the stream is removed from the adapter. Apps should use `.then()` to persist
+   * completed conversations and serve them from their own storage on reconnect.
    */
   const finalizeStreamByState = async (state: Map<string, unknown>): Promise<void> => {
     const id = state.get(STATE_KEY_STREAM_ID) as string | undefined;
@@ -147,13 +142,9 @@ export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
     }
 
     await waitForAppends(id);
-
-    // Mark completed first - this notifies all subscribers via onComplete callback
-    await adapter.markCompleted(id).catch(() => {});
-
     clearAppendState(id);
 
-    // Remove after subscribers have been notified
+    // Remove from adapter (notifies subscribers) - apps persist via .then()
     await adapter.remove(id).catch(() => {});
   };
 
@@ -165,23 +156,6 @@ export function pubsubMiddleware(options: PubSubOptions = {}): Middleware {
 
       if (streamId) {
         ctx.state.set(STATE_KEY_STREAM_ID, streamId);
-      }
-    },
-
-    async onRequest(ctx: MiddlewareContext): Promise<void> {
-      if (!streamId) {
-        return;
-      }
-      if (!ctx.streaming) {
-        return;
-      }
-
-      const exists = await adapter.exists(streamId);
-      if (!exists) {
-        await adapter.create(streamId, {
-          modelId: ctx.modelId,
-          provider: ctx.provider,
-        });
       }
     },
 

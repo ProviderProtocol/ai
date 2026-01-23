@@ -38,12 +38,11 @@ export function formatSSE(event: StreamEvent): string {
  * Core subscriber stream logic shared across all adapters.
  *
  * Handles:
- * 1. Waiting for stream creation (with timeout)
- * 2. Subscribing to live events and completion signal
- * 3. Replaying buffered events
- * 4. Processing live events until completion signal
- * 5. Final cleanup
- * 6. Client disconnect via AbortSignal
+ * 1. Subscribing to live events and completion signal
+ * 2. Replaying buffered events (empty if stream just started)
+ * 3. Processing live events until completion signal
+ * 4. Final cleanup
+ * 5. Client disconnect via AbortSignal
  *
  * @internal
  */
@@ -62,13 +61,6 @@ export async function runSubscriberStream(
 
   try {
     if (signal?.aborted) {
-      writer.end();
-      return;
-    }
-
-    const streamExists = await adapter.exists(streamId);
-    if (!streamExists) {
-      writer.write(`data: ${JSON.stringify({ error: 'Stream not found' })}\n\n`);
       writer.end();
       return;
     }
@@ -140,12 +132,6 @@ export async function runSubscriberStream(
     try {
       const events = await adapter.getEvents(streamId);
 
-      if (!events) {
-        writer.write(`data: ${JSON.stringify({ error: 'Stream not found' })}\n\n`);
-        writer.end();
-        return;
-      }
-
       for (const event of events) {
         if (signal?.aborted) break;
         writer.write(formatSSE(event));
@@ -159,16 +145,7 @@ export async function runSubscriberStream(
         return;
       }
 
-      // Check if already completed before we subscribed
-      const alreadyCompleted = await adapter.isCompleted(streamId).catch(() => false);
-      if (alreadyCompleted) {
-        drainQueue();
-        writer.write('data: [DONE]\n\n');
-        writer.end();
-        return;
-      }
-
-      // Wait for events or completion signal (no polling)
+      // Wait for events or completion signal
       while (!completed && !signal?.aborted) {
         drainQueue();
         if (completed || signal?.aborted) break;

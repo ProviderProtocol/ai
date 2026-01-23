@@ -54,13 +54,19 @@ describe('shared utilities', () => {
       };
     });
 
-    test('replays buffered events', async () => {
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
+    test('replays buffered events and completes', async () => {
       await adapter.append('stream-1', textDelta('Hello'));
       await adapter.append('stream-1', textDelta(' world'));
-      await adapter.markCompleted('stream-1');
 
-      await runSubscriberStream('stream-1', adapter, writer);
+      const streamPromise = runSubscriberStream('stream-1', adapter, writer);
+
+      // Wait for subscriber to connect and replay
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // Remove triggers completion
+      await adapter.remove('stream-1');
+
+      await streamPromise;
 
       expect(written).toHaveLength(3);
       expect(written[0]).toContain('Hello');
@@ -69,35 +75,36 @@ describe('shared utilities', () => {
       expect(ended).toBe(true);
     });
 
-    test('sends DONE for already completed stream', async () => {
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-      await adapter.markCompleted('stream-1');
+    test('sends DONE when stream completes', async () => {
+      await adapter.append('stream-1', textDelta('Setup'));
 
-      await runSubscriberStream('stream-1', adapter, writer);
+      const streamPromise = runSubscriberStream('stream-1', adapter, writer);
 
-      expect(written).toHaveLength(1);
-      expect(written[0]).toBe('data: [DONE]\n\n');
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await adapter.remove('stream-1');
+
+      await streamPromise;
+
+      expect(written[written.length - 1]).toBe('data: [DONE]\n\n');
       expect(ended).toBe(true);
     });
 
-    test('handles non-existent stream', async () => {
-      await runSubscriberStream('non-existent', adapter, writer);
+    test('handles non-existent stream with lazy creation', async () => {
+      // Stream is lazily created on subscribe, completes immediately
+      // when marked completed externally
+      const streamPromise = runSubscriberStream('non-existent', adapter, writer);
 
-      expect(written).toHaveLength(1);
-      expect(written[0]).toContain('Stream not found');
-      expect(ended).toBe(true);
-    });
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      await adapter.remove('non-existent');
 
-    test('waits for stream creation', async () => {
-      await runSubscriberStream('delayed-stream', adapter, writer);
+      await streamPromise;
 
-      expect(written).toHaveLength(1);
-      expect(written[0]).toContain('Stream not found');
+      expect(written).toContain('data: [DONE]\n\n');
       expect(ended).toBe(true);
     });
 
     test('subscribes to live events', async () => {
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
+      await adapter.append('stream-1', textDelta('Setup'));
 
       const streamPromise = runSubscriberStream('stream-1', adapter, writer);
 
@@ -106,7 +113,7 @@ describe('shared utilities', () => {
       adapter.publish('stream-1', textDelta('Live event'));
 
       await new Promise((resolve) => setTimeout(resolve, 150));
-      await adapter.markCompleted('stream-1');
+      await adapter.remove('stream-1');
 
       await streamPromise;
 
@@ -125,11 +132,8 @@ describe('shared utilities', () => {
         },
       };
 
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-      const event1 = textDelta('Event 1');
-      const event2 = textDelta('Event 2');
-      await adapter.append('stream-1', event1);
-      await adapter.append('stream-1', event2);
+      await adapter.append('stream-1', textDelta('Event 1'));
+      await adapter.append('stream-1', textDelta('Event 2'));
 
       const streamPromise = runSubscriberStream('stream-1', adapter, writer);
 
@@ -139,7 +143,7 @@ describe('shared utilities', () => {
       adapter.publish('stream-1', event3);
 
       await new Promise((resolve) => setTimeout(resolve, 150));
-      await adapter.markCompleted('stream-1');
+      await adapter.remove('stream-1');
 
       await streamPromise;
 
@@ -164,11 +168,8 @@ describe('shared utilities', () => {
         },
       };
 
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-      const event1 = textDelta('Event 1');
-      const event2 = textDelta('Event 2');
-      await adapter.append('stream-1', event1);
-      await adapter.append('stream-1', event2);
+      await adapter.append('stream-1', textDelta('Event 1'));
+      await adapter.append('stream-1', textDelta('Event 2'));
 
       const streamPromise = runSubscriberStream('stream-1', adapter, writer);
 
@@ -178,7 +179,7 @@ describe('shared utilities', () => {
       adapter.publish('stream-1', event3);
 
       await new Promise((resolve) => setTimeout(resolve, 150));
-      await adapter.markCompleted('stream-1');
+      await adapter.remove('stream-1');
 
       await streamPromise;
 
@@ -193,7 +194,6 @@ describe('shared utilities', () => {
     });
 
     test('respects abort signal on early abort', async () => {
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
       await adapter.append('stream-1', textDelta('Hello'));
 
       const abortController = new AbortController();
@@ -208,7 +208,6 @@ describe('shared utilities', () => {
     });
 
     test('respects abort signal during stream', async () => {
-      await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
       await adapter.append('stream-1', textDelta('Hello'));
 
       const abortController = new AbortController();
@@ -240,29 +239,35 @@ describe('webapi adapter', () => {
     expect(stream).toBeInstanceOf(ReadableStream);
   });
 
-  test('streams completed events', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
+  test('streams events and completes', async () => {
     await adapter.append('stream-1', textDelta('Hello'));
-    await adapter.markCompleted('stream-1');
 
     const stream = createSubscriberStream('stream-1', adapter);
     const reader = stream.getReader();
     const decoder = new TextDecoder();
 
-    const chunks: string[] = [];
-    let result = await reader.read();
-    while (!result.done) {
-      chunks.push(decoder.decode(result.value));
-      result = await reader.read();
-    }
+    // Start reading in background
+    const readPromise = (async () => {
+      const chunks: string[] = [];
+      let result = await reader.read();
+      while (!result.done) {
+        chunks.push(decoder.decode(result.value));
+        result = await reader.read();
+      }
+      return chunks.join('');
+    })();
 
-    const combined = chunks.join('');
+    // Wait for subscriber to connect
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    const combined = await readPromise;
     expect(combined).toContain('Hello');
     expect(combined).toContain('[DONE]');
   });
 
   test('cancel aborts the stream', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
+    await adapter.append('stream-1', textDelta('Setup'));
 
     const stream = createSubscriberStream('stream-1', adapter);
     const reader = stream.getReader();
@@ -305,11 +310,15 @@ describe('express adapter', () => {
   });
 
   test('sets SSE headers', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-    await adapter.markCompleted('stream-1');
+    await adapter.append('stream-1', textDelta('Setup'));
 
     const { res } = createMockResponse();
-    await expressStreamSubscriber('stream-1', adapter, res);
+    const streamPromise = expressStreamSubscriber('stream-1', adapter, res);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
     expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-cache');
@@ -317,23 +326,30 @@ describe('express adapter', () => {
   });
 
   test('writes events and ends response', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
     await adapter.append('stream-1', textDelta('Hello'));
-    await adapter.markCompleted('stream-1');
 
     const { res } = createMockResponse();
-    await expressStreamSubscriber('stream-1', adapter, res);
+    const streamPromise = expressStreamSubscriber('stream-1', adapter, res);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(res.write).toHaveBeenCalled();
     expect(res.end).toHaveBeenCalled();
   });
 
   test('registers close handler', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-    await adapter.markCompleted('stream-1');
+    await adapter.append('stream-1', textDelta('Setup'));
 
     const { res } = createMockResponse();
-    await expressStreamSubscriber('stream-1', adapter, res);
+    const streamPromise = expressStreamSubscriber('stream-1', adapter, res);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(res.on).toHaveBeenCalledWith('close', expect.any(Function));
   });
@@ -378,11 +394,15 @@ describe('h3 adapter', () => {
   });
 
   test('sets SSE headers', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-    await adapter.markCompleted('stream-1');
+    await adapter.append('stream-1', textDelta('Setup'));
 
     const { event } = createMockEvent();
-    await h3StreamSubscriber('stream-1', adapter, event);
+    const streamPromise = h3StreamSubscriber('stream-1', adapter, event);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(event.node.res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
     expect(event.node.res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-cache');
@@ -390,23 +410,30 @@ describe('h3 adapter', () => {
   });
 
   test('writes events and ends response', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
     await adapter.append('stream-1', textDelta('Hello'));
-    await adapter.markCompleted('stream-1');
 
     const { event } = createMockEvent();
-    await h3StreamSubscriber('stream-1', adapter, event);
+    const streamPromise = h3StreamSubscriber('stream-1', adapter, event);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(event.node.res.write).toHaveBeenCalled();
     expect(event.node.res.end).toHaveBeenCalled();
   });
 
   test('registers close handler', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-    await adapter.markCompleted('stream-1');
+    await adapter.append('stream-1', textDelta('Setup'));
 
     const { event } = createMockEvent();
-    await h3StreamSubscriber('stream-1', adapter, event);
+    const streamPromise = h3StreamSubscriber('stream-1', adapter, event);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(event.node.res.on).toHaveBeenCalledWith('close', expect.any(Function));
   });
@@ -447,11 +474,15 @@ describe('fastify adapter', () => {
   });
 
   test('sets SSE headers', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-    await adapter.markCompleted('stream-1');
+    await adapter.append('stream-1', textDelta('Setup'));
 
     const { reply } = createMockReply();
-    await fastifyStreamSubscriber('stream-1', adapter, reply);
+    const streamPromise = fastifyStreamSubscriber('stream-1', adapter, reply);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(reply.raw.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
     expect(reply.raw.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-cache');
@@ -459,23 +490,30 @@ describe('fastify adapter', () => {
   });
 
   test('writes events and ends response', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
     await adapter.append('stream-1', textDelta('Hello'));
-    await adapter.markCompleted('stream-1');
 
     const { reply } = createMockReply();
-    await fastifyStreamSubscriber('stream-1', adapter, reply);
+    const streamPromise = fastifyStreamSubscriber('stream-1', adapter, reply);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(reply.raw.write).toHaveBeenCalled();
     expect(reply.raw.end).toHaveBeenCalled();
   });
 
   test('registers close handler', async () => {
-    await adapter.create('stream-1', { modelId: 'claude-3', provider: 'anthropic' });
-    await adapter.markCompleted('stream-1');
+    await adapter.append('stream-1', textDelta('Setup'));
 
     const { reply } = createMockReply();
-    await fastifyStreamSubscriber('stream-1', adapter, reply);
+    const streamPromise = fastifyStreamSubscriber('stream-1', adapter, reply);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await adapter.remove('stream-1');
+
+    await streamPromise;
 
     expect(reply.raw.on).toHaveBeenCalledWith('close', expect.any(Function));
   });

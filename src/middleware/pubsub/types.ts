@@ -10,15 +10,11 @@
 import type { StreamEvent } from '../../types/stream.ts';
 
 /**
- * Stored stream state.
+ * Stored stream state (in-flight only).
  */
 export interface StoredStream {
   readonly streamId: string;
-  readonly modelId: string;
-  readonly provider: string;
   readonly createdAt: number;
-  readonly updatedAt: number;
-  readonly completed: boolean;
   readonly events: readonly StreamEvent[];
 }
 
@@ -33,8 +29,8 @@ export type SubscriptionCallback = (event: StreamEvent, cursor?: number) => void
 /**
  * Completion callback when stream ends.
  *
- * Adapters should invoke this when {@link PubSubAdapter.markCompleted} is called
- * so subscriber streams can terminate.
+ * Adapters should invoke this when {@link PubSubAdapter.remove} is called
+ * so subscriber streams can terminate before the stream is deleted.
  */
 export type CompletionCallback = () => void;
 
@@ -46,82 +42,28 @@ export type Unsubscribe = () => void;
 /**
  * Storage adapter interface for pub-sub middleware.
  *
- * Implement this interface for custom backends (Redis, etc.).
- *
- * @example
- * ```typescript
- * const redisAdapter: PubSubAdapter = {
- *   async create(streamId, metadata) {
- *     await redis.hset(`stream:${streamId}`, metadata);
- *   },
- *   // ... other methods
- * };
- * ```
+ * Stores in-flight streams only. Completed streams are removed immediately.
+ * Apps should persist completed conversations via `.then()` and serve from
+ * their own storage on reconnect.
  */
 export interface PubSubAdapter {
   /**
    * Checks if a stream exists.
-   *
-   * @param streamId - Stream identifier to check
-   * @returns True if the stream exists
    */
   exists(streamId: string): Promise<boolean>;
 
   /**
-   * Creates a stream entry.
-   *
-   * @param streamId - Unique stream identifier
-   * @param metadata - Stream metadata (modelId, provider)
-   */
-  create(streamId: string, metadata: { modelId: string; provider: string }): Promise<void>;
-
-  /**
-   * Appends an event to the stream.
-   *
-   * @param streamId - Stream to append to
-   * @param event - Stream event to store
+   * Appends an event to the stream (creates lazily if needed).
    */
   append(streamId: string, event: StreamEvent): Promise<void>;
 
   /**
-   * Marks stream as completed.
-   *
-   * @param streamId - Stream to mark complete
-   */
-  markCompleted(streamId: string): Promise<void>;
-
-  /**
-   * Checks if stream is completed.
-   *
-   * @param streamId - Stream to check
-   * @returns True if stream is completed
-   */
-  isCompleted(streamId: string): Promise<boolean>;
-
-  /**
    * Fetches all events for replay.
-   *
-   * @param streamId - Stream to fetch events from
-   * @returns Array of events or null if stream doesn't exist
    */
-  getEvents(streamId: string): Promise<StreamEvent[] | null>;
+  getEvents(streamId: string): Promise<StreamEvent[]>;
 
   /**
-   * Gets stream metadata.
-   *
-   * @param streamId - Stream to get
-   * @returns Stream metadata or null if not found
-   */
-  getStream(streamId: string): Promise<StoredStream | null>;
-
-  /**
-   * Subscribes to live events for a stream.
-   *
-   * @param streamId - Stream to subscribe to
-   * @param onEvent - Function called for each new event
-   * @param onEvent.cursor - Zero-based index of the event when supported
-   * @param onComplete - Function called when stream is marked completed
-   * @returns Unsubscribe function
+   * Subscribes to live events (creates lazily if needed).
    */
   subscribe(
     streamId: string,
@@ -131,16 +73,11 @@ export interface PubSubAdapter {
 
   /**
    * Publishes event to all subscribers.
-   *
-   * @param streamId - Stream to publish to
-   * @param event - Event to broadcast
    */
   publish(streamId: string, event: StreamEvent): void;
 
   /**
-   * Removes a stream from storage.
-   *
-   * @param streamId - Stream to remove
+   * Notifies subscribers and removes stream from storage.
    */
   remove(streamId: string): Promise<void>;
 }
@@ -156,14 +93,7 @@ export interface PubSubOptions {
   adapter?: PubSubAdapter;
 
   /**
-   * Stream identifier for reconnection support.
-   *
-   * When provided:
-   * - If stream exists in adapter → Reconnection, replay buffered events
-   * - If stream doesn't exist → New request, create entry and proceed
-   *
-   * When not provided:
-   * - No pub/sub behavior, middleware is effectively disabled
+   * Stream identifier for pub-sub behavior.
    */
   streamId?: string;
 }
@@ -173,7 +103,7 @@ export interface PubSubOptions {
  */
 export interface MemoryAdapterOptions {
   /**
-   * Max streams to keep (LRU eviction).
+   * Max concurrent streams allowed. Throws if exceeded.
    * @default 1000
    */
   maxStreams?: number;

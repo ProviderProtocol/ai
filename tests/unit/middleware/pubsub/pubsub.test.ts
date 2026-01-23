@@ -52,66 +52,12 @@ describe('pubsubMiddleware', () => {
     });
   });
 
-  describe('onRequest', () => {
-    test('creates stream in adapter when streamId provided and does not exist', async () => {
-      const mw = pubsubMiddleware({ adapter, streamId: 'new-stream' });
-      const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
-
-      mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
-
-      // Stream should exist in adapter
-      const stream = await adapter.getStream('new-stream');
-      expect(stream).not.toBeNull();
-      expect(stream?.modelId).toBe('claude-3');
-      expect(stream?.provider).toBe('anthropic');
-    });
-
-    test('does not create duplicate stream if already exists', async () => {
-      // First, create an existing stream
-      await adapter.create('existing-stream', { modelId: 'old-model', provider: 'old-provider' });
-
-      const mw = pubsubMiddleware({ adapter, streamId: 'existing-stream' });
-      const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
-
-      mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
-
-      // Stream should still have original data
-      const stream = await adapter.getStream('existing-stream');
-      expect(stream?.modelId).toBe('old-model');
-      expect(stream?.provider).toBe('old-provider');
-    });
-
-    test('skips stream creation for non-streaming requests', async () => {
-      const mw = pubsubMiddleware({ adapter, streamId: 'non-streaming' });
-      const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', false, createRequest());
-
-      mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
-
-      const stream = await adapter.getStream('non-streaming');
-      expect(stream).toBeNull();
-    });
-
-    test('does nothing when streamId is not provided', async () => {
-      const mw = pubsubMiddleware({ adapter });
-      const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
-
-      mw.onStart!(ctx);
-      const result = await mw.onRequest!(ctx);
-
-      expect(result).toBeUndefined();
-    });
-  });
-
   describe('onStreamEvent', () => {
-    test('appends events to adapter', async () => {
+    test('appends events to adapter (lazy stream creation)', async () => {
       const mw = pubsubMiddleware({ adapter, streamId: 'buffer-stream' });
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
       const streamCtx = createStreamContext(ctx.state);
 
       const event = textDelta('Hello');
@@ -121,7 +67,7 @@ describe('pubsubMiddleware', () => {
 
       const events = await adapter.getEvents('buffer-stream');
       expect(events).toHaveLength(1);
-      expect(events![0]).toEqual(event);
+      expect(events[0]).toEqual(event);
     });
 
     test('publishes events to subscribers', async () => {
@@ -129,7 +75,6 @@ describe('pubsubMiddleware', () => {
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
       const streamCtx = createStreamContext(ctx.state);
 
       const receivedEvents: unknown[] = [];
@@ -150,7 +95,6 @@ describe('pubsubMiddleware', () => {
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
       const streamCtx = createStreamContext(ctx.state);
 
       const event = textDelta('Hello');
@@ -180,8 +124,11 @@ describe('pubsubMiddleware', () => {
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
       const streamCtx = createStreamContext(ctx.state);
+
+      // Trigger lazy stream creation via append
+      mw.onStreamEvent!(textDelta('Hello'), streamCtx);
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       let completionNotified = false;
       adapter.subscribe('complete-stream', () => {}, () => {
@@ -197,10 +144,10 @@ describe('pubsubMiddleware', () => {
       expect(exists).toBe(false);
     });
 
-    test('waits for pending appends before completion', async () => {
+    test('waits for pending appends before removal', async () => {
       let resolveAppend: () => void;
       let appendResolvedAt: number | null = null;
-      let markCompletedAt: number | null = null;
+      let removeCalledAt: number | null = null;
 
       const appendPromise = new Promise<void>((resolve) => {
         resolveAppend = () => {
@@ -216,9 +163,9 @@ describe('pubsubMiddleware', () => {
           await appendPromise;
           await base.append(streamId, event);
         },
-        markCompleted: async (streamId) => {
-          markCompletedAt = Date.now();
-          await base.markCompleted(streamId);
+        remove: async (streamId) => {
+          removeCalledAt = Date.now();
+          await base.remove(streamId);
         },
       };
 
@@ -226,20 +173,19 @@ describe('pubsubMiddleware', () => {
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
       const streamCtx = createStreamContext(ctx.state);
 
       mw.onStreamEvent!(textDelta('Hello'), streamCtx);
 
       const endPromise = mw.onStreamEnd!(streamCtx);
-      expect(markCompletedAt).toBeNull();
+      expect(removeCalledAt).toBeNull();
 
       resolveAppend!();
       await endPromise;
 
-      expect(markCompletedAt).not.toBeNull();
+      expect(removeCalledAt).not.toBeNull();
       expect(appendResolvedAt).not.toBeNull();
-      expect(markCompletedAt ?? 0).toBeGreaterThanOrEqual(appendResolvedAt ?? 0);
+      expect(removeCalledAt ?? 0).toBeGreaterThanOrEqual(appendResolvedAt ?? 0);
     });
 
     test('does nothing when no streamId', async () => {
@@ -260,7 +206,11 @@ describe('pubsubMiddleware', () => {
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
+      const streamCtx = createStreamContext(ctx.state);
+
+      // Trigger lazy stream creation
+      mw.onStreamEvent!(textDelta('Hello'), streamCtx);
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       let completionNotified = false;
       adapter.subscribe('error-stream', () => {}, () => {
@@ -293,7 +243,11 @@ describe('pubsubMiddleware', () => {
       const ctx = createMiddlewareContext('llm', 'claude-3', 'anthropic', true, createRequest());
 
       mw.onStart!(ctx);
-      await mw.onRequest!(ctx);
+      const streamCtx = createStreamContext(ctx.state);
+
+      // Trigger lazy stream creation
+      mw.onStreamEvent!(textDelta('Hello'), streamCtx);
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       let completionNotified = false;
       adapter.subscribe('abort-stream', () => {}, () => {

@@ -1,8 +1,8 @@
 /**
  * @fileoverview In-memory storage adapter for pub-sub middleware.
  *
- * Provides a simple Map-based implementation with LRU eviction
- * for temporary stream storage during active generation.
+ * Provides a simple Map-based implementation for temporary stream
+ * storage during active generation.
  *
  * @module middleware/pubsub/memory-adapter
  */
@@ -17,17 +17,9 @@ import type {
   MemoryAdapterOptions,
 } from './types.ts';
 
-/**
- * Internal mutable version of StoredStream for adapter operations.
- * Public API exposes readonly StoredStream.
- */
 interface MutableStoredStream {
   streamId: string;
-  modelId: string;
-  provider: string;
   createdAt: number;
-  updatedAt: number;
-  completed: boolean;
   events: StreamEvent[];
 }
 
@@ -44,8 +36,8 @@ interface StreamEntry {
 /**
  * Creates an in-memory storage adapter for pub-sub middleware.
  *
- * Stores streams in a Map with LRU eviction when maxStreams is reached.
- * All methods return promises for interface compatibility with async backends.
+ * Stores streams in a Map. Throws when maxStreams is exceeded.
+ * Streams are created lazily on first append or subscribe.
  *
  * @param options - Adapter configuration
  * @returns A PubSubAdapter instance
@@ -54,9 +46,7 @@ interface StreamEntry {
  * ```typescript
  * import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
  *
- * const mw = pubsubMiddleware({
- *   adapter: memoryAdapter({ maxStreams: 500 }),
- * });
+ * const adapter = memoryAdapter({ maxStreams: 500 });
  * ```
  */
 export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter {
@@ -75,22 +65,23 @@ export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter
     });
   };
 
-  const evictOldest = (): void => {
-    if (streams.size >= maxStreams) {
-      let oldest: string | null = null;
-      let oldestTime = Infinity;
-
-      for (const [id, entry] of streams) {
-        if (entry.stream.updatedAt < oldestTime) {
-          oldestTime = entry.stream.updatedAt;
-          oldest = id;
-        }
+  const getOrCreate = (streamId: string): StreamEntry => {
+    let entry = streams.get(streamId);
+    if (!entry) {
+      if (streams.size >= maxStreams) {
+        throw new Error(`Maximum concurrent streams (${maxStreams}) exceeded`);
       }
-
-      if (oldest) {
-        streams.delete(oldest);
-      }
+      entry = {
+        stream: {
+          streamId,
+          createdAt: Date.now(),
+          events: [],
+        },
+        subscribers: new Set(),
+      };
+      streams.set(streamId, entry);
     }
+    return entry;
   };
 
   return {
@@ -98,76 +89,19 @@ export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter
       return streams.has(streamId);
     },
 
-    async create(streamId, metadata): Promise<void> {
-      evictOldest();
-
-      const now = Date.now();
-      const stream: MutableStoredStream = {
-        streamId,
-        modelId: metadata.modelId,
-        provider: metadata.provider,
-        createdAt: now,
-        updatedAt: now,
-        completed: false,
-        events: [],
-      };
-
-      streams.set(streamId, {
-        stream,
-        subscribers: new Set(),
-      });
-    },
-
     async append(streamId, event): Promise<void> {
-      const entry = streams.get(streamId);
-      if (!entry) {
-        return;
-      }
-
+      const entry = getOrCreate(streamId);
       entry.stream.events.push(event);
       eventCursors.set(event, entry.stream.events.length - 1);
-      entry.stream.updatedAt = Date.now();
     },
 
-    async markCompleted(streamId): Promise<void> {
+    async getEvents(streamId): Promise<StreamEvent[]> {
       const entry = streams.get(streamId);
-      if (!entry) {
-        return;
-      }
-
-      entry.stream.completed = true;
-      entry.stream.updatedAt = Date.now();
-
-      for (const subscriber of entry.subscribers) {
-        scheduleCallback(subscriber.onComplete);
-      }
-    },
-
-    async isCompleted(streamId): Promise<boolean> {
-      const entry = streams.get(streamId);
-      return entry?.stream.completed ?? false;
-    },
-
-    async getEvents(streamId): Promise<StreamEvent[] | null> {
-      const entry = streams.get(streamId);
-      if (!entry) {
-        return null;
-      }
-
-      return [...entry.stream.events];
-    },
-
-    async getStream(streamId): Promise<StoredStream | null> {
-      const entry = streams.get(streamId);
-      return entry?.stream ?? null;
+      return entry ? [...entry.stream.events] : [];
     },
 
     subscribe(streamId, onEvent, onComplete): Unsubscribe {
-      const entry = streams.get(streamId);
-      if (!entry) {
-        return () => {};
-      }
-
+      const entry = getOrCreate(streamId);
       const subscriber: Subscriber = { onEvent, onComplete };
       entry.subscribers.add(subscriber);
 
@@ -191,7 +125,13 @@ export function memoryAdapter(options: MemoryAdapterOptions = {}): PubSubAdapter
     },
 
     async remove(streamId): Promise<void> {
-      streams.delete(streamId);
+      const entry = streams.get(streamId);
+      if (entry) {
+        for (const subscriber of entry.subscribers) {
+          scheduleCallback(subscriber.onComplete);
+        }
+        streams.delete(streamId);
+      }
     },
   };
 }

@@ -942,7 +942,8 @@ for await (const event of stream) {
 Enables clients to reconnect and catch up on missed events during active generation.
 Streams are removed on completion/abort/error. If a stream never reaches those hooks
 (for example, a process crash), the adapter may retain the entry. Custom adapters should
-invoke `onComplete` when `markCompleted()` runs so subscriber streams can terminate.
+invoke `onComplete` when `remove()` runs so subscriber streams can terminate.
+Streams are created lazily on first `append()` or `subscribe()` call.
 
 ```typescript
 import { pubsubMiddleware, memoryAdapter } from '@providerprotocol/ai/middleware/pubsub';
@@ -985,11 +986,11 @@ Bun.serve({
 
     if (!exists) {
       // Start background generation (fire and forget)
+      // Stream is created lazily on first append()
       const model = llm({
         model: anthropic('claude-sonnet-4-20250514'),
         middleware: [pubsubMiddleware({ adapter, streamId })],
       });
-      // Fire and forget - stream auto-drains via .then()
       model.stream(messages).then(turn => { /* save to DB */ });
     }
 
@@ -1046,16 +1047,12 @@ Implement `PubSubAdapter` for custom backends (Redis, etc.):
 import type { PubSubAdapter } from '@providerprotocol/ai/middleware/pubsub';
 
 const redisAdapter: PubSubAdapter = {
-  async exists(streamId) { /* check Redis */ },
-  async create(streamId, metadata) { /* store in Redis */ },
-  async append(streamId, event) { /* append event */ },
-  async markCompleted(streamId) { /* mark done, notify onComplete subscribers */ },
-  async isCompleted(streamId) { /* check completion */ },
-  async getEvents(streamId) { /* fetch all events */ },
-  async getStream(streamId) { /* get metadata */ },
-  subscribe(streamId, onEvent, onComplete) { /* Redis pub/sub */ },
-  publish(streamId, event) { /* broadcast event */ },
-  async remove(streamId) { /* remove from storage */ },
+  async exists(streamId) { /* check if stream exists */ },
+  async append(streamId, event) { /* append event, create lazily */ },
+  async getEvents(streamId) { /* return events or [] */ },
+  subscribe(streamId, onEvent, onComplete) { /* subscribe to live events */ },
+  publish(streamId, event) { /* broadcast to subscribers */ },
+  async remove(streamId) { /* notify onComplete then delete */ },
 };
 ```
 
