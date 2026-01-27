@@ -124,6 +124,7 @@ The package uses subpath exports to keep bundles small. Import only what you nee
 | `@providerprotocol/ai/http` | HTTP utilities: retry/key strategies |
 | `@providerprotocol/ai/middleware/logging` | Logging middleware |
 | `@providerprotocol/ai/middleware/parsed-object` | Partial JSON parsing middleware |
+| `@providerprotocol/ai/middleware/persistence` | Thread persistence middleware |
 | `@providerprotocol/ai/middleware/pubsub` | Stream resumption middleware + adapters |
 | `@providerprotocol/ai/middleware/pubsub/server` | Server adapters for all frameworks |
 | `@providerprotocol/ai/middleware/pubsub/server/webapi` | Web API adapter (Bun, Deno, Next.js) |
@@ -935,6 +936,30 @@ for await (const event of stream) {
     console.log('Partial:', event.delta.parsed);
   }
 }
+```
+
+### Persistence Middleware
+
+Loads and saves conversation threads around LLM requests.
+
+```typescript
+import { persistenceMiddleware, PersistenceAdapter } from '@providerprotocol/ai/middleware/persistence';
+
+const adapter = new PersistenceAdapter({
+  id: 'conversation-123',
+  load: async (id) => loadThreadFromStorage(id),
+  save: async (id, thread, turn) => {
+    await saveThreadToStorage(id, thread);
+    if (turn) {
+      await saveTurnToStorage(id, turn);
+    }
+  },
+});
+
+const instance = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  middleware: [persistenceMiddleware({ adapter })],
+});
 ```
 
 ### Pub/Sub Middleware (Stream Resumption)

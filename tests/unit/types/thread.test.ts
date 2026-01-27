@@ -112,9 +112,10 @@ describe('Thread', () => {
   });
 
   test('toJSON and fromJSON round trip', () => {
+    const timestamp = new Date('2024-01-01T00:00:00.000Z');
     const thread = new Thread([
-      new UserMessage('Hello'),
-      new AssistantMessage('Hi!'),
+      new UserMessage('Hello', { id: 'u1', timestamp }),
+      new AssistantMessage('Hi!', undefined, { id: 'a1', timestamp }),
     ]);
     const json = thread.toJSON();
     const restored = Thread.fromJSON(json);
@@ -123,5 +124,7 @@ describe('Thread', () => {
     expect(restored.messages[0]?.type).toBe('user');
     expect(restored.messages[0]?.text).toBe('Hello');
     expect(restored.messages[1]?.type).toBe('assistant');
+    expect(restored.messages[0]?.timestamp.toISOString()).toBe(timestamp.toISOString());
+    expect(restored.messages[1]?.timestamp.toISOString()).toBe(timestamp.toISOString());
   });
 });

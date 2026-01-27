@@ -97,6 +97,9 @@ export interface MessageOptions {
   /** Custom message ID (auto-generated if not provided) */
   id?: string;
 
+  /** Message timestamp override (defaults to now) */
+  timestamp?: Date;
+
   /** Provider-specific metadata */
   metadata?: MessageMetadata;
 }
@@ -142,7 +145,7 @@ export abstract class Message {
    */
   constructor(options?: MessageOptions) {
     this.id = options?.id ?? generateId();
-    this.timestamp = new Date();
+    this.timestamp = options?.timestamp ?? new Date();
     this.metadata = options?.metadata;
   }
 

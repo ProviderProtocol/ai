@@ -18,6 +18,7 @@ import { StreamEventType, textDelta } from '../../../src/types/stream.ts';
 import type { LLMProvider } from '../../../src/types/provider.ts';
 import type { ImageBlock, DocumentBlock } from '../../../src/types/content.ts';
 import type { Middleware } from '../../../src/types/middleware.ts';
+import { persistenceMiddleware, PersistenceAdapter } from '../../../src/middleware/persistence.ts';
 
 type MockParams = { temperature?: number };
 
@@ -447,6 +448,81 @@ describe('LLM generate execution', () => {
     expect(requests[0]?.messages[0]).toBe(history[0]);
   });
 
+  test('persistence middleware excludes loaded history from generate turn', async () => {
+    const handler = createMockLLMHandler({
+      responses: [createResponse(new AssistantMessage('ok'), defaultUsage(1, 1))],
+    });
+
+    const provider = createProvider<MockParams>({
+      name: 'mock-llm',
+      version: '1.0.0',
+      handlers: { llm: handler },
+    });
+
+    const thread = new Thread();
+    thread.user('Past');
+    thread.assistant('Past reply');
+
+    const persistedIds = new Set(thread.messages.map((message) => message.id));
+    const adapter = new PersistenceAdapter({
+      id: 'persist-generate',
+      load: async () => thread,
+      save: async () => {},
+    });
+
+    const instance = llm<MockParams>({
+      model: provider('mock-model'),
+      middleware: [persistenceMiddleware({ adapter })],
+    });
+
+    const turn = await instance.generate('New message');
+
+    expect(turn.messages.some((message) => persistedIds.has(message.id))).toBe(false);
+    expect(turn.messages[0]).toBeInstanceOf(UserMessage);
+    expect(turn.messages[0]?.text).toContain('New message');
+    expect(turn.response.text).toContain('ok');
+  });
+
+  test('persistence middleware excludes loaded history from stream turn', async () => {
+    const handler = createMockLLMHandler({
+      responses: [createResponse(new AssistantMessage('ok'), defaultUsage(1, 1))],
+      streamEvents: [[textDelta('ok')]],
+    });
+
+    const provider = createProvider<MockParams>({
+      name: 'mock-llm',
+      version: '1.0.0',
+      handlers: { llm: handler },
+    });
+
+    const thread = new Thread();
+    thread.user('Past');
+    thread.assistant('Past reply');
+
+    const persistedIds = new Set(thread.messages.map((message) => message.id));
+    const adapter = new PersistenceAdapter({
+      id: 'persist-stream',
+      load: async () => thread,
+      save: async () => {},
+    });
+
+    const instance = llm<MockParams>({
+      model: provider('mock-model'),
+      middleware: [persistenceMiddleware({ adapter })],
+    });
+
+    const stream = instance.stream('New message');
+    for await (const event of stream) {
+      void event;
+    }
+    const turn = await stream.turn;
+
+    expect(turn.messages.some((message) => persistedIds.has(message.id))).toBe(false);
+    expect(turn.messages[0]).toBeInstanceOf(UserMessage);
+    expect(turn.messages[0]?.text).toContain('New message');
+    expect(turn.response.text).toContain('ok');
+  });
+
   test('rejects unsupported media inputs', async () => {
     const handler = createMockLLMHandler({
       responses: [createResponse(new AssistantMessage('ok'), defaultUsage(1, 1))],
@@ -470,6 +546,77 @@ describe('LLM generate execution', () => {
     const instance = llm<MockParams>({ model: provider('mock-model') });
 
     await expect(instance.generate(new UserMessage([imageBlock]))).rejects.toThrow(UPPError);
+  });
+
+  test('rejects unsupported media added by middleware', async () => {
+    const handler = createMockLLMHandler({
+      responses: [createResponse(new AssistantMessage('ok'), defaultUsage(1, 1))],
+      capabilities: {
+        imageInput: false,
+      },
+    });
+
+    const provider = createProvider<MockParams>({
+      name: 'mock-llm',
+      version: '1.0.0',
+      handlers: { llm: handler },
+    });
+
+    const imageBlock: ImageBlock = {
+      type: 'image',
+      source: { type: 'url', url: 'https://example.com/image.png' },
+      mimeType: 'image/png',
+    };
+
+    const middleware: Middleware = {
+      name: 'inject-image',
+      onRequest(ctx) {
+        const request = ctx.request as LLMRequest<MockParams>;
+        request.messages.push(new UserMessage([imageBlock]));
+      },
+    };
+
+    const instance = llm<MockParams>({
+      model: provider('mock-model'),
+      middleware: [middleware],
+    });
+
+    await expect(instance.generate('Hello')).rejects.toThrow(UPPError);
+  });
+
+  test('includes expanded inputs when middleware rewrites messages', async () => {
+    const handler = createMockLLMHandler({
+      responses: [createResponse(new AssistantMessage('ok'), defaultUsage(1, 1))],
+    });
+
+    const provider = createProvider<MockParams>({
+      name: 'mock-llm',
+      version: '1.0.0',
+      handlers: { llm: handler },
+    });
+
+    const middleware: Middleware = {
+      name: 'split-input',
+      onRequest(ctx) {
+        const request = ctx.request as LLMRequest<MockParams>;
+        request.messages = [
+          new UserMessage('Part A'),
+          new UserMessage('Part B'),
+        ];
+      },
+    };
+
+    const instance = llm<MockParams>({
+      model: provider('mock-model'),
+      middleware: [middleware],
+    });
+
+    const turn = await instance.generate('Original');
+
+    expect(turn.messages).toHaveLength(3);
+    expect(turn.messages[0]?.text).toContain('Part A');
+    expect(turn.messages[1]?.text).toContain('Part B');
+    expect(turn.response.text).toContain('ok');
   });
 
   test('rejects unsupported document inputs', async () => {

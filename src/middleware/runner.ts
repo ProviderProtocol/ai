@@ -14,6 +14,7 @@ import type {
 } from '../types/middleware.ts';
 import type { StreamEvent } from '../types/stream.ts';
 import type { Tool } from '../types/tool.ts';
+import type { Turn } from '../types/turn.ts';
 
 /**
  * Lifecycle hook names that can be run in forward or reverse order.
@@ -125,6 +126,28 @@ export async function runToolHook(
     const fn = mw[hook];
     if (fn) {
       await fn.call(mw, tool, data, ctx);
+    }
+  }
+}
+
+/**
+ * Runs the onTurn hook for all middleware that have it.
+ *
+ * Turn hooks are run in reverse middleware order.
+ *
+ * @param middlewares - Array of middleware to process
+ * @param turn - The completed Turn
+ * @param ctx - The middleware context
+ */
+export async function runTurnHook(
+  middlewares: Middleware[],
+  turn: Turn,
+  ctx: MiddlewareContext
+): Promise<void> {
+  const ordered = [...middlewares].reverse();
+  for (const mw of ordered) {
+    if (mw.onTurn) {
+      await mw.onTurn.call(mw, turn, ctx);
     }
   }
 }

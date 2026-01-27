@@ -53,6 +53,42 @@ describe('createStreamResult', () => {
     expect(yielded).toBe(events.length);
   });
 
+  test('auto-drains when awaiting turn without iterating', async () => {
+    const events = [textDelta('Hello'), textDelta('World')];
+    let yielded = 0;
+
+    let resolveDone: (() => void) | null = null;
+    const done = new Promise<void>((resolve) => {
+      resolveDone = resolve;
+    });
+
+    async function* generator() {
+      for (const event of events) {
+        yielded += 1;
+        yield event;
+      }
+      if (!resolveDone) {
+        throw new Error('done resolver not initialized');
+      }
+      resolveDone();
+    }
+
+    const turn = createTestTurn();
+    const stream = createStreamResult(
+      generator(),
+      async () => {
+        await done;
+        return turn;
+      },
+      new AbortController()
+    );
+
+    const resolved = await stream.turn;
+
+    expect(resolved).toBe(turn);
+    expect(yielded).toBe(events.length);
+  });
+
   test('double-await shares the same turn promise', async () => {
     let factoryCalls = 0;
     let resolveDone: (() => void) | null = null;

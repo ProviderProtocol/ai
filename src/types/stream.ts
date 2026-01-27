@@ -175,6 +175,8 @@ export interface StreamResult<TData = unknown>
   /**
    * Promise that resolves to the complete Turn after streaming finishes.
    * Rejects if the stream is aborted or terminated early.
+   *
+   * Accessing `turn` auto-drains the stream if it has not been iterated yet.
    */
   readonly turn: Promise<Turn<TData>>;
 
@@ -218,6 +220,7 @@ export function createStreamResult<TData = unknown>(
 ): StreamResult<TData> {
   let cachedTurn: Promise<Turn<TData>> | null = null;
   let drainStarted = false;
+  let iteratorStarted = false;
 
   const getTurn = (): Promise<Turn<TData>> => {
     if (typeof turnPromiseOrFactory === 'function') {
@@ -247,9 +250,13 @@ export function createStreamResult<TData = unknown>(
 
   return {
     [Symbol.asyncIterator]() {
+      iteratorStarted = true;
       return generator;
     },
     get turn() {
+      if (!iteratorStarted) {
+        drain();
+      }
       return getTurn();
     },
     abort() {

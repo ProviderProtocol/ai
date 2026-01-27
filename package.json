@@ -1,6 +1,6 @@
 {
   "name": "@providerprotocol/ai",
-  "version": "0.0.36",
+  "version": "0.0.37",
   "description": "UPP: Unified Provider Protocol for AI inference",
   "license": "MIT",
   "homepage": "https://providerprotocol.org",
@@ -81,6 +81,11 @@
       "types": "./dist/middleware/parsed-object/index.d.ts",
       "import": "./dist/middleware/parsed-object/index.js",
       "default": "./dist/middleware/parsed-object/index.js"
+    },
+    "./middleware/persistence": {
+      "types": "./dist/middleware/persistence/index.d.ts",
+      "import": "./dist/middleware/persistence/index.js",
+      "default": "./dist/middleware/persistence/index.js"
     },
     "./middleware/pubsub": {
       "types": "./dist/middleware/pubsub/index.d.ts",

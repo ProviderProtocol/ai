@@ -311,6 +311,7 @@ export class Thread {
     const options = {
       id: json.id,
       metadata: json.metadata,
+      timestamp: new Date(json.timestamp),
     };
 
     switch (json.type) {

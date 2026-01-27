@@ -12,6 +12,7 @@ import type { Tool } from './tool.ts';
 import type { LLMRequest, LLMResponse } from './llm.ts';
 import type { EmbeddingRequest, EmbeddingResponse } from './provider.ts';
 import type { ImageRequest, ImageResponse } from './image.ts';
+import type { Turn } from './turn.ts';
 
 /**
  * Modality discriminator for middleware context.
@@ -157,7 +158,7 @@ export interface Middleware {
   onEnd?(ctx: MiddlewareContext): void | Promise<void>;
 
   /**
-   * Called on any error during execution.
+   * Called on non-cancellation errors during execution.
    * Called for all middleware that have this hook, regardless of order.
    *
    * @param error - The error that occurred
@@ -191,6 +192,15 @@ export interface Middleware {
    * @param ctx - The middleware context with mutable response
    */
   onResponse?(ctx: MiddlewareContext): void | Promise<void>;
+
+  /**
+   * Called when a complete Turn has been assembled (LLM only).
+   * Called in reverse middleware order.
+   *
+   * @param turn - The completed Turn
+   * @param ctx - The middleware context
+   */
+  onTurn?(turn: Turn, ctx: MiddlewareContext): void | Promise<void>;
 
   // === Stream Hooks (LLM, Image) ===
 

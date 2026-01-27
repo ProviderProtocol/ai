@@ -16,6 +16,7 @@ export default defineConfig({
     "responses/index": "src/responses/index.ts",
     "middleware/logging/index": "src/middleware/logging.ts",
     "middleware/parsed-object/index": "src/middleware/parsed-object.ts",
+    "middleware/persistence/index": "src/middleware/persistence.ts",
     "middleware/pubsub/index": "src/middleware/pubsub/index.ts",
     "middleware/pubsub/server/index": "src/middleware/pubsub/server/index.ts",
     "middleware/pubsub/server/webapi/index": "src/middleware/pubsub/server/webapi.ts",

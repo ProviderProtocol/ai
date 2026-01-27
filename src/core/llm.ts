@@ -51,6 +51,7 @@ import {
   runErrorHook,
   runAbortHook,
   runToolHook,
+  runTurnHook,
   runStreamEndHook,
   createStreamTransformer,
   createMiddlewareContext,
@@ -59,6 +60,7 @@ import {
 
 /** Default maximum iterations for the tool execution loop */
 const DEFAULT_MAX_ITERATIONS = 10;
+const TURN_START_INDEX_KEY = 'llm:turnStartIndex';
 
 /**
  * Validates that message content is compatible with provider capabilities.
@@ -235,6 +237,60 @@ function parseInputs(
   const allInputs = [historyOrInput as InferenceInput, ...inputs];
   const newMessages = allInputs.map(inputToMessage);
   return { history: [], messages: newMessages };
+}
+
+/**
+ * Resolves the start index for the current turn within the request messages.
+ *
+ * Uses explicit history IDs when available, then falls back to an optional
+ * middleware override, then attempts to locate new input message IDs.
+ * If inputs cannot be located and no explicit history is available, defaults
+ * to slicing from the start to avoid dropping expanded inputs.
+ *
+ * @param messages - Full request messages array after middleware
+ * @param history - Explicit history messages provided by the caller
+ * @param newMessages - New input messages for this request
+ * @param requestMessageCount - Message count at request time (before model outputs)
+ * @param overrideIndex - Optional override index provided via middleware state
+ * @returns The index where the new turn begins
+ */
+function resolveTurnStartIndex(
+  messages: Message[],
+  history: Message[],
+  newMessages: Message[],
+  requestMessageCount: number,
+  overrideIndex?: number
+): number {
+  if (history.length > 0) {
+    const historyIds = new Set(history.map((message) => message.id));
+    let lastHistoryIndex = -1;
+    for (let i = 0; i < messages.length; i += 1) {
+      if (historyIds.has(messages[i]!.id)) {
+        lastHistoryIndex = i;
+      }
+    }
+    if (lastHistoryIndex !== -1) {
+      return lastHistoryIndex + 1;
+    }
+  }
+
+  if (typeof overrideIndex === 'number' && Number.isFinite(overrideIndex)) {
+    return Math.min(Math.max(0, overrideIndex), requestMessageCount);
+  }
+
+  if (newMessages.length > 0) {
+    const newMessageIds = new Set(newMessages.map((message) => message.id));
+    const index = messages.findIndex((message) => newMessageIds.has(message.id));
+    if (index !== -1) {
+      return index;
+    }
+  }
+
+  if (history.length === 0) {
+    return 0;
+  }
+
+  return Math.max(0, requestMessageCount - newMessages.length);
 }
 
 /**
@@ -472,18 +528,14 @@ async function executeGenerate<TParams>(
   newMessages: Message[],
   middleware: Middleware[]
 ): Promise<Turn> {
-  validateMediaCapabilities(
-    [...history, ...newMessages],
-    model.capabilities,
-    model.provider.name
-  );
   const maxIterations = toolStrategy?.maxIterations ?? DEFAULT_MAX_ITERATIONS;
-  const allMessages: Message[] = [...history, ...newMessages];
+  let allMessages: Message[] = [...history, ...newMessages];
   const toolExecutions: ToolExecution[] = [];
   const usages: TokenUsage[] = [];
   let cycles = 0;
 
   let structuredData: unknown;
+  let turnStartIndex = history.length;
 
   // Create initial request for middleware context
   const initialRequest: LLMRequest<TParams> = {
@@ -507,6 +559,17 @@ async function executeGenerate<TParams>(
     // Run middleware start and request hooks
     await runHook(middleware, 'onStart', ctx);
     await runHook(middleware, 'onRequest', ctx);
+    allMessages = (ctx.request as LLMRequest<TParams>).messages;
+    const requestMessageCount = allMessages.length;
+    const overrideIndex = ctx.state.get(TURN_START_INDEX_KEY);
+    turnStartIndex = resolveTurnStartIndex(
+      allMessages,
+      history,
+      newMessages,
+      requestMessageCount,
+      typeof overrideIndex === 'number' ? overrideIndex : undefined
+    );
+    validateMediaCapabilities(allMessages, model.capabilities, model.provider.name);
 
     while (cycles < maxIterations + 1) {
       cycles++;
@@ -564,7 +627,7 @@ async function executeGenerate<TParams>(
     const data = structure ? structuredData : undefined;
 
     const turn = createTurn(
-      allMessages.slice(history.length),
+      allMessages.slice(turnStartIndex),
       toolExecutions,
       aggregateUsage(usages),
       cycles,
@@ -580,6 +643,7 @@ async function executeGenerate<TParams>(
     };
     ctx.endTime = Date.now();
     await runHook(middleware, 'onResponse', ctx, true);
+    await runTurnHook(middleware, turn, ctx);
     await runHook(middleware, 'onEnd', ctx, true);
 
     return turn;
@@ -622,21 +686,16 @@ function executeStream<TParams>(
   newMessages: Message[],
   middleware: Middleware[]
 ): StreamResult {
-  validateMediaCapabilities(
-    [...history, ...newMessages],
-    model.capabilities,
-    model.provider.name
-  );
-
   const abortController = new AbortController();
 
-  const allMessages: Message[] = [...history, ...newMessages];
+  let allMessages: Message[] = [...history, ...newMessages];
   const toolExecutions: ToolExecution[] = [];
   const usages: TokenUsage[] = [];
   let cycles = 0;
   let generatorError: Error | null = null;
   let structuredData: unknown;
   let generatorCompleted = false;
+  let turnStartIndex = history.length;
 
   // Create middleware contexts
   const initialRequest: LLMRequest<TParams> = {
@@ -705,6 +764,17 @@ function executeStream<TParams>(
       // Run middleware start and request hooks
       await runHook(middleware, 'onStart', ctx);
       await runHook(middleware, 'onRequest', ctx);
+      allMessages = (ctx.request as LLMRequest<TParams>).messages;
+      const requestMessageCount = allMessages.length;
+      const overrideIndex = ctx.state.get(TURN_START_INDEX_KEY);
+      turnStartIndex = resolveTurnStartIndex(
+        allMessages,
+        history,
+        newMessages,
+        requestMessageCount,
+        typeof overrideIndex === 'number' ? overrideIndex : undefined
+      );
+      validateMediaCapabilities(allMessages, model.capabilities, model.provider.name);
 
       while (cycles < maxIterations + 1) {
         cycles++;
@@ -831,7 +901,7 @@ function executeStream<TParams>(
     const data = structure ? structuredData : undefined;
 
     const turn = createTurn(
-      allMessages.slice(history.length),
+      allMessages.slice(turnStartIndex),
       toolExecutions,
       aggregateUsage(usages),
       cycles,
@@ -847,6 +917,7 @@ function executeStream<TParams>(
     };
     ctx.endTime = Date.now();
     await runHook(middleware, 'onResponse', ctx, true);
+    await runTurnHook(middleware, turn, ctx);
     await runHook(middleware, 'onEnd', ctx, true);
 
     return turn;

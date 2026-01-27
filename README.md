@@ -646,6 +646,34 @@ const model = llm({
 const result = await model.generate('Hello');
 ```
 
+### Persistence Middleware
+
+Load and save conversation threads around LLM requests:
+
+```typescript
+import { llm, Thread } from '@providerprotocol/ai';
+import { anthropic } from '@providerprotocol/ai/anthropic';
+import { persistenceMiddleware, PersistenceAdapter } from '@providerprotocol/ai/middleware/persistence';
+
+const adapter = new PersistenceAdapter({
+  id: 'conversation-123',
+  load: async (id) => loadThreadFromDatabase(id), // Thread | ThreadJSON | null
+  save: async (id, thread, turn) => {
+    await saveThreadToDatabase(id, thread);
+    if (turn) {
+      await saveTurnToDatabase(id, turn);
+    }
+  },
+});
+
+const model = llm({
+  model: anthropic('claude-sonnet-4-20250514'),
+  middleware: [persistenceMiddleware({ adapter })],
+});
+
+const turn = await model.generate('Hello!');
+```
+
 ### Pub-Sub Middleware (Stream Resumption)
 
 Enable reconnecting clients to catch up on missed events during active generation. The middleware buffers events, publishes them to subscribers, and removes streams on completion/abort/error.

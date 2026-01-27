@@ -3,6 +3,7 @@ import {
   runHook,
   runErrorHook,
   runToolHook,
+  runTurnHook,
   runStreamEndHook,
   createStreamTransformer,
   createMiddlewareContext,
@@ -11,6 +12,8 @@ import {
 import type { Middleware, MiddlewareContext, StreamContext } from '../../../src/types/middleware.ts';
 import { StreamEventType, textDelta, objectDelta } from '../../../src/types/stream.ts';
 import type { Tool } from '../../../src/types/tool.ts';
+import { UserMessage, AssistantMessage } from '../../../src/types/messages.ts';
+import { createTurn, emptyUsage } from '../../../src/types/turn.ts';
 
 describe('runHook', () => {
   test('runs hooks in forward order by default', async () => {
@@ -141,6 +144,24 @@ describe('runToolHook', () => {
     await runToolHook(middlewares, 'onToolResult', tool, 'result-data', ctx);
 
     expect(results).toEqual(['first:result-data', 'second:result-data']);
+  });
+});
+
+describe('runTurnHook', () => {
+  test('runs onTurn in reverse order', async () => {
+    const calls: string[] = [];
+    const middlewares: Middleware[] = [
+      { name: 'first', onTurn: () => { calls.push('first'); } },
+      { name: 'second', onTurn: () => { calls.push('second'); } },
+    ];
+
+    const messages = [new UserMessage('Hello'), new AssistantMessage('Hi')];
+    const turn = createTurn(messages, [], emptyUsage(), 1);
+
+    const ctx = createMiddlewareContext('llm', 'test-model', 'test', false, {} as MiddlewareContext['request']);
+    await runTurnHook(middlewares, turn, ctx);
+
+    expect(calls).toEqual(['second', 'first']);
   });
 });
 

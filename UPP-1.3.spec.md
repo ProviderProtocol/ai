@@ -622,9 +622,11 @@ claude = llm({
 | `name` | String | Yes | Middleware name for debugging |
 | `onStart` | Function | No | Called when generate/stream starts |
 | `onEnd` | Function | No | Called when generate/stream completes |
-| `onError` | Function | No | Called on any error |
+| `onError` | Function | No | Called on non-cancellation errors |
+| `onAbort` | Function | No | Called when a request is cancelled |
 | `onRequest` | Function | No | Called before provider execution |
 | `onResponse` | Function | No | Called after provider execution |
+| `onTurn` | Function | No | Called when a complete Turn is assembled (LLM only) |
 | `onStreamEvent` | Function | No | Called for each stream event |
 | `onStreamEnd` | Function | No | Called when stream completes |
 | `onToolCall` | Function | No | Called before tool execution |
@@ -686,6 +688,11 @@ generate() / stream() called
     │
     ▼
 ┌─────────────────────────────────────────┐
+│  onTurn (all middleware, reverse order) │
+└─────────────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────────────┐
 │  onEnd (all middleware, reverse order)  │
 └─────────────────────────────────────────┘
     │
@@ -693,9 +700,14 @@ generate() / stream() called
 ┌─────────────────────────────────────────┐
 │  onError (all middleware that have it)  │
 └─────────────────────────────────────────┘
+    │
+    ▼ (on cancellation at any point)
+┌─────────────────────────────────────────┐
+│  onAbort (all middleware that have it)  │
+└─────────────────────────────────────────┘
 ```
 
-Lifecycle hooks (`onStart`, `onRequest`) execute in middleware array order. Response hooks (`onResponse`, `onEnd`) execute in reverse order.
+Lifecycle hooks (`onStart`, `onRequest`) execute in middleware array order. Response hooks (`onResponse`, `onTurn`, `onEnd`) execute in reverse order.
 
 ### 10.6 Stream Event Transformation
 
@@ -734,6 +746,23 @@ Logs request lifecycle events for debugging.
 |--------|------|---------|-------------|
 | `level` | LogLevel | "info" | Minimum log level |
 | `logger` | Function | console | Custom logger function |
+
+**pubsubMiddleware(options?)**
+
+Buffers stream events for reconnection and stream resumption. Intended for streaming use cases with reconnecting clients.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `adapter` | PubSubAdapter | memoryAdapter() | Storage adapter for in-flight streams |
+| `streamId` | String | (none) | Stream identifier for buffering |
+
+**persistenceMiddleware(options?)**
+
+Loads and saves conversation threads around LLM execution.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `adapter` | PersistenceAdapter | (required) | Adapter for loading and saving threads |
 
 ### 10.8 Type Extensions
 
@@ -1089,12 +1118,14 @@ All providers MUST:
 ### 1.3.1
 
 - **Added** Middleware system (Section 10) with composable request/response/stream interception
-- **Added** `Middleware` interface with lifecycle hooks (`onStart`, `onEnd`, `onRequest`, `onResponse`, `onError`)
+- **Added** `Middleware` interface with lifecycle hooks (`onStart`, `onEnd`, `onRequest`, `onResponse`, `onError`, `onAbort`, `onTurn`)
 - **Added** Stream event transformation via `onStreamEvent` hook
 - **Added** Tool execution hooks (`onToolCall`, `onToolResult`)
 - **Added** `MiddlewareContext` and `StreamContext` types for hook parameters
 - **Added** Built-in `parsedObjectMiddleware()` for incremental JSON parsing
 - **Added** Built-in `loggingMiddleware()` for request lifecycle logging
+- **Added** Built-in `pubsubMiddleware()` for stream resumption
+- **Added** Built-in `persistenceMiddleware()` for thread persistence
 - **Added** `ParsedEventDelta` and `ParsedStreamEvent` extended types
 - **Simplified** `StreamContext` to only contain shared `state` map; middleware manage their own accumulation
 - **Breaking** Removed `parsed` field from base `EventDelta` type; use `parsedObjectMiddleware()` for incremental JSON parsing during streaming
