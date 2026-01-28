@@ -57,6 +57,11 @@
       "import": "./dist/cerebras/index.js",
       "default": "./dist/cerebras/index.js"
     },
+    "./moonshot": {
+      "types": "./dist/moonshot/index.d.ts",
+      "import": "./dist/moonshot/index.js",
+      "default": "./dist/moonshot/index.js"
+    },
     "./http": {
       "types": "./dist/http/index.d.ts",
       "import": "./dist/http/index.js",
@@ -200,6 +205,8 @@
     "grok",
     "groq",
     "cerebras",
+    "kimi",
+    "moonshot",
     "vertex",
     "deepseek",
     "mistral",

@@ -11,6 +11,7 @@ export default defineConfig({
     "xai/index": "src/xai/index.ts",
     "groq/index": "src/groq/index.ts",
     "cerebras/index": "src/cerebras/index.ts",
+    "moonshot/index": "src/moonshot/index.ts",
     "http/index": "src/http/index.ts",
     "proxy/index": "src/proxy/index.ts",
     "responses/index": "src/responses/index.ts",
