@@ -6,6 +6,7 @@ export default defineConfig({
     "anthropic/index": "src/anthropic/index.ts",
     "openai/index": "src/openai/index.ts",
     "google/index": "src/google/index.ts",
+    "vertex/index": "src/vertex/index.ts",
     "ollama/index": "src/ollama/index.ts",
     "openrouter/index": "src/openrouter/index.ts",
     "xai/index": "src/xai/index.ts",

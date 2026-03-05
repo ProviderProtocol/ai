@@ -32,6 +32,11 @@
       "import": "./dist/google/index.js",
       "default": "./dist/google/index.js"
     },
+    "./vertex": {
+      "types": "./dist/vertex/index.d.ts",
+      "import": "./dist/vertex/index.js",
+      "default": "./dist/vertex/index.js"
+    },
     "./ollama": {
       "types": "./dist/ollama/index.d.ts",
       "import": "./dist/ollama/index.js",
